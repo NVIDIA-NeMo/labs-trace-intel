@@ -1,0 +1,199 @@
+"""IA3 tool-issue detection over the bundled sample corpus.
+
+The headline test is the parametrised one: every single one of the nineteen
+finding types must fire on shipped data. That is what makes the sample corpus a
+usable reference — someone writing an adapter can compare their own coverage
+against a corpus that is known to exercise everything.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from insight_agent.ia3_tid import (
+    FINDING_TYPES,
+    MISSING,
+    build_cards,
+    catalog_coverage,
+    detect,
+)
+from insight_agent.loader import LoadOptions, load_corpus
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
+CORPUS = DATA_DIR / "sample_corpus.jsonl"
+
+CONTRACT_TYPES = {
+    "unknown_tool",
+    "missing_required_argument",
+    "unknown_argument",
+    "argument_type_mismatch",
+    "argument_enum_violation",
+    "json_schema_violation",
+}
+
+
+@pytest.fixture(scope="module")
+def corpus():
+    return load_corpus(CORPUS, LoadOptions())
+
+
+@pytest.fixture(scope="module")
+def findings(corpus):
+    return detect(corpus.ia3())
+
+
+def test_there_are_exactly_nineteen_finding_types():
+    assert len(FINDING_TYPES) == 19
+
+
+@pytest.mark.parametrize("issue_type", sorted(FINDING_TYPES))
+def test_every_finding_type_fires_on_the_sample_corpus(findings, issue_type):
+    fired = {f["issue_type"] for f in findings}
+    assert issue_type in fired, (
+        f"{issue_type} never fires on the bundled corpus, so nobody can use the sample to "
+        "check their own adapter's coverage of this rule. Extend tools/make_sample_corpus.py."
+    )
+
+
+def test_findings_are_fully_attributed(findings):
+    for finding in findings:
+        assert finding["trace_id"]
+        assert finding["issue_family"]
+        assert finding["attribution"] in {
+            "agent_call",
+            "instrumentation",
+            "tool_or_environment",
+            "agent_recovery",
+        }
+        assert finding["detector_version"] == "tid-v1"
+        assert len(finding["issue_id"]) == 24
+
+
+def test_findings_are_deterministic_within_a_process(corpus):
+    assert detect(corpus.ia3()) == detect(corpus.ia3())
+
+
+def test_issue_ids_are_stable_across_processes():
+    """issue_id is a SHA-256 of a stable payload, so it must survive a restart.
+
+    Cards are keyed on these ids, so instability would silently fragment
+    recurrence counting across runs.
+    """
+    script = (
+        "import json;"
+        "from insight_agent.loader import load_corpus;"
+        "from insight_agent.ia3_tid import detect;"
+        f"print(json.dumps(sorted(f['issue_id'] for f in detect(load_corpus({str(CORPUS)!r}).ia3()))))"
+    )
+    runs = [
+        json.loads(subprocess.run([sys.executable, "-c", script], capture_output=True,
+                                  text=True, check=True).stdout)
+        for _ in range(2)
+    ]
+    assert runs[0] == runs[1]
+    assert len(runs[0]) > 20
+
+
+def test_catalog_coverage_reports_all_nineteen_keys(findings):
+    coverage = catalog_coverage(findings)
+    assert set(coverage) == set(FINDING_TYPES)
+    assert sum(coverage.values()) == len(findings)
+
+
+# -- abstention ------------------------------------------------------------
+
+
+def test_dropping_the_catalog_silences_exactly_the_contract_rules(corpus, findings):
+    stripped = [{k: v for k, v in r.items() if k != "tool_catalog"} for r in corpus.records]
+    from insight_agent.loader import load_records
+
+    without = detect(load_records(stripped, LoadOptions()).ia3())
+
+    before = {f["issue_type"] for f in findings}
+    after = {f["issue_type"] for f in without}
+
+    assert CONTRACT_TYPES <= before
+    assert not (CONTRACT_TYPES & after)
+    # Everything else keeps working; abstention is targeted, not global.
+    assert (before - CONTRACT_TYPES) - after == set()
+
+
+def test_a_null_schema_enables_unknown_tool_but_not_argument_checks():
+    from insight_agent.loader import to_trace_record
+
+    record = {
+        "schema_version": "insight-trace/v1",
+        "trace_id": "t",
+        "tool_catalog": {"SessionTool": None},
+        "calls": [
+            {"call_id": "c0", "call_index": 0, "tool_name": "SessionTool",
+             "arguments": {"anything": 1}},
+            {"call_id": "c1", "call_index": 1, "tool_name": "GhostTool", "arguments": {}},
+        ],
+    }
+    fired = {f["issue_type"] for f in detect([to_trace_record(record)])}
+    assert "unknown_tool" in fired
+    assert not (fired & (CONTRACT_TYPES - {"unknown_tool"}))
+
+
+# -- cards -----------------------------------------------------------------
+
+
+def test_cards_are_promoted_only_at_three_independent_cases(findings):
+    cards = build_cards(findings, minimum_independent_cases=3)
+    assert cards
+    for card in cards:
+        assert card["eligible_for_analyst"] == (card["independent_case_count"] >= 3)
+    assert any(card["eligible_for_analyst"] for card in cards)
+
+
+def test_card_eligibility_counts_cases_not_traces(corpus, findings):
+    """Two traces share a logical case, so the counts must differ."""
+    cards = {c["card_id"]: c for c in build_cards(findings)}
+    card = cards["tid:explicit_tool_failure:error_prefix"]
+    assert card["finding_count"] > card["independent_case_count"]
+
+
+def test_cards_never_claim_impact(findings):
+    for card in build_cards(findings):
+        assert card["impact_status"] == "not_established"
+
+
+def test_raising_the_threshold_disqualifies_everything(findings):
+    cards = build_cards(findings, minimum_independent_cases=999)
+    assert cards and not any(c["eligible_for_analyst"] for c in cards)
+
+
+# -- parameters ------------------------------------------------------------
+
+
+def test_retry_threshold_changes_repeat_detection(corpus):
+    def repeats(**kwargs):
+        return [
+            f for f in detect(corpus.ia3(), **kwargs)
+            if f["issue_type"] == "repeated_identical_failed_call"
+        ]
+
+    assert repeats()
+    assert not repeats(retry_threshold=99)
+
+
+# -- serialisation ---------------------------------------------------------
+
+
+def test_findings_serialise_without_a_default_encoder(findings):
+    """A bare object() in the payload would raise here, not silently stringify."""
+    round_tripped = json.loads(json.dumps(findings))
+    assert len(round_tripped) == len(findings)
+
+
+def test_serialize_renders_the_sentinel_rather_than_crashing():
+    from insight_agent.serialize import jsonable
+
+    assert jsonable({"result": MISSING}) == {"result": "<missing>"}
+    json.dumps(jsonable({"result": MISSING}))

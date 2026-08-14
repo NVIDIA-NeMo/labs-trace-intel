@@ -1,0 +1,180 @@
+[
+  {
+    "id": "openai-clean",
+    "task": "How many open tickets are assigned to the docs team?",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "DatabaseQueryTool",
+          "description": "Run a read-only SQL query.",
+          "parameters": {
+            "type": "object",
+            "properties": { "sql": { "type": "string" } },
+            "required": ["sql"],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "FileSearchTool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": { "type": "string" },
+              "limit": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "messages": [
+      { "role": "system", "content": "You are a helpful analyst." },
+      { "role": "user", "content": "How many open tickets are assigned to the docs team?" },
+      {
+        "role": "assistant",
+        "content": "Let me query the ticket table.",
+        "tool_calls": [
+          {
+            "id": "call_aa01",
+            "type": "function",
+            "function": {
+              "name": "DatabaseQueryTool",
+              "arguments": "{\"sql\": \"SELECT count(*) FROM tickets WHERE team='docs' AND state='open'\"}"
+            }
+          }
+        ]
+      },
+      { "role": "tool", "tool_call_id": "call_aa01", "content": "42" },
+      { "role": "assistant", "content": "There are 42 open tickets assigned to the docs team." }
+    ]
+  },
+  {
+    "id": "openai-malformed-arguments",
+    "task": "Search for the API migration guide.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "FileSearchTool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": { "type": "string" },
+              "limit": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "Search for the API migration guide." },
+      {
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "id": "call_bb01",
+            "type": "function",
+            "function": {
+              "name": "FileSearchTool",
+              "arguments": "{\"query\": \"api migration\", \"limit\": "
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_bb01",
+        "content": "Error: could not parse arguments"
+      },
+      { "role": "assistant", "content": "The search call was malformed." }
+    ]
+  },
+  {
+    "id": "openai-type-mismatch",
+    "task": "Find the top three onboarding docs.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "FileSearchTool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": { "type": "string" },
+              "limit": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "Find the top three onboarding docs." },
+      {
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "id": "call_cc01",
+            "type": "function",
+            "function": {
+              "name": "FileSearchTool",
+              "arguments": "{\"query\": \"onboarding\", \"limit\": \"three\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_cc01",
+        "content": "Error: limit must be an integer"
+      },
+      { "role": "assistant", "content": "The limit argument was rejected." }
+    ]
+  },
+  {
+    "id": "openai-missing-result",
+    "task": "Export the quarterly metrics.",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "CodeExecutionTool",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "mode": { "type": "string", "enum": ["python", "shell"] }
+            },
+            "required": ["code"],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "Export the quarterly metrics." },
+      {
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "id": "call_dd01",
+            "type": "function",
+            "function": {
+              "name": "CodeExecutionTool",
+              "arguments": "{\"code\": \"export_metrics()\", \"mode\": \"python\"}"
+            }
+          }
+        ]
+      },
+      { "role": "assistant", "content": "The export did not return." }
+    ]
+  }
+]

@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+# Holds API credentials. .env.example is the committed template.
+.env
+.env.local
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+out/
+.DS_Store

@@ -1,0 +1,62 @@
+{
+  "CodeExecutionTool": {
+    "additionalProperties": false,
+    "properties": {
+      "code": {
+        "type": "string"
+      },
+      "mode": {
+        "enum": [
+          "python",
+          "shell"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "code"
+    ],
+    "type": "object"
+  },
+  "DatabaseQueryTool": {
+    "additionalProperties": false,
+    "properties": {
+      "sql": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "sql"
+    ],
+    "type": "object"
+  },
+  "FileReadTool": {
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "type": "object"
+  },
+  "FileSearchTool": {
+    "additionalProperties": false,
+    "properties": {
+      "limit": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "query": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  },
+  "SessionTool": null
+}

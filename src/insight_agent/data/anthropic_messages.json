@@ -1,0 +1,184 @@
+[
+  {
+    "id": "anthropic-clean",
+    "task": "Find the deployment runbook and summarise the rollback steps.",
+    "tools": [
+      {
+        "name": "FileSearchTool",
+        "description": "Search the documentation tree.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string" },
+            "limit": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["query"],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "FileReadTool",
+        "description": "Read a file.",
+        "input_schema": {
+          "type": "object",
+          "properties": { "path": { "type": "string" } },
+          "required": ["path"],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "Find the deployment runbook and summarise the rollback steps."
+      },
+      {
+        "role": "assistant",
+        "content": [
+          { "type": "text", "text": "I'll search for the runbook first." },
+          {
+            "type": "tool_use",
+            "id": "toolu_01AAclean",
+            "name": "FileSearchTool",
+            "input": { "query": "deployment runbook", "limit": 5 }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01AAclean",
+            "content": "1 match: /docs/runbooks/deploy.md"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01ABclean",
+            "name": "FileReadTool",
+            "input": { "path": "/docs/runbooks/deploy.md" }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01ABclean",
+            "content": "Rollback: 1) freeze traffic 2) redeploy previous tag 3) verify health."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "The rollback procedure has three steps: freeze traffic, redeploy the previous tag, then verify health."
+      }
+    ]
+  },
+  {
+    "id": "anthropic-error-flag",
+    "task": "Check whether the staging database is reachable.",
+    "tools": [
+      {
+        "name": "DatabaseQueryTool",
+        "input_schema": {
+          "type": "object",
+          "properties": { "sql": { "type": "string" } },
+          "required": ["sql"],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": "Check whether the staging database is reachable." },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01BAerr",
+            "name": "DatabaseQueryTool",
+            "input": { "sql": "SELECT 1" }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01BAerr",
+            "is_error": true,
+            "content": "Error: connection refused on staging-db:5432"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Staging is not reachable; the connection was refused."
+      }
+    ]
+  },
+  {
+    "id": "anthropic-missing-result",
+    "task": "Read the incident postmortem.",
+    "messages": [
+      { "role": "user", "content": "Read the incident postmortem." },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01CAnores",
+            "name": "FileReadTool",
+            "input": { "path": "/docs/incidents/2026-07-11.md" }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "I was unable to retrieve the postmortem."
+      }
+    ]
+  },
+  {
+    "id": "anthropic-orphan-result",
+    "task": "Summarise the release notes.",
+    "messages": [
+      { "role": "user", "content": "Summarise the release notes." },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01DAok",
+            "name": "FileReadTool",
+            "input": { "path": "/docs/RELEASE.md" }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01DAok",
+            "content": "v2.0 adds streaming."
+          },
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01DAghost",
+            "content": "this result answers a call that was never recorded"
+          }
+        ]
+      },
+      { "role": "assistant", "content": "Version 2.0 adds streaming." }
+    ]
+  }
+]

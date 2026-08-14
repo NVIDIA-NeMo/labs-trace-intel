@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "insight-agent"
+version = "0.1.0"
+description = "Insight Agent IA2/IA3 trace-evidence preprocessing with a canonical JSONL trace contract"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "Insight Agent contributors" }]
+keywords = ["agent-traces", "evaluation", "anomaly-detection", "tool-use"]
+
+# Deliberately looser than requirements.txt. The recorded triple
+# (numpy 2.5.1 / scikit-learn 1.9.0) forces Python >= 3.11, which needlessly
+# excludes testers, and exact pins in a library's dependencies cause resolver
+# conflicts the moment it is installed next to anything else.
+#
+# Use `pip install -r requirements.txt` to reproduce the measured numbers:
+# scikit-learn minor versions can change IsolationForest / KMeans output, so
+# anomaly flags and cluster assignments are reproducible WITHIN a version, not
+# across versions.
+dependencies = [
+    "numpy>=1.26,<3",
+    "scikit-learn>=1.4,<2",
+    "jsonschema>=4.18,<5",
+    # The Analyst runs by default in `run-all` and `demo`, so its client is a
+    # base dependency rather than an extra. `--no-analyst` skips the stage but
+    # does not change what gets installed.
+    "litellm>=1.55,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+# Retained so `pip install "insight-agent[analyst]"` keeps working; litellm is
+# now a base dependency, so this extra adds nothing.
+analyst = []
+
+[project.scripts]
+insight-agent = "insight_agent.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/insight_agent"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/insight_agent/schemas" = "insight_agent/schemas"
+"src/insight_agent/data" = "insight_agent/data"
+"src/insight_agent/prompts" = "insight_agent/prompts"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# The TYPE_CHECKING block exists so type checkers and IDEs can see the lazily
+# imported submodules; they are deliberately not imported at runtime.
+"src/insight_agent/__init__.py" = ["F401"]

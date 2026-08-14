@@ -1,0 +1,529 @@
+"""IA3 Tool Issue Detection (TID v1).
+
+The implementation follows the current seven-category, nineteen-finding
+catalog. It is deterministic, capability-gated, and independent of dataset
+adapters. Missing evidence produces no finding. Every finding retains the
+original pointer supplied by the caller.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from collections import Counter, defaultdict
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+from jsonschema import validators
+
+from .venue import DEFAULT_PROFILE, VenueProfile
+
+DETECTOR_VERSION = "tid-v1"
+CARD_MINIMUM_CASES = 3
+RETRY_THRESHOLD = 3
+MISSING = object()
+
+FINDING_TYPES = frozenset(
+    {
+        "unknown_tool",
+        "malformed_tool_call",
+        "missing_required_argument",
+        "unknown_argument",
+        "argument_type_mismatch",
+        "argument_enum_violation",
+        "json_schema_violation",
+        "duplicate_call_id",
+        "missing_tool_result",
+        "duplicate_tool_result",
+        "orphan_tool_result",
+        "call_result_id_mismatch",
+        "explicit_tool_failure",
+        "repeated_identical_failed_call",
+        "modified_retry_same_failure",
+        "mapped_instrumentation_alias",
+        "unresolved_placeholder_argument",
+        "explicitly_rejected_ungrounded_identifier",
+        "explicit_prerequisite_or_state_failure",
+    }
+)
+
+FAMILY = {
+    "unknown_tool": "tool_contract_and_arguments",
+    "malformed_tool_call": "tool_contract_and_arguments",
+    "missing_required_argument": "tool_contract_and_arguments",
+    "unknown_argument": "tool_contract_and_arguments",
+    "argument_type_mismatch": "tool_contract_and_arguments",
+    "argument_enum_violation": "tool_contract_and_arguments",
+    "json_schema_violation": "tool_contract_and_arguments",
+    "duplicate_call_id": "call_result_integrity",
+    "missing_tool_result": "call_result_integrity",
+    "duplicate_tool_result": "call_result_integrity",
+    "orphan_tool_result": "call_result_integrity",
+    "call_result_id_mismatch": "call_result_integrity",
+    "explicit_tool_failure": "explicit_tool_outcome",
+    "repeated_identical_failed_call": "recovery_and_retries",
+    "modified_retry_same_failure": "recovery_and_retries",
+    "mapped_instrumentation_alias": "trace_instrumentation",
+    "unresolved_placeholder_argument": "argument_provenance",
+    "explicitly_rejected_ungrounded_identifier": "argument_provenance",
+    "explicit_prerequisite_or_state_failure": "explicit_prerequisite_or_state",
+}
+
+SHELL_EXIT = re.compile(r"Process exited with code\s+(-?\d+)\b", re.IGNORECASE)
+STRICT_ERROR = re.compile(r"\A\s*(?:error|failed|failure)\s*[:\-]", re.IGNORECASE)
+TRACEBACK = re.compile(r"(?m)^Traceback \(most recent call last\):")
+REJECTION = re.compile(
+    r"(?i)(?:invalid|unknown|not found|does not exist|is not existing|missing input|not a valid)"
+)
+PLACEHOLDER = re.compile(
+    r"(?ix)^(?:<[a-z][a-z0-9 _-]{1,40}>|\{\{[^{}]{1,60}\}\}|"
+    r"(?:todo|tbd|placeholder|replace[_-]?me|your[_-][a-z0-9_-]+)|"
+    r"[a-z]+\d+[_-](?:ref[_-]?)?id)$"
+)
+IDENTIFIER_FIELD = re.compile(r"(?i)(?:^|_)(?:id|refid|reference|handle|key)$")
+IDENTIFIER_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/\-]{2,127}$")
+# Retained as a module constant for backwards compatibility. The regex sources
+# now live in `venue.DEFAULT_STATE_PATTERNS` so a venue can override them
+# without editing this file; the compiled defaults below are identical.
+STATE_PATTERNS = DEFAULT_PROFILE.compiled_state_patterns()
+
+
+def stable_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def digest(value: Any) -> str:
+    return hashlib.sha256(stable_json(value).encode("utf-8")).hexdigest()
+
+
+def parse_json(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def result_text(value: Any) -> str:
+    parsed = parse_json(value)
+    if isinstance(parsed, Mapping):
+        content = parsed.get("content")
+        return content if isinstance(content, str) else stable_json(parsed)
+    return value if isinstance(value, str) else stable_json(value)
+
+
+def compact(value: Any, limit: int = 900) -> str:
+    text = " ".join(result_text(value).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+@dataclass(frozen=True)
+class CallRecord:
+    trace_id: str
+    call_index: int
+    call_id: str
+    tool_name: str
+    arguments: Any
+    result: Any = MISSING
+    source_pointer: Mapping[str, Any] = field(default_factory=dict)
+    result_id: str | None = None
+    result_count: int = 1
+    explicit_error: bool | None = None
+    outcome_marker: str | None = None
+    instrumentation_alias_of: str | None = None
+    prior_user_text: str = ""
+
+
+@dataclass(frozen=True)
+class TraceRecord:
+    trace_id: str
+    calls: Sequence[CallRecord]
+    logical_case_id: str | None = None
+    tool_catalog: Mapping[str, Mapping[str, Any] | None] | None = None
+    orphan_results: Sequence[Mapping[str, Any]] = field(default_factory=tuple)
+    complete_provenance_context: bool = False
+
+
+def schema_errors(
+    catalog: Mapping[str, Mapping[str, Any] | None], tool_name: str, arguments: Any
+) -> list[dict[str, Any]]:
+    """Apply the active catalog/JSON Schema without coercing evidence."""
+
+    if not isinstance(arguments, Mapping):
+        return [{"type": "malformed_tool_call", "path": "$", "message": "Arguments are not an object."}]
+    if tool_name not in catalog:
+        return [{"type": "unknown_tool", "path": "tool_name", "message": "Tool is absent from the active catalog."}]
+    schema = catalog[tool_name]
+    if schema is None:
+        return []
+    validator_cls = validators.validator_for(schema)
+    validator_cls.check_schema(schema)
+    output: list[dict[str, Any]] = []
+    for error in sorted(validator_cls(schema).iter_errors(arguments), key=lambda item: list(item.path)):
+        kind = {
+            "required": "missing_required_argument",
+            "additionalProperties": "unknown_argument",
+            "type": "argument_type_mismatch",
+            "enum": "argument_enum_violation",
+        }.get(str(error.validator), "json_schema_violation")
+        output.append(
+            {
+                "type": kind,
+                "path": ".".join(str(part) for part in error.path) or "$",
+                "validator": str(error.validator),
+                "message": error.message,
+            }
+        )
+    return output
+
+
+def strict_failure(
+    call: CallRecord, *, profile: VenueProfile = DEFAULT_PROFILE
+) -> tuple[bool, str | None]:
+    """Decode failure only from structured or strict tool-native evidence."""
+
+    if call.explicit_error is True:
+        return True, call.outcome_marker or "explicit_error_field"
+    if call.explicit_error is False:
+        return False, None
+    if call.result is MISSING:
+        return False, None
+    parsed = parse_json(call.result)
+    if isinstance(parsed, Mapping):
+        if parsed.get("isError") is True or parsed.get("success") is False or parsed.get("called") is False:
+            return True, "structured_error_flag"
+        if parsed.get("error") not in (None, False, "", []):
+            return True, "structured_error_value"
+        if str(parsed.get("status", "")).lower() in {"error", "failed", "failure"}:
+            return True, "structured_error_status"
+        nested = parsed.get("result")
+        if isinstance(nested, Mapping) and (
+            nested.get("isError") is True or nested.get("success") is False
+        ):
+            return True, "nested_error_flag"
+    text = result_text(call.result)
+    match = SHELL_EXIT.search(text)
+    if match:
+        code = int(match.group(1))
+        return code != 0, f"shell_exit_code_{code}"
+    if STRICT_ERROR.search(text):
+        return True, "error_prefix"
+    if profile.is_code_execution_tool(call.tool_name) and TRACEBACK.search(text):
+        return True, "python_traceback"
+    return False, None
+
+
+def _finding(
+    trace: TraceRecord,
+    call: CallRecord,
+    issue_type: str,
+    summary: str,
+    *,
+    attribution: str,
+    evidence: Mapping[str, Any] | None = None,
+    mechanism_key: str = "",
+) -> dict[str, Any]:
+    if issue_type not in FINDING_TYPES:
+        raise ValueError(f"unknown TID finding type: {issue_type}")
+    payload = {
+        "trace_id": trace.trace_id,
+        "logical_case_id": trace.logical_case_id or trace.trace_id,
+        "call_index": call.call_index,
+        "call_id": call.call_id,
+        "tool_name": call.tool_name,
+        "issue_family": FAMILY[issue_type],
+        "issue_type": issue_type,
+        "mechanism_key": mechanism_key or issue_type,
+        "evidence_state": "confirmed",
+        "attribution": attribution,
+        "summary": summary,
+        "evidence": dict(evidence or {}),
+        "source_pointer": dict(call.source_pointer),
+        "detector_version": DETECTOR_VERSION,
+    }
+    payload["issue_id"] = digest(payload)[:24]
+    return payload
+
+
+def _flatten_strings(value: Any, prefix: str = "$") -> Iterable[tuple[str, str, str]]:
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            yield from _flatten_strings(child, f"{prefix}.{key}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _flatten_strings(child, f"{prefix}[{index}]")
+    elif isinstance(value, str):
+        leaf = re.split(r"[.\[]", prefix)[-1].rstrip("]")
+        yield prefix, leaf, value
+
+
+def detect_trace(
+    trace: TraceRecord,
+    *,
+    profile: VenueProfile = DEFAULT_PROFILE,
+    retry_threshold: int = RETRY_THRESHOLD,
+) -> list[dict[str, Any]]:
+    """Run all evaluable TID v1 rules on one ordered trace."""
+
+    findings: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    failed_by_exact_call: dict[tuple[str, str], list[CallRecord]] = defaultdict(list)
+    modified_retries: dict[tuple[str, str], list[tuple[CallRecord, str]]] = defaultdict(list)
+    prior_results: list[str] = []
+
+    for call in sorted(trace.calls, key=lambda item: (item.call_index, item.call_id)):
+        arguments = call.arguments if isinstance(call.arguments, Mapping) else {}
+        contract_root = False
+        if trace.tool_catalog is not None:
+            for error in schema_errors(trace.tool_catalog, call.tool_name, call.arguments):
+                contract_root = True
+                findings.append(
+                    _finding(
+                        trace,
+                        call,
+                        str(error["type"]),
+                        str(error["message"]),
+                        attribution="agent_call",
+                        evidence={key: value for key, value in error.items() if key not in {"type", "message"}},
+                    )
+                )
+        elif not isinstance(call.arguments, Mapping):
+            contract_root = True
+            findings.append(
+                _finding(trace, call, "malformed_tool_call", "Arguments are not an object.", attribution="agent_call")
+            )
+
+        if call.call_id in seen_ids:
+            findings.append(
+                _finding(trace, call, "duplicate_call_id", "The trace reuses a call ID.", attribution="instrumentation")
+            )
+        seen_ids.add(call.call_id)
+        if call.result is MISSING:
+            findings.append(
+                _finding(trace, call, "missing_tool_result", "The call has no linked result.", attribution="instrumentation")
+            )
+        if call.result_count > 1:
+            findings.append(
+                _finding(
+                    trace,
+                    call,
+                    "duplicate_tool_result",
+                    "The call has more than one linked result.",
+                    attribution="instrumentation",
+                    evidence={"result_count": call.result_count},
+                )
+            )
+        if call.result_id is not None and call.result_id != call.call_id:
+            findings.append(
+                _finding(
+                    trace,
+                    call,
+                    "call_result_id_mismatch",
+                    "The result ID does not match the call ID.",
+                    attribution="instrumentation",
+                    evidence={"result_id": call.result_id},
+                )
+            )
+        if call.instrumentation_alias_of:
+            findings.append(
+                _finding(
+                    trace,
+                    call,
+                    "mapped_instrumentation_alias",
+                    "The recorded tool name is a known instrumentation alias.",
+                    attribution="instrumentation",
+                    evidence={"original_tool_name": call.instrumentation_alias_of},
+                )
+            )
+
+        failed, marker = strict_failure(call, profile=profile)
+        if failed and not contract_root:
+            findings.append(
+                _finding(
+                    trace,
+                    call,
+                    "explicit_tool_failure",
+                    f"The tool reported an explicit failure ({marker}).",
+                    attribution="tool_or_environment",
+                    evidence={"failure_marker": marker},
+                    mechanism_key=str(marker),
+                )
+            )
+        call_failed = failed or contract_root or call.result is MISSING or call.result_count > 1
+        if call_failed:
+            exact_key = (call.tool_name, stable_json(arguments))
+            failed_by_exact_call[exact_key].append(call)
+            failure_text = compact(call.result) if call.result is not MISSING else "missing_result"
+            failure_class = str(marker or digest(failure_text)[:12])
+            modified_retries[(call.tool_name, failure_class)].append((call, stable_json(arguments)))
+
+        leaves = list(_flatten_strings(arguments))
+        output = result_text(call.result) if call.result is not MISSING else ""
+        rejected = bool(REJECTION.search(output))
+        placeholders = [(path, value) for path, _, value in leaves if PLACEHOLDER.fullmatch(value.strip())]
+        if placeholders and (failed or rejected):
+            findings.append(
+                _finding(
+                    trace,
+                    call,
+                    "unresolved_placeholder_argument",
+                    "A failed call contains unresolved placeholder arguments.",
+                    attribution="agent_call",
+                    evidence={"argument_paths_and_values": placeholders[:20], "result_excerpt": compact(output)},
+                )
+            )
+        if trace.complete_provenance_context and rejected:
+            prior = "\n".join([call.prior_user_text, *prior_results])
+            ungrounded = [
+                (path, value)
+                for path, leaf, value in leaves
+                if IDENTIFIER_FIELD.search(leaf)
+                and IDENTIFIER_VALUE.fullmatch(value)
+                and value in output
+                and value not in prior
+            ]
+            if ungrounded:
+                findings.append(
+                    _finding(
+                        trace,
+                        call,
+                        "explicitly_rejected_ungrounded_identifier",
+                        "The tool rejected an identifier with no observable prior provenance.",
+                        attribution="agent_call",
+                        evidence={"argument_paths_and_values": ungrounded[:20], "result_excerpt": compact(output)},
+                    )
+                )
+        state_matches = [
+            name for name, pattern in profile.compiled_state_patterns() if pattern.search(output)
+        ]
+        if state_matches:
+            findings.append(
+                _finding(
+                    trace,
+                    call,
+                    "explicit_prerequisite_or_state_failure",
+                    "The result explicitly reports an unmet prerequisite or invalid state.",
+                    attribution="tool_or_environment",
+                    evidence={"state_class": state_matches[0], "result_excerpt": compact(output)},
+                    mechanism_key=state_matches[0],
+                )
+            )
+        if call.result is not MISSING:
+            prior_results.append(output)
+
+    for orphan in trace.orphan_results:
+        synthetic = CallRecord(
+            trace_id=trace.trace_id,
+            call_index=-1,
+            call_id=str(orphan.get("result_id") or "<missing>"),
+            tool_name="<unknown>",
+            arguments={},
+            source_pointer=orphan,
+        )
+        findings.append(
+            _finding(trace, synthetic, "orphan_tool_result", "A result has no matching call.", attribution="instrumentation")
+        )
+
+    for (tool_name, _), calls in failed_by_exact_call.items():
+        if len(calls) >= retry_threshold:
+            findings.append(
+                _finding(
+                    trace,
+                    calls[0],
+                    "repeated_identical_failed_call",
+                    f"The same failed {tool_name!r} call was repeated {len(calls)} times.",
+                    attribution="agent_recovery",
+                    evidence={"repeat_count": len(calls), "call_indices": [call.call_index for call in calls]},
+                )
+            )
+    for (tool_name, failure_class), attempts in modified_retries.items():
+        argument_sets = {arguments for _, arguments in attempts}
+        if len(attempts) >= retry_threshold and len(argument_sets) >= 2:
+            findings.append(
+                _finding(
+                    trace,
+                    attempts[0][0],
+                    "modified_retry_same_failure",
+                    f"{len(attempts)} failed {tool_name!r} attempts changed arguments but preserved one failure.",
+                    attribution="agent_recovery",
+                    evidence={
+                        "attempt_count": len(attempts),
+                        "distinct_argument_count": len(argument_sets),
+                        "call_indices": [call.call_index for call, _ in attempts],
+                    },
+                    mechanism_key=failure_class,
+                )
+            )
+    return findings
+
+
+def detect(
+    traces: Iterable[TraceRecord],
+    *,
+    profile: VenueProfile = DEFAULT_PROFILE,
+    retry_threshold: int = RETRY_THRESHOLD,
+) -> list[dict[str, Any]]:
+    """Run TID over traces and return a stable evidence-first ordering."""
+
+    findings = [
+        finding
+        for trace in traces
+        for finding in detect_trace(trace, profile=profile, retry_threshold=retry_threshold)
+    ]
+    return sorted(
+        findings,
+        key=lambda item: (item["trace_id"], item["call_index"], item["issue_type"], item["issue_id"]),
+    )
+
+
+def build_cards(
+    findings: Iterable[Mapping[str, Any]], *, minimum_independent_cases: int = CARD_MINIMUM_CASES
+) -> list[dict[str, Any]]:
+    """Promote recurring findings into compact Analyst-facing evidence cards."""
+
+    groups: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
+    for finding in findings:
+        groups[(str(finding["issue_type"]), str(finding.get("mechanism_key") or ""))].append(finding)
+    cards: list[dict[str, Any]] = []
+    for (issue_type, mechanism), members in sorted(groups.items()):
+        logical_cases = sorted({str(member["logical_case_id"]) for member in members})
+        representatives: dict[str, Mapping[str, Any]] = {}
+        for member in members:
+            representatives.setdefault(str(member["logical_case_id"]), member)
+        eligible = len(logical_cases) >= minimum_independent_cases
+        examples = [
+            {
+                "trace_id": member["trace_id"],
+                "call_id": member["call_id"],
+                "call_index": member["call_index"],
+                "tool_name": member["tool_name"],
+                "source_pointer": member["source_pointer"],
+                "observation": member["summary"],
+            }
+            for member in list(representatives.values())[:3]
+        ]
+        cards.append(
+            {
+                "card_id": f"tid:{issue_type}:{mechanism}",
+                "issue_type": issue_type,
+                "issue_family": FAMILY[issue_type],
+                "mechanism_key": mechanism,
+                "finding_count": len(members),
+                "independent_case_count": len(logical_cases),
+                "eligible_for_analyst": eligible,
+                "representative_evidence": examples,
+                "impact_status": "not_established",
+                "impact_boundary": "No impact is claimed beyond the directly observed tool-use issue.",
+            }
+        )
+    return cards
+
+
+def catalog_coverage(findings: Iterable[Mapping[str, Any]]) -> dict[str, int]:
+    """Return finding counts while keeping all nineteen catalog entries visible."""
+
+    counts = Counter(str(finding["issue_type"]) for finding in findings)
+    return {name: counts[name] for name in sorted(FINDING_TYPES)}
