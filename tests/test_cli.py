@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from insight_agent.cli import EXIT_OK, EXIT_SCHEMA, main
-from insight_agent.ia3_tid import FINDING_TYPES
+from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"

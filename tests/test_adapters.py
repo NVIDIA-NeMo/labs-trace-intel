@@ -17,8 +17,9 @@ from insight_agent.adapters.messages import (
     adapt_many,
     detect_format,
 )
-from insight_agent.ia3_tid import MISSING, detect
-from insight_agent.loader import load_records, to_trace_record
+from insight_agent.evidence_streams.anomaly_and_patterns import to_ia2_trace
+from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
+from insight_agent.trace_loaders import InsightTraceV1Loader
 from insight_agent.validate import validate_record
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
@@ -28,6 +29,10 @@ OPENAI = DATA_DIR / "openai_messages.json"
 
 def by_id(records):
     return {r["trace_id"]: r for r in records}
+
+
+def normalized_trace(record):
+    return next(InsightTraceV1Loader.from_records([record]).load().scan())
 
 
 @pytest.fixture(scope="module")
@@ -41,7 +46,7 @@ def openai_records():
 
 
 def issue_types(record):
-    return {f["issue_type"] for f in detect([to_trace_record(record)])}
+    return {f["issue_type"] for f in detect([to_ia3_trace(normalized_trace(record))])}
 
 
 # -- format detection ------------------------------------------------------
@@ -58,8 +63,8 @@ def test_both_sample_files_produce_valid_canonical_records(anthropic_records, op
 
 
 def test_adapted_corpora_load_without_lint_errors(anthropic_records, openai_records):
-    assert len(load_records(list(anthropic_records.values()))) == 4
-    assert len(load_records(list(openai_records.values()))) == 4
+    assert len(InsightTraceV1Loader.from_records(anthropic_records.values())) == 4
+    assert len(InsightTraceV1Loader.from_records(openai_records.values())) == 4
 
 
 # -- the call/result join --------------------------------------------------
@@ -79,7 +84,10 @@ def test_openai_links_tool_calls_to_role_tool_replies(openai_records):
 
 @pytest.mark.parametrize(
     "fixture,trace_id",
-    [("anthropic_records", "anthropic-missing-result"), ("openai_records", "openai-missing-result")],
+    [
+        ("anthropic_records", "anthropic-missing-result"),
+        ("openai_records", "openai-missing-result"),
+    ],
 )
 def test_an_unanswered_call_omits_the_result_key(request, fixture, trace_id):
     """Absence, not null: emitting None would claim the tool returned null."""
@@ -87,7 +95,7 @@ def test_an_unanswered_call_omits_the_result_key(request, fixture, trace_id):
     call = record["calls"][0]
 
     assert "result" not in call
-    assert to_trace_record(record).calls[0].result is MISSING
+    assert to_ia3_trace(normalized_trace(record)).calls[0].result is MISSING
     assert "missing_tool_result" in issue_types(record)
 
 
@@ -167,13 +175,13 @@ def test_textual_results_land_under_content(anthropic_records, openai_records):
 
 def test_the_two_engines_agree_on_every_adapted_call(anthropic_records, openai_records):
     """The content-vs-output trap would show up here as a disagreement."""
-    from insight_agent.ia2_pipeline import decode_explicit_failure
-    from insight_agent.ia3_tid import strict_failure
-    from insight_agent.loader import to_normalized_trace
+    from insight_agent.evidence_streams.anomaly_and_patterns import decode_explicit_failure
+    from insight_agent.evidence_streams.tool_issues import strict_failure
 
     for record in list(anthropic_records.values()) + list(openai_records.values()):
-        ia2 = {c.call_id: c for c in to_normalized_trace(record).calls}
-        for call in to_trace_record(record).calls:
+        trace = normalized_trace(record)
+        ia2 = {c.call_id: c for c in to_ia2_trace(trace).calls}
+        for call in to_ia3_trace(trace).calls:
             ia3_failed, _ = strict_failure(call)
             ia2_failed, _, _ = decode_explicit_failure(
                 ia2[call.call_id].tool_name, ia2[call.call_id].result

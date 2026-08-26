@@ -36,7 +36,7 @@ __all__ = [
     "load_profile",
 ]
 
-# Verbatim from the original ia3_tid.STATE_PATTERNS. These detect a tool
+# Defaults used by the tool-issue evidence stream. These detect a tool
 # refusing to act because a precondition was not met. They are English-only and
 # the first one is openly venue-specific, which is exactly why they are
 # overridable.

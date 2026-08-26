@@ -1,18 +1,9 @@
-"""Complete reusable Insight Agent 2 (IA2) evidence-preprocessing pipeline.
+"""Anomaly and recurring-pattern evidence stream.
 
-The module covers IA2's developer-facing algorithm path without embedding any
-dataset loader, experiment runner, report, prompt, or outcome-evaluation code:
-
-0. normalized trace/call/step contracts;
-1. optional head+tail capping, duplicate-line removal, and error templating;
-3. ordered event construction, strict failure decoding, and numeric features;
-4. Isolation Forest anomaly selection with interpretable robust-MAD reasons;
-5. trajectory, observed-verdict, and recurring strict-failure grouping;
-6. a compact, cited evidence digest for the separate Analyst LLM.
-
-Stage 1 was proposed but never measured during the original research. It is
-therefore an explicit opt-in utility here. IA2 never authors an Insight: it selects and
-compresses inspectable evidence while preserving exact source pointers.
+This module owns the stream entry point and its feature extraction, anomaly
+selection, clustering, recurring-failure analysis, and evidence rendering.
+It surfaces inspectable evidence with exact source pointers; it does not author
+Insights.
 """
 
 from __future__ import annotations
@@ -28,6 +19,7 @@ from statistics import median
 from typing import Any, Literal
 
 import numpy as np
+from pydantic import Field, FiniteFloat
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.ensemble import IsolationForest
@@ -35,7 +27,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
-from .venue import DEFAULT_PROFILE, VenueProfile
+from ..traces import UNSET, ContractModel, Span, SpanKind, Trace, TraceSnapshot
+from ..venue import DEFAULT_PROFILE, VenueProfile
+from .contracts import EvidenceStreamResult, Problem
 
 N_ESTIMATORS = 300
 CONTAMINATION = 0.02
@@ -847,6 +841,45 @@ def build_evidence_digest(
     return "\n".join(lines)
 
 
+class Anomaly(ContractModel):
+    trace_id: str = Field(min_length=1)
+    anomaly_score: FiniteFloat
+    is_anomaly: bool
+    anomaly_reasons: tuple[str, ...]
+    pca_x: FiniteFloat
+    pca_y: FiniteFloat
+    source_pointer: Mapping[str, Any]
+
+
+class FailureGroup(ContractModel):
+    signature: str = Field(min_length=1)
+    event_count: int = Field(ge=1)
+    independent_trace_count: int = Field(ge=1)
+    trace_ids: tuple[str, ...] = Field(min_length=1)
+    top_tools: tuple[str, ...]
+    representatives: tuple[Mapping[str, Any], ...] = Field(min_length=1)
+
+
+class CrossToolFailureGroup(ContractModel):
+    message_signature: str = Field(min_length=1)
+    event_count: int = Field(ge=1)
+    independent_trace_count: int = Field(ge=1)
+    tool_names: tuple[str, ...]
+    trace_ids: tuple[str, ...] = Field(min_length=1)
+    representatives: tuple[Mapping[str, Any], ...] = Field(min_length=1)
+
+
+class AnomalyAndPatternsAnalysis(ContractModel):
+    prepared: tuple[PreparedTrace, ...]
+    failure_events: tuple[Mapping[str, Any], ...]
+    anomalies: tuple[Anomaly, ...]
+    trajectory_groups: Mapping[str, Any] | None
+    verdict_groups: tuple[Mapping[str, Any], ...]
+    failure_groups: tuple[FailureGroup, ...]
+    cross_tool_failure_groups: tuple[CrossToolFailureGroup, ...]
+    digest: str
+
+
 def run_ia2(
     traces: Sequence[NormalizedTrace],
     *,
@@ -856,7 +889,7 @@ def run_ia2(
     minimum_independent_traces: int = RECURRENCE_THRESHOLD,
     input_scaling: str = "none",
     profile: VenueProfile = DEFAULT_PROFILE,
-) -> dict[str, Any]:
+) -> AnomalyAndPatternsAnalysis:
     """Execute Stages 3–6 and return every intermediate plus the cited digest."""
 
     prepared, failure_events = prepare_traces(traces, profile=profile)
@@ -889,13 +922,219 @@ def run_ia2(
         failure_groups,
         cross_tool_groups,
     )
+    return AnomalyAndPatternsAnalysis(
+        prepared=tuple(prepared),
+        failure_events=tuple(failure_events),
+        anomalies=tuple(anomalies),
+        trajectory_groups=trajectory_groups,
+        verdict_groups=tuple(verdict_groups),
+        failure_groups=tuple(failure_groups),
+        cross_tool_failure_groups=tuple(cross_tool_groups),
+        digest=digest,
+    )
+
+
+@dataclass(frozen=True)
+class AnomalyAndPatternsArtifacts:
+    result: AnomalyAndPatternsAnalysis
+    parameters: Mapping[str, Any]
+
+
+def problems_from_analysis(result: AnomalyAndPatternsAnalysis) -> tuple[Problem, ...]:
+    """Project IA2's native analysis into candidate problems for synthesis."""
+
+    problems: list[Problem] = []
+    anomalies = [row for row in result.anomalies if row.is_anomaly]
+    if anomalies:
+        ranked = sorted(
+            anomalies,
+            key=lambda row: (-row.anomaly_score, row.trace_id),
+        )
+        reason_counts = Counter(
+            str(reason)
+            for row in anomalies
+            for reason in row.anomaly_reasons
+        )
+        common_reasons = ", ".join(
+            f"{reason} ({count})" for reason, count in reason_counts.most_common(5)
+        ) or "no single dominant feature"
+        trace_subject = "trace was" if len(anomalies) == 1 else "traces were"
+        description = (
+            f"{len(anomalies)} {trace_subject} statistical outliers in the corpus. "
+            f"The most common feature-level reasons were {common_reasons}. "
+            "An anomaly is evidence for investigation, not proof of a defect."
+        )
+        problems.append(
+            Problem(
+                description=description,
+                supporting_trace_ids=tuple(row.trace_id for row in ranked[:50]),
+            )
+        )
+
+    for group in result.failure_groups:
+        tools = ", ".join(group.top_tools) or "unknown tools"
+        problems.append(
+            Problem(
+                description=(
+                    f"Recurring strict tool failure `{group.signature}` appeared in "
+                    f"{group.event_count} event(s) across "
+                    f"{group.independent_trace_count} independent trace(s). "
+                    f"Affected tools: {tools}."
+                ),
+                supporting_trace_ids=group.trace_ids,
+            )
+        )
+
+    for group in result.cross_tool_failure_groups:
+        tools = group.tool_names
+        if len(tools) < 2:
+            continue
+        problems.append(
+            Problem(
+                description=(
+                    f"The normalized failure `{group.message_signature}` appeared in "
+                    f"{group.event_count} event(s) across "
+                    f"{group.independent_trace_count} independent trace(s) and multiple "
+                    f"tools: {', '.join(tools)}. Inspect the supporting traces to determine "
+                    "whether those occurrences share a cause."
+                ),
+                supporting_trace_ids=group.trace_ids,
+            )
+        )
+
+    return tuple(problems)
+
+
+def _duration_ms(span: Span) -> float | None:
+    if span.duration_ms is not None:
+        return span.duration_ms
+    if span.started_at is None or span.ended_at is None:
+        return None
+    return (span.ended_at - span.started_at).total_seconds() * 1_000
+
+
+def _span_content(span: Span) -> str:
+    value = span.output
+    if value is UNSET or value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Mapping):
+        content = value.get("content")
+        if isinstance(content, str):
+            return content
+        messages = value.get("messages")
+        if isinstance(messages, Sequence) and not isinstance(messages, (str, bytes)):
+            for message in reversed(messages):
+                if isinstance(message, Mapping) and isinstance(message.get("content"), str):
+                    return str(message["content"])
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _native_step_type(span: Span) -> str:
     return {
-        "prepared": prepared,
-        "failure_events": failure_events,
-        "anomalies": anomalies,
-        "trajectory_groups": trajectory_groups,
-        "verdict_groups": verdict_groups,
-        "failure_groups": failure_groups,
-        "cross_tool_failure_groups": cross_tool_groups,
-        "digest": digest,
-    }
+        SpanKind.TOOL: "tool",
+        SpanKind.AGENT: "agent",
+        SpanKind.EVALUATOR: "evaluation",
+    }.get(span.kind, span.kind.value.lower())
+
+
+def to_ia2_trace(
+    trace: Trace, *, profile: VenueProfile = DEFAULT_PROFILE
+) -> NormalizedTrace:
+    """Project one normalized trace into the anomaly-and-pattern analysis model."""
+
+    calls: list[NormalizedCall] = []
+    tool_spans = [span for span in trace.spans if span.kind is SpanKind.TOOL]
+
+    for call_index, span in enumerate(tool_spans):
+        details = span.tool_call
+        result = None if span.output is UNSET else span.output
+        returned_data = details.returned_data if details is not None else UNSET
+        if returned_data is not UNSET:
+            if isinstance(result, Mapping):
+                if profile.returned_data_key not in result:
+                    result = {**result, profile.returned_data_key: returned_data}
+            else:
+                warnings.warn(
+                    f"call {(details.call_id if details else span.span_id)!r} in trace "
+                    f"{trace.id!r} sets 'returned_data' but its result is not a JSON object, "
+                    "so anomaly-and-pattern analysis cannot read it; "
+                    "returned_data_false_rate will stay 0 for this call. Wrap the result "
+                    'as {"content": ...} to make it count.',
+                    UserWarning,
+                    stacklevel=2,
+                )
+        arguments = span.input if isinstance(span.input, Mapping) else {}
+        calls.append(
+            NormalizedCall(
+                call_id=str(details.call_id if details and details.call_id else span.span_id),
+                call_index=(
+                    details.index if details is not None and details.index is not None else call_index
+                ),
+                tool_name=str(span.tool_name or span.name or ""),
+                arguments=arguments,
+                result=result,
+                duration_ms=_duration_ms(span),
+                source_pointer=dict(span.source_pointer),
+            )
+        )
+
+    steps = tuple(
+        NormalizedStep(
+            step_index=index,
+            step_type=span.subtype or _native_step_type(span),
+            name=str(span.name or span.tool_name or ""),
+            content=span.summary if span.summary is not None else _span_content(span),
+            source_pointer=dict(span.source_pointer),
+        )
+        for index, span in enumerate(trace.spans)
+    )
+    return NormalizedTrace(
+        trace_id=trace.id,
+        calls=tuple(calls),
+        steps=steps,
+        source_pointer=dict(trace.source_pointer),
+        observed_verdict=trace.observed_verdict,
+        cost=trace.cost_usd,
+        metrics=dict(trace.metrics),
+    )
+
+
+@dataclass(frozen=True)
+class AnomalyAndPatternsEvidenceStream:
+    name = "anomaly-and-patterns"
+
+    contamination: float = CONTAMINATION
+    input_scaling: Literal["none", "robust"] = "none"
+    cluster_candidates: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8)
+    minimum_independent_traces: int = RECURRENCE_THRESHOLD
+    feature_names: tuple[str, ...] | None = None
+    profile: VenueProfile = DEFAULT_PROFILE
+
+    def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        parameters: dict[str, Any] = {
+            "contamination": self.contamination,
+            "cluster_candidates": self.cluster_candidates,
+            "minimum_independent_traces": self.minimum_independent_traces,
+            "input_scaling": self.input_scaling,
+            "profile": self.profile,
+        }
+        if self.feature_names:
+            parameters["feature_names"] = self.feature_names
+        traces = [to_ia2_trace(trace, profile=self.profile) for trace in snapshot.scan()]
+        result = run_ia2(traces, **parameters)
+        problems = problems_from_analysis(result)
+        return EvidenceStreamResult(
+            stream_name=self.name,
+            problems=problems,
+            artifacts=AnomalyAndPatternsArtifacts(
+                result=result,
+                parameters=parameters
+                | {
+                    "feature_names": (
+                        list(self.feature_names) if self.feature_names else "default"
+                    )
+                },
+            ),
+        )

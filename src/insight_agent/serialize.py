@@ -17,7 +17,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .ia3_tid import MISSING
+from pydantic import BaseModel
+
+from .evidence_streams.tool_issues import MISSING
 
 __all__ = ["dump_json", "jsonable", "prepared_features", "write_json"]
 
@@ -34,6 +36,8 @@ def jsonable(value: Any) -> Any:
     if isinstance(value, float):
         # JSON has no NaN/Infinity; emit null rather than invalid JSON.
         return value if value == value and value not in (float("inf"), float("-inf")) else None
+    if isinstance(value, BaseModel):
+        return jsonable(value.model_dump(mode="python"))
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {f.name: jsonable(getattr(value, f.name)) for f in dataclasses.fields(value)}
     if isinstance(value, Mapping):

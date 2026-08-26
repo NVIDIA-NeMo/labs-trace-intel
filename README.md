@@ -16,38 +16,36 @@ Future iterations will aim to improve the scalability and reliability of the age
 ## V2 Analyst Agent Architecture
 This version of the Analyst Agent implements a series of preprocessing steps that we call "evidence streams".
 
-There are 3 current evidence streams, and we can expect to add more in the future: 
+There are 2 current evidence streams, and we can expect to add more in the future:
 
-1) **Anomaly Detection** - Which traces are unusual?
+1) **Anomaly and Pattern Analysis** - Which traces are unusual, and which patterns recur?
 
     A set of 11 features are extracted from each trace and the resulting feature vector feeds an Isolation Forest model which identifies statistical anomalies.
 
-2) **Recurring Patterns** - Which trace patterns repeat?
-
     Traces are clustered based on TFIDF after structural metadata projection and error extraction. 
 
-3) **Tool Analysis** - Which tool use problems recur across the trace sample?
+2) **Tool Issue Detection** - Which tool use problems recur across the trace sample?
 
     The tools in each trace are checked against a set of deterministic rules to detect specific tool calling issues. 
 
-Evidence streams 1 and 2 happen as part of "IA2", and evidence stream 3 happens as part of "IA3".
+The focused CLI commands retain the `run-ia2` and `run-ia3` names from their research lineage.
 
-After each of the evidence streams run, their output is passed to the Analyst Agent to guide its analysis. The Analyst Agent also has tools that it can use to look up raw traces from a database. The idea is that the evidence streams in the pre-processing step identify potentially problematic traces, and then the Analyst Agent can use that evidence as a starting point for more detailed exploration and synthesis. It is instructed not to rely exclusively on the evidence streams themselves.
+After the evidence streams run, each returns candidate `Problem` objects with a description and supporting trace IDs. Those Problems are passed to the Analyst Agent to guide its analysis. The Analyst can also look up normalized supporting traces from the same snapshot and uses that evidence as a starting point for more detailed exploration and synthesis.
 
 The Analyst Agent ultimately produces a set of "insights" which are meant to describe a recurring and actionable problem observed from the trace corpus. 
 
 ## Running the Agent on Example Traces
-This repo includes some example traces from the [Tau benchmark](https://github.com/sierra-research/tau-bench) that can be used to demo the pipeline. 
+This repo includes example traces from the [Tau benchmark](https://github.com/sierra-research/tau-bench).
 
 First follow the .env.example to configure some keys for the LLM bits. 
 
-Then you can run the pipeline against the example traces.
+Then run the Analyst:
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+uv venv
+uv pip install -r requirements.txt -e ".[dev]"
 
-insight-agent run-all examples/tau_bench_traces.jsonl -o out
+uv run --no-sync insight-agent run-all examples/tau_bench_traces.jsonl -o out
 open out/index.md
 ```
 
@@ -57,22 +55,32 @@ To see the
 deterministic stages alone, with no key and no cost:
 
 ```bash
-insight-agent run-all examples/tau_bench_traces.jsonl -o out --no-analyst
+uv run --no-sync insight-agent run-all examples/tau_bench_traces.jsonl \
+  -o out --no-analyst
 ```
+
+The architecture is intentionally small:
+
+```text
+TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insights
+```
+
+`run-ia2` and `run-ia3` remain useful for focused development and ablation.
 
 ### Reading the outputs
 ./out/analyst contains the final output in insights.json. It also contains a prompt.md which is the full interpolated prompt sent to the Analyst Agent. 
 
-./out/ia2 contains the raw artifacts from the anomaly detection and clustering evidence streams. 
-Those intermediate artifacts are aggregated into a digest.md which is injected into the system prompt of the Analyst. 
+./out/ia2 contains the artifacts from the anomaly-and-pattern evidence stream.
+`digest.md` retains its native diagnostic summary; `problems.json` contains the generic handoff sent to Insights generation.
 
-out/ia3 contains the raw artifacts from the tool issue detection evidence stream. 
-Those artifacts are aggregated into cards.json which is injected into the system prompt of the Analyst. 
+out/ia3 contains the artifacts from the tool-issue evidence stream.
+`cards.json` retains all native tool-issue cards; `problems.json` contains the recurrence-qualified handoff sent to Insights generation.
 
 ## Running the agent on your own traces
 
-**Step 1: Convert Traces to a Common Format**
-Because the pipeline relies on deterministic parsing and checks, the traces must first be converted to a common format. 
+**Step 1: Load traces into the normalized format**
+Evidence streams consume a normalized `TraceSnapshot`. The current CLI uses
+`InsightTraceV1Loader`, so source traces must first be converted to `insight-trace/v1`.
 
 If your traces are already in OpenAI or Anthropic message format you can use the built in adapter
 
@@ -92,15 +100,21 @@ insight-agent validate traces.jsonl
 insight-agent coverage traces.jsonl
 ```
 
-Then you can run the full pipeline with 
+Then run the full analysis with:
 ```bash
-insight-agent run-all traces.jsonl -o out
+uv run --no-sync insight-agent run-all traces.jsonl -o out
 ```
 
 Results will be written to the /out directory. 
 
 If you want to do a dry run or a run without the LLM synthesis you can use
 ```bash
-insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
-insight-agent run-all traces.jsonl -o out --no-analyst 
+uv run --no-sync insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
+uv run --no-sync insight-agent run-all traces.jsonl -o out --no-analyst
+```
+
+## Validation
+
+```bash
+uv run --no-sync ruff check . && uv run --no-sync pytest
 ```

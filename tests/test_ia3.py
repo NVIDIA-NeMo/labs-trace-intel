@@ -15,14 +15,17 @@ from pathlib import Path
 
 import pytest
 
-from insight_agent.ia3_tid import (
+from insight_agent.evidence_streams.tool_issues import (
     FINDING_TYPES,
     MISSING,
+    RepresentativeEvidence,
+    ToolIssueCard,
     build_cards,
     catalog_coverage,
     detect,
+    to_ia3_trace,
 )
-from insight_agent.loader import LoadOptions, load_corpus
+from insight_agent.trace_loaders import InsightTraceV1Loader
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
@@ -38,13 +41,13 @@ CONTRACT_TYPES = {
 
 
 @pytest.fixture(scope="module")
-def corpus():
-    return load_corpus(CORPUS, LoadOptions())
+def loader():
+    return InsightTraceV1Loader.from_path(CORPUS)
 
 
 @pytest.fixture(scope="module")
-def findings(corpus):
-    return detect(corpus.ia3())
+def findings(loader):
+    return detect(to_ia3_trace(trace) for trace in loader.load().scan())
 
 
 def test_there_are_exactly_nineteen_finding_types():
@@ -74,8 +77,10 @@ def test_findings_are_fully_attributed(findings):
         assert len(finding["issue_id"]) == 24
 
 
-def test_findings_are_deterministic_within_a_process(corpus):
-    assert detect(corpus.ia3()) == detect(corpus.ia3())
+def test_findings_are_deterministic_within_a_process(loader):
+    first = detect(to_ia3_trace(trace) for trace in loader.load().scan())
+    second = detect(to_ia3_trace(trace) for trace in loader.load().scan())
+    assert first == second
 
 
 def test_issue_ids_are_stable_across_processes():
@@ -86,13 +91,18 @@ def test_issue_ids_are_stable_across_processes():
     """
     script = (
         "import json;"
-        "from insight_agent.loader import load_corpus;"
-        "from insight_agent.ia3_tid import detect;"
-        f"print(json.dumps(sorted(f['issue_id'] for f in detect(load_corpus({str(CORPUS)!r}).ia3()))))"
+        "from insight_agent.trace_loaders import InsightTraceV1Loader;"
+        "from insight_agent.evidence_streams.tool_issues import detect,to_ia3_trace;"
+        f"loader=InsightTraceV1Loader.from_path({str(CORPUS)!r});"
+        "print(json.dumps(sorted(f['issue_id'] for f in "
+        "detect(to_ia3_trace(t) for t in loader.load().scan()))))"
     )
     runs = [
-        json.loads(subprocess.run([sys.executable, "-c", script], capture_output=True,
-                                  text=True, check=True).stdout)
+        json.loads(
+            subprocess.run(
+                [sys.executable, "-c", script], capture_output=True, text=True, check=True
+            ).stdout
+        )
         for _ in range(2)
     ]
     assert runs[0] == runs[1]
@@ -108,11 +118,11 @@ def test_catalog_coverage_reports_all_nineteen_keys(findings):
 # -- abstention ------------------------------------------------------------
 
 
-def test_dropping_the_catalog_silences_exactly_the_contract_rules(corpus, findings):
-    stripped = [{k: v for k, v in r.items() if k != "tool_catalog"} for r in corpus.records]
-    from insight_agent.loader import load_records
+def test_dropping_the_catalog_silences_exactly_the_contract_rules(loader, findings):
+    stripped = [{k: v for k, v in r.items() if k != "tool_catalog"} for r in loader.records]
 
-    without = detect(load_records(stripped, LoadOptions()).ia3())
+    snapshot = InsightTraceV1Loader.from_records(stripped).load()
+    without = detect(to_ia3_trace(trace) for trace in snapshot.scan())
 
     before = {f["issue_type"] for f in findings}
     after = {f["issue_type"] for f in without}
@@ -124,19 +134,22 @@ def test_dropping_the_catalog_silences_exactly_the_contract_rules(corpus, findin
 
 
 def test_a_null_schema_enables_unknown_tool_but_not_argument_checks():
-    from insight_agent.loader import to_trace_record
-
     record = {
         "schema_version": "insight-trace/v1",
         "trace_id": "t",
         "tool_catalog": {"SessionTool": None},
         "calls": [
-            {"call_id": "c0", "call_index": 0, "tool_name": "SessionTool",
-             "arguments": {"anything": 1}},
+            {
+                "call_id": "c0",
+                "call_index": 0,
+                "tool_name": "SessionTool",
+                "arguments": {"anything": 1},
+            },
             {"call_id": "c1", "call_index": 1, "tool_name": "GhostTool", "arguments": {}},
         ],
     }
-    fired = {f["issue_type"] for f in detect([to_trace_record(record)])}
+    trace = next(InsightTraceV1Loader.from_records([record]).load().scan())
+    fired = {f["issue_type"] for f in detect([to_ia3_trace(trace)])}
     assert "unknown_tool" in fired
     assert not (fired & (CONTRACT_TYPES - {"unknown_tool"}))
 
@@ -147,35 +160,42 @@ def test_a_null_schema_enables_unknown_tool_but_not_argument_checks():
 def test_cards_are_promoted_only_at_three_independent_cases(findings):
     cards = build_cards(findings, minimum_independent_cases=3)
     assert cards
+    assert all(isinstance(card, ToolIssueCard) for card in cards)
+    assert all(
+        isinstance(evidence, RepresentativeEvidence)
+        for card in cards
+        for evidence in card.representative_evidence
+    )
     for card in cards:
-        assert card["eligible_for_analyst"] == (card["independent_case_count"] >= 3)
-    assert any(card["eligible_for_analyst"] for card in cards)
+        assert card.eligible_for_analyst == (card.independent_case_count >= 3)
+    assert any(card.eligible_for_analyst for card in cards)
 
 
-def test_card_eligibility_counts_cases_not_traces(corpus, findings):
+def test_card_eligibility_counts_cases_not_traces(loader, findings):
     """Two traces share a logical case, so the counts must differ."""
-    cards = {c["card_id"]: c for c in build_cards(findings)}
+    cards = {card.card_id: card for card in build_cards(findings)}
     card = cards["tid:explicit_tool_failure:error_prefix"]
-    assert card["finding_count"] > card["independent_case_count"]
+    assert card.finding_count > card.independent_case_count
 
 
 def test_cards_never_claim_impact(findings):
     for card in build_cards(findings):
-        assert card["impact_status"] == "not_established"
+        assert card.impact_status == "not_established"
 
 
 def test_raising_the_threshold_disqualifies_everything(findings):
     cards = build_cards(findings, minimum_independent_cases=999)
-    assert cards and not any(c["eligible_for_analyst"] for c in cards)
+    assert cards and not any(card.eligible_for_analyst for card in cards)
 
 
 # -- parameters ------------------------------------------------------------
 
 
-def test_retry_threshold_changes_repeat_detection(corpus):
+def test_retry_threshold_changes_repeat_detection(loader):
     def repeats(**kwargs):
         return [
-            f for f in detect(corpus.ia3(), **kwargs)
+            f
+            for f in detect((to_ia3_trace(trace) for trace in loader.load().scan()), **kwargs)
             if f["issue_type"] == "repeated_identical_failed_call"
         ]
 

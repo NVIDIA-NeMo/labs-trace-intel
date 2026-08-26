@@ -4,9 +4,9 @@ One JSON object per line; one line per complete trace. This page is generated
 from `src/insight_agent/schemas/insight_trace_v1.schema.json` — print the schema
 itself with `insight-agent schema`.
 
-Adapters emit this format in any language and never touch the engines'
-internal dataclasses. `insight_agent.loader` fans each record out into IA2's
-`NormalizedTrace` and IA3's `TraceRecord`.
+Adapters can emit this format in any language. `InsightTraceV1Loader` validates it and
+normalizes each record into the local `Trace` and `Span` models. Evidence streams then own
+their projections into any algorithm-specific types.
 
 ## Trace object
 
@@ -198,4 +198,3 @@ traceback:
 
 The third call has **no `result` key**. That is what fires `missing_tool_result`;
 writing `"result": null` instead would mean the tool returned null.
-

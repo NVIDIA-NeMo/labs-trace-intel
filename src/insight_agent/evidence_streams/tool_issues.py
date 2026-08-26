@@ -1,4 +1,4 @@
-"""IA3 Tool Issue Detection (TID v1).
+"""Tool-issue evidence stream.
 
 The implementation follows the current seven-category, nineteen-finding
 catalog. It is deterministic, capability-gated, and independent of dataset
@@ -14,11 +14,14 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from jsonschema import validators
+from pydantic import Field
 
-from .venue import DEFAULT_PROFILE, VenueProfile
+from ..traces import UNSET, ContractModel, SpanKind, SpanStatus, Trace, TraceSnapshot
+from ..venue import DEFAULT_PROFILE, VenueProfile
+from .contracts import EvidenceStreamResult, Problem
 
 DETECTOR_VERSION = "tid-v1"
 CARD_MINIMUM_CASES = 3
@@ -84,9 +87,7 @@ PLACEHOLDER = re.compile(
 )
 IDENTIFIER_FIELD = re.compile(r"(?i)(?:^|_)(?:id|refid|reference|handle|key)$")
 IDENTIFIER_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/\-]{2,127}$")
-# Retained as a module constant for backwards compatibility. The regex sources
-# now live in `venue.DEFAULT_STATE_PATTERNS` so a venue can override them
-# without editing this file; the compiled defaults below are identical.
+# Venue profiles can override these state patterns without changing the stream.
 STATE_PATTERNS = DEFAULT_PROFILE.compiled_state_patterns()
 
 
@@ -479,15 +480,40 @@ def detect(
     )
 
 
+class RepresentativeEvidence(ContractModel):
+    trace_id: str = Field(min_length=1)
+    call_id: str = Field(min_length=1)
+    call_index: int = Field(
+        ge=-1,
+        description="Zero-based tool-call index; -1 identifies an orphan tool result.",
+    )
+    tool_name: str = Field(min_length=1)
+    source_pointer: Mapping[str, Any]
+    observation: str
+
+
+class ToolIssueCard(ContractModel):
+    card_id: str = Field(min_length=1)
+    issue_type: str = Field(min_length=1)
+    issue_family: str = Field(min_length=1)
+    mechanism_key: str = Field(min_length=1)
+    finding_count: int = Field(ge=1)
+    independent_case_count: int = Field(ge=1)
+    eligible_for_analyst: bool
+    representative_evidence: tuple[RepresentativeEvidence, ...] = Field(min_length=1)
+    impact_status: Literal["not_established"]
+    impact_boundary: str
+
+
 def build_cards(
     findings: Iterable[Mapping[str, Any]], *, minimum_independent_cases: int = CARD_MINIMUM_CASES
-) -> list[dict[str, Any]]:
+) -> list[ToolIssueCard]:
     """Promote recurring findings into compact Analyst-facing evidence cards."""
 
     groups: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
     for finding in findings:
         groups[(str(finding["issue_type"]), str(finding.get("mechanism_key") or ""))].append(finding)
-    cards: list[dict[str, Any]] = []
+    cards: list[ToolIssueCard] = []
     for (issue_type, mechanism), members in sorted(groups.items()):
         logical_cases = sorted({str(member["logical_case_id"]) for member in members})
         representatives: dict[str, Mapping[str, Any]] = {}
@@ -506,18 +532,18 @@ def build_cards(
             for member in list(representatives.values())[:3]
         ]
         cards.append(
-            {
-                "card_id": f"tid:{issue_type}:{mechanism}",
-                "issue_type": issue_type,
-                "issue_family": FAMILY[issue_type],
-                "mechanism_key": mechanism,
-                "finding_count": len(members),
-                "independent_case_count": len(logical_cases),
-                "eligible_for_analyst": eligible,
-                "representative_evidence": examples,
-                "impact_status": "not_established",
-                "impact_boundary": "No impact is claimed beyond the directly observed tool-use issue.",
-            }
+            ToolIssueCard(
+                card_id=f"tid:{issue_type}:{mechanism}",
+                issue_type=issue_type,
+                issue_family=FAMILY[issue_type],
+                mechanism_key=mechanism,
+                finding_count=len(members),
+                independent_case_count=len(logical_cases),
+                eligible_for_analyst=eligible,
+                representative_evidence=tuple(examples),
+                impact_status="not_established",
+                impact_boundary="No impact is claimed beyond the directly observed tool-use issue.",
+            )
         )
     return cards
 
@@ -527,3 +553,151 @@ def catalog_coverage(findings: Iterable[Mapping[str, Any]]) -> dict[str, int]:
 
     counts = Counter(str(finding["issue_type"]) for finding in findings)
     return {name: counts[name] for name in sorted(FINDING_TYPES)}
+
+
+@dataclass(frozen=True)
+class ToolIssueEvidenceArtifacts:
+    findings: tuple[Mapping[str, Any], ...]
+    cards: tuple[ToolIssueCard, ...]
+    catalog_coverage: Mapping[str, int]
+
+
+def problems_from_cards(
+    cards: Sequence[ToolIssueCard], *, include_audit: bool = False
+) -> tuple[Problem, ...]:
+    """Project recurring tool-issue cards into candidate problems for synthesis."""
+
+    problems: list[Problem] = []
+    for card in cards:
+        if not include_audit and not card.eligible_for_analyst:
+            continue
+        representatives = card.representative_evidence
+        trace_ids = tuple(
+            dict.fromkeys(item.trace_id for item in representatives if item.trace_id)
+        )
+        if not trace_ids:
+            continue
+        observation_parts = []
+        for item in representatives:
+            observation = (item.observation or "issue observed").rstrip(". ")
+            observation_parts.append(
+                f"{item.tool_name or 'unknown tool'}: {observation}"
+            )
+        observations = "; ".join(observation_parts)
+        problems.append(
+            Problem(
+                description=(
+                    f"Tool issue `{card.issue_type}` with mechanism "
+                    f"`{card.mechanism_key}` produced {card.finding_count} finding(s) "
+                    f"across {card.independent_case_count} independent case(s). "
+                    f"Representative observations: {observations}. "
+                    f"{card.impact_boundary}"
+                ),
+                supporting_trace_ids=trace_ids,
+            )
+        )
+    return tuple(problems)
+
+
+def _trace_input_text(trace: Trace) -> str:
+    if isinstance(trace.input, str):
+        return trace.input
+
+    values: Sequence[Any]
+    if isinstance(trace.input, Mapping):
+        messages = trace.input.get("messages")
+        values = messages if isinstance(messages, Sequence) else ()
+    elif isinstance(trace.input, Sequence) and trace.input is not UNSET:
+        values = trace.input
+    else:
+        values = ()
+    for message in reversed(values):
+        if not isinstance(message, Mapping) or message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+    return ""
+
+
+def to_ia3_trace(trace: Trace) -> TraceRecord:
+    """Project one normalized trace into the tool-issue analysis model."""
+
+    task_text = _trace_input_text(trace)
+    tool_spans = [span for span in trace.spans if span.kind is SpanKind.TOOL]
+    calls: list[CallRecord] = []
+    for index, span in enumerate(tool_spans):
+        details = span.tool_call
+        result_count = details.result_count if details is not None else 1
+        if result_count < 1:
+            result_count = 1
+        explicit_error = (
+            True
+            if span.status is SpanStatus.ERROR
+            else False
+            if span.status is SpanStatus.SUCCESS
+            else None
+        )
+        prior_user_text = details.prior_user_text if details is not None else None
+        calls.append(
+            CallRecord(
+                trace_id=trace.id,
+                call_index=(
+                    details.index if details is not None and details.index is not None else index
+                ),
+                call_id=str(details.call_id if details and details.call_id else span.span_id),
+                tool_name=str(span.tool_name or span.name or ""),
+                arguments=None if span.input is UNSET else span.input,
+                result=MISSING if span.output is UNSET else span.output,
+                source_pointer=dict(span.source_pointer),
+                result_id=details.result_id if details is not None else None,
+                result_count=result_count,
+                explicit_error=explicit_error,
+                outcome_marker=span.error_type,
+                instrumentation_alias_of=(
+                    details.instrumentation_alias_of if details is not None else None
+                ),
+                prior_user_text=str(prior_user_text or task_text),
+            )
+        )
+
+    return TraceRecord(
+        trace_id=trace.id,
+        calls=tuple(calls),
+        logical_case_id=trace.logical_case_id,
+        tool_catalog=trace.tool_catalog,
+        orphan_results=tuple(dict(item) for item in trace.orphan_results),
+        complete_provenance_context=trace.complete_provenance_context,
+    )
+
+
+@dataclass(frozen=True)
+class ToolIssueEvidenceStream:
+    name = "tool-issues"
+
+    minimum_independent_cases: int = CARD_MINIMUM_CASES
+    retry_threshold: int = RETRY_THRESHOLD
+    include_audit_problems: bool = False
+    profile: VenueProfile = DEFAULT_PROFILE
+
+    def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        traces = tuple(to_ia3_trace(trace) for trace in snapshot.scan())
+        findings = detect(
+            traces,
+            profile=self.profile,
+            retry_threshold=self.retry_threshold,
+        )
+        cards = build_cards(
+            findings,
+            minimum_independent_cases=self.minimum_independent_cases,
+        )
+        problems = problems_from_cards(cards, include_audit=self.include_audit_problems)
+        return EvidenceStreamResult(
+            stream_name=self.name,
+            problems=problems,
+            artifacts=ToolIssueEvidenceArtifacts(
+                findings=tuple(findings),
+                cards=tuple(cards),
+                catalog_coverage=catalog_coverage(findings),
+            ),
+        )
