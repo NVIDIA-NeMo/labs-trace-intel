@@ -4,13 +4,13 @@ The Analyst has one required product: **Insights**. Its top-level architecture i
 small:
 
 ```text
-TraceSnapshot (normalized) -> EvidenceStream(s) -> InsightsGeneration -> Insights
+TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insights
 ```
 
 ```mermaid
 flowchart TB
     source["Structured traces<br/>S3, filesystem, or provider export"]
-    normalize["Adapt and validate"]
+    loader["TraceLoader<br/>read, validate, normalize"]
     snapshot["TraceSnapshot<br/>normalized Trace + Span records"]
 
     stream1["EvidenceStream<br/>anomaly and pattern analysis"]
@@ -21,7 +21,7 @@ flowchart TB
     generation["InsightsGeneration<br/>investigate, synthesize, and consolidate"]
     insights["Insights<br/>name, description, matching trace IDs"]
 
-    source --> normalize --> snapshot
+    source --> loader --> snapshot
     snapshot --> stream1 --> generation
     snapshot --> stream2 --> generation
     snapshot --> streamN --> generation
@@ -30,20 +30,31 @@ flowchart TB
     generation --> insights
 ```
 
-Adaptation and validation happen at the input boundary. They are not a generic pipeline phase
-or extension framework. Provider exports, OpenTelemetry, ATIF, NeMo Platform Intake exports,
-and the repository's existing `insight-trace/v1` format are inputs that adapters can map into
-the local normalized `Trace` contract.
+`TraceLoader` is the input boundary, not a generic pipeline phase. Each loader owns the I/O,
+validation, and normalization for one source and returns the local normalized contract. The
+current `InsightTraceV1Loader` reads the repository's `insight-trace/v1` JSONL format. A future
+LangSmith, OpenTelemetry, ATIF, or NeMo Platform loader would emit the same `Trace` values
+directly; it would not translate through `insight-trace/v1` first.
 
-## 1. TraceSnapshot
+## 1. TraceLoader and TraceSnapshot
 
 ```mermaid
 flowchart TB
     input["Input<br/>provider-native, OTel, ATIF,<br/>NeMo Intake, or insight-trace/v1"]
-    normalize["Concrete example<br/>NormalizeTraces"]
+    normalize["Concrete example<br/>InsightTraceV1Loader"]
     output["Output<br/>validated TraceSnapshot<br/>containing Trace + Span records"]
     input --> normalize --> output
 ```
+
+The loader contract is intentionally one method:
+
+```python
+class TraceLoader(Protocol):
+    def load(self) -> TraceSnapshot: ...
+```
+
+Source-specific configuration and diagnostics stay on the concrete loader. Evidence streams
+never receive provider records or loader objects.
 
 A `TraceSnapshot` is the frozen, run-scoped view of the normalized corpus. It gives every
 evidence stream and `InsightsGeneration` the same traces, span trees, source pointers, tool
@@ -261,10 +272,10 @@ The existing engines consume projections of this richer model:
 - New evidence streams can inspect LLM messages, model calls, token usage, latency, retrieval,
   guardrail, evaluator, and user-interaction spans without another schema redesign.
 
-Concrete example: `NormalizeTraces` adapts an OpenAI message export into LLM and tool spans,
-validates the parent relationships and timestamps, and returns a snapshot. An adapter for NeMo
-Platform maps its API objects into these local models; it does not return or import NeMo
-Platform classes.
+Concrete example: `InsightTraceV1Loader` validates `insight-trace/v1` records, maps their
+steps and calls into normalized spans, and returns a snapshot. A future loader for NeMo
+Platform would map its API objects into these local models; it would not return or import
+NeMo Platform classes.
 
 ### Snapshot handoff
 
@@ -275,9 +286,8 @@ Conceptually:
 
 ```python
 class TraceSnapshot(Protocol):
-    snapshot_id: str
     source: str
-    trace_count: int | None
+    trace_count: int
 
     def scan(self) -> Iterator[Trace]:
         """Return a new iterator over the same canonical traces each time."""
@@ -327,8 +337,7 @@ class EvidenceStream(Protocol):
     ) -> EvidenceStreamResult: ...
 
 
-@dataclass(frozen=True)
-class EvidenceStreamResult:
+class EvidenceStreamResult(ContractModel):
     stream_name: str
     stream_version: str
     status: Literal["completed", "abstained"]
@@ -361,14 +370,14 @@ flowchart TB
 ```
 
 `InsightsGeneration` is a required, concrete Analyst capability—not a generic postprocessor.
-It uses the evidence streams as a map, inspects supporting raw traces from the snapshot, and
+It uses the evidence streams as a map, inspects supporting normalized traces from the snapshot, and
 authors customer-readable Insights. It may consolidate overlapping evidence from multiple
 streams, but evidence streams themselves remain independent.
 
 The implementation is an explicit stage object:
 
 ```python
-generation = InsightsGeneration.from_evidence(
+generation = InsightsGeneration(
     snapshot=snapshot,
     evidence=stream_results,
     agent=agent_name,
@@ -406,7 +415,8 @@ understandable claim grounded in exact traces.
 
 ## Running the Analyst
 
-The built-in run selects the current evidence streams and invokes Insights generation:
+The built-in run configures one trace loader, loads one snapshot, runs the current evidence
+streams, and invokes Insights generation:
 
 ```bash
 uv run insight-agent run-all traces.jsonl -o out

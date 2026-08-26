@@ -16,23 +16,21 @@ Future iterations will aim to improve the scalability and reliability of the age
 ## V2 Analyst Agent Architecture
 This version of the Analyst Agent implements a series of preprocessing steps that we call "evidence streams".
 
-There are 3 current evidence streams, and we can expect to add more in the future: 
+There are 2 current evidence streams, and we can expect to add more in the future:
 
-1) **Anomaly Detection** - Which traces are unusual?
+1) **Anomaly and Pattern Analysis** - Which traces are unusual, and which patterns recur?
 
     A set of 11 features are extracted from each trace and the resulting feature vector feeds an Isolation Forest model which identifies statistical anomalies.
 
-2) **Recurring Patterns** - Which trace patterns repeat?
-
     Traces are clustered based on TFIDF after structural metadata projection and error extraction. 
 
-3) **Tool Analysis** - Which tool use problems recur across the trace sample?
+2) **Tool Issue Detection** - Which tool use problems recur across the trace sample?
 
     The tools in each trace are checked against a set of deterministic rules to detect specific tool calling issues. 
 
-Evidence streams 1 and 2 happen as part of "IA2", and evidence stream 3 happens as part of "IA3".
+The focused CLI commands retain the `run-ia2` and `run-ia3` names from their research lineage.
 
-After each of the evidence streams run, their output is passed to the Analyst Agent to guide its analysis. The Analyst Agent also has tools that it can use to look up raw traces from a database. The idea is that the evidence streams in the pre-processing step identify potentially problematic traces, and then the Analyst Agent can use that evidence as a starting point for more detailed exploration and synthesis. It is instructed not to rely exclusively on the evidence streams themselves.
+After the evidence streams run, their outputs are passed to the Analyst Agent to guide its analysis. The Analyst can also look up normalized supporting traces from the same snapshot. The evidence streams identify potentially problematic traces, and the Analyst uses that evidence as a starting point for more detailed exploration and synthesis. It is instructed not to rely exclusively on the evidence streams themselves.
 
 The Analyst Agent ultimately produces a set of "insights" which are meant to describe a recurring and actionable problem observed from the trace corpus. 
 
@@ -64,7 +62,7 @@ uv run --no-sync insight-agent run-all examples/tau_bench_traces.jsonl \
 The architecture is intentionally small:
 
 ```text
-TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insights
+TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insights
 ```
 
 `run-ia2` and `run-ia3` remain useful for focused development and ablation.
@@ -72,16 +70,17 @@ TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insights
 ### Reading the outputs
 ./out/analyst contains the final output in insights.json. It also contains a prompt.md which is the full interpolated prompt sent to the Analyst Agent. 
 
-./out/ia2 contains the raw artifacts from the anomaly detection and clustering evidence streams. 
+./out/ia2 contains the artifacts from the anomaly-and-pattern evidence stream.
 Those intermediate artifacts are aggregated into a digest.md which is injected into the system prompt of the Analyst. 
 
-out/ia3 contains the raw artifacts from the tool issue detection evidence stream. 
+out/ia3 contains the artifacts from the tool-issue evidence stream.
 Those artifacts are aggregated into cards.json which is injected into the system prompt of the Analyst. 
 
 ## Running the agent on your own traces
 
-**Step 1: Convert Traces to a Common Format**
-The evidence streams consume normalized traces, so source traces must first be converted to the input format.
+**Step 1: Load traces into the normalized format**
+Evidence streams consume a normalized `TraceSnapshot`. The current CLI uses
+`InsightTraceV1Loader`, so source traces must first be converted to `insight-trace/v1`.
 
 If your traces are already in OpenAI or Anthropic message format you can use the built in adapter
 

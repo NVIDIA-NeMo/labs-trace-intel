@@ -7,7 +7,7 @@ reader that, until now, this repo did not contain.
 
 `run-analyst` is that reader. It sends the IA2 digest and the recurrence-
 qualified IA3 cards to a model through [litellm](https://github.com/BerriAI/litellm),
-gives it a tool for pulling raw traces out of the corpus, and writes back the
+gives it a tool for inspecting normalized traces from the snapshot, and writes back the
 authored Insights.
 
 ```bash
@@ -65,7 +65,7 @@ includes them.
 count — 67 findings is already 60 KB — and `cards.json` is its bounded
 projection.
 
-### And the raw traces, on request
+### And normalized traces, on request
 
 The digest and the cards are a *map*, not the territory. Both are lossy by
 design: the digest reports that a trace is anomalous without saying what

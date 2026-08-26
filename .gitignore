@@ -12,6 +12,7 @@ dist/
 .ruff_cache/
 out/
 .DS_Store
+tmp
 
 # Scratch space for onboarding a real corpus
 local/
