@@ -28,7 +28,7 @@ from sklearn.preprocessing import StandardScaler
 
 from ..traces import UNSET, Span, SpanKind, Trace, TraceSnapshot
 from ..venue import DEFAULT_PROFILE, VenueProfile
-from .contracts import EvidenceCoverage, EvidenceStreamResult
+from .contracts import EvidenceCoverage, EvidenceStreamResult, Problem
 
 N_ESTIMATORS = 300
 CONTAMINATION = 0.02
@@ -900,6 +900,71 @@ class AnomalyAndPatternsArtifacts:
     parameters: Mapping[str, Any]
 
 
+def problems_from_analysis(result: Mapping[str, Any]) -> tuple[Problem, ...]:
+    """Project IA2's native analysis into candidate problems for synthesis."""
+
+    problems: list[Problem] = []
+    anomalies = [row for row in result.get("anomalies", ()) if row.get("is_anomaly")]
+    if anomalies:
+        ranked = sorted(
+            anomalies,
+            key=lambda row: (-float(row.get("anomaly_score", 0.0)), str(row["trace_id"])),
+        )
+        reason_counts = Counter(
+            str(reason)
+            for row in anomalies
+            for reason in row.get("anomaly_reasons", ())
+        )
+        common_reasons = ", ".join(
+            f"{reason} ({count})" for reason, count in reason_counts.most_common(5)
+        ) or "no single dominant feature"
+        trace_subject = "trace was" if len(anomalies) == 1 else "traces were"
+        description = (
+            f"{len(anomalies)} {trace_subject} statistical outliers in the corpus. "
+            f"The most common feature-level reasons were {common_reasons}. "
+            "An anomaly is evidence for investigation, not proof of a defect."
+        )
+        problems.append(
+            Problem(
+                description=description,
+                supporting_trace_ids=tuple(str(row["trace_id"]) for row in ranked[:50]),
+            )
+        )
+
+    for group in result.get("failure_groups", ()):
+        tools = ", ".join(str(tool) for tool in group.get("top_tools", ())) or "unknown tools"
+        problems.append(
+            Problem(
+                description=(
+                    f"Recurring strict tool failure `{group['signature']}` appeared in "
+                    f"{group['event_count']} event(s) across "
+                    f"{group['independent_trace_count']} independent trace(s). "
+                    f"Affected tools: {tools}."
+                ),
+                supporting_trace_ids=tuple(str(item) for item in group["trace_ids"]),
+            )
+        )
+
+    for group in result.get("cross_tool_failure_groups", ()):
+        tools = tuple(str(tool) for tool in group.get("tool_names", ()))
+        if len(tools) < 2:
+            continue
+        problems.append(
+            Problem(
+                description=(
+                    f"The normalized failure `{group['message_signature']}` appeared in "
+                    f"{group['event_count']} event(s) across "
+                    f"{group['independent_trace_count']} independent trace(s) and multiple "
+                    f"tools: {', '.join(tools)}. Inspect the supporting traces to determine "
+                    "whether those occurrences share a cause."
+                ),
+                supporting_trace_ids=tuple(str(item) for item in group["trace_ids"]),
+            )
+        )
+
+    return tuple(problems)
+
+
 def _duration_ms(span: Span) -> float | None:
     if span.duration_ms is not None:
         return span.duration_ms
@@ -1020,6 +1085,7 @@ class AnomalyAndPatternsEvidenceStream:
             parameters["feature_names"] = self.feature_names
         traces = [to_ia2_trace(trace, profile=self.profile) for trace in snapshot.scan()]
         result = run_ia2(traces, **parameters)
+        problems = problems_from_analysis(result)
         return EvidenceStreamResult(
             stream_name=self.name,
             stream_version=self.version,
@@ -1029,7 +1095,8 @@ class AnomalyAndPatternsEvidenceStream:
                 traces_examined=len(traces),
                 traces_evaluable=len(traces),
             ),
-            payload=AnomalyAndPatternsArtifacts(
+            problems=problems,
+            artifacts=AnomalyAndPatternsArtifacts(
                 result=result,
                 parameters=parameters
                 | {
@@ -1042,5 +1109,6 @@ class AnomalyAndPatternsEvidenceStream:
                 "anomaly_count": sum(
                     1 for row in result["anomalies"] if row["is_anomaly"]
                 ),
+                "problem_count": len(problems),
             },
         )

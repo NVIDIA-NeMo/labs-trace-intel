@@ -117,9 +117,14 @@ def test_ia2_stream_runs_the_engine_from_a_snapshot():
 
     assert actual.status == "completed"
     assert actual.coverage.traces_examined == len(loader)
-    assert isinstance(actual.payload, AnomalyAndPatternsArtifacts)
-    assert "## Unusual traces" in actual.payload.result["digest"]
-    assert "docops-outlier" in actual.payload.result["digest"]
+    assert isinstance(actual.artifacts, AnomalyAndPatternsArtifacts)
+    assert "## Unusual traces" in actual.artifacts.result["digest"]
+    assert "docops-outlier" in actual.artifacts.result["digest"]
+    assert actual.problems
+    assert any("statistical outliers" in problem.description for problem in actual.problems)
+    assert "docops-outlier" in {
+        trace_id for problem in actual.problems for trace_id in problem.supporting_trace_ids
+    }
     assert [trace.id for trace in snapshot.scan()] == [
         record["trace_id"] for record in loader.records
     ]

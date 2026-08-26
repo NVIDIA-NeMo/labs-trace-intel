@@ -1,23 +1,11 @@
 """Concrete InsightsGeneration stage backed by an LLM Analyst.
 
-Everything upstream of this module is deterministic and deliberately stops short
-of a conclusion. IA2 says what is unusual and what recurs; IA3 says what
-demonstrably violated a tool contract. Neither authors an Insight — the
-specification is explicit that only the Analyst LLM does that, and the digest
-itself ends with five authoring rules addressed to a reader this repo did not
-previously contain.
+Evidence streams surface candidate Problems without authoring conclusions. The
+Analyst synthesizes those Problems into customer-facing Insights and can fetch
+their supporting normalized traces when it needs more context.
 
-This is that reader. It sends the digest and the recurrence-qualified cards to a
-model through litellm and writes back a list of Insights, each with a name, a
-short description, and the trace IDs it cites.
-
-The Analyst is not limited to the preprocessed evidence. It is given a
-``fetch_traces`` tool and reads normalized traces itself, using the digest and cards
-as a map of where to look. That is what lets it name a mechanism ("the formula
-output must be a parameter") rather than restate a card.
-
-Three consequences of adding a model to an otherwise deterministic pipeline are
-handled here rather than left implicit:
+Three consequences of adding a model to an otherwise deterministic flow are
+handled here:
 
 * **Nothing is validated after the fact.** The prompt states the citation
   constraint; the CLI reports cited IDs that are neither in the evidence nor
@@ -64,10 +52,9 @@ DEFAULT_MODEL = "anthropic/claude-opus-5"
 #: is an unparseable one, which wastes the whole call.
 DEFAULT_MAX_TOKENS = 16_000
 
-#: Prompts are versioned artifacts, not editable text. The spec assumes a frozen
-#: prompt across matched comparisons, so a changed prompt gets a new version
-#: rather than an in-place edit, and both stay runnable side by side.
-DEFAULT_PROMPT_VERSION = "analyst_v3"
+#: Prompts are versioned artifacts. A changed prompt gets a new version rather
+#: than silently altering the identity recorded in run metadata.
+DEFAULT_PROMPT_VERSION = "analyst_v4"
 
 #: A prompt containing this marker gets the evidence substituted in place, and
 #: the user turn becomes a short kickoff. Without it the template is the system
@@ -140,16 +127,8 @@ class _AnalystRequest:
     #: Name of the agent under test, substituted into the prompt.
     agent: str
 
-    #: The IA2 digest, verbatim. It already carries its own reader contract and
-    #: authoring rules; passing it unmodified keeps those intact.
-    digest: str
-
-    #: IA3 cards. Eligible-only by default.
-    cards: Sequence[Mapping[str, Any]] = ()
-
-    #: Audit-only cards deliberately not shown. Stated in the prompt as a count
-    #: so the model knows the evidence set is filtered, not exhaustive.
-    withheld_card_count: int = 0
+    #: Generic candidate problems from every configured evidence stream.
+    evidence: Sequence[EvidenceStreamResult] = ()
 
     #: Trace-loader summary, for corpus-level grounding.
     corpus: Mapping[str, Any] = field(default_factory=dict)
@@ -157,13 +136,6 @@ class _AnalystRequest:
     #: Which packaged prompt to use. Recorded in `run.json` so a given
     #: `insights.json` can always be traced back to the text that produced it.
     prompt_version: str = DEFAULT_PROMPT_VERSION
-
-    #: Traces IA2 flagged as anomalous that no IA3 rule covers. Computed here
-    #: rather than left to the model: cards expose only three representative
-    #: traces each, so "flagged but uncovered" is not derivable from the
-    #: evidence text alone. This is where IA2 sees what IA3 structurally cannot.
-    uncovered_anomalies: Sequence[Mapping[str, Any]] = ()
-
 
 @dataclass(frozen=True)
 class InsightsGenerationResult:
@@ -198,52 +170,23 @@ class InsightsGeneration:
         agent: str,
         corpus: Mapping[str, Any],
         prompt_version: str = DEFAULT_PROMPT_VERSION,
-        all_cards: bool = False,
     ) -> None:
-        """Prepare the concrete stage from the outputs of IA2 and IA3."""
+        """Prepare the concrete stage from generic evidence-stream results."""
 
-        from ..evidence_streams.anomaly_and_patterns import AnomalyAndPatternsArtifacts
-        from ..evidence_streams.tool_issues import ToolIssueEvidenceArtifacts
+        names = [result.stream_name for result in evidence]
+        if len(names) != len(set(names)):
+            raise InsightsGenerationError("evidence stream names must be unique")
 
-        anomaly_payloads = [
-            result.payload
-            for result in evidence
-            if isinstance(result.payload, AnomalyAndPatternsArtifacts)
-        ]
-        tool_issue_payloads = [
-            result.payload
-            for result in evidence
-            if isinstance(result.payload, ToolIssueEvidenceArtifacts)
-        ]
-        if len(anomaly_payloads) != 1:
-            raise InsightsGenerationError(
-                "InsightsGeneration requires exactly one anomaly-and-patterns result"
-            )
-        if len(tool_issue_payloads) != 1:
-            raise InsightsGenerationError(
-                "InsightsGeneration requires exactly one tool-issues result"
-            )
-
-        anomaly_result = anomaly_payloads[0].result
-        all_tool_cards = list(tool_issue_payloads[0].cards)
-        cards, withheld = _select_cards(all_tool_cards, all_cards=all_cards)
         self._request = _AnalystRequest(
             agent=agent,
-            digest=str(anomaly_result["digest"]),
-            cards=cards,
-            withheld_card_count=withheld,
+            evidence=tuple(evidence),
             corpus=corpus,
             prompt_version=prompt_version,
-            uncovered_anomalies=_uncovered_anomalies(
-                anomaly_result.get("anomalies", ()),
-                tool_issue_payloads[0].findings,
-            ),
         )
         self.snapshot = snapshot
         self.evidence = tuple(evidence)
-        self.cards_shown = len(cards)
-        self.cards_withheld = withheld
-        self.uncovered_anomaly_count = len(self._request.uncovered_anomalies)
+        self.problems_presented = sum(len(result.problems) for result in evidence)
+        self.problems_withheld = sum(result.withheld_problem_count for result in evidence)
 
     def build_prompt(self) -> tuple[str, str]:
         return _build_prompt(self._request)
@@ -252,14 +195,12 @@ class InsightsGeneration:
     def known_trace_ids(self) -> set[str]:
         """Trace IDs included in the evidence presented to the Analyst."""
 
-        known = {
-            str(item.get("trace_id"))
-            for card in self._request.cards
-            for item in card.get("representative_evidence", ())
-            if item.get("trace_id")
+        return {
+            trace_id
+            for result in self._request.evidence
+            for problem in result.problems
+            for trace_id in problem.supporting_trace_ids
         }
-        known |= set(re.findall(r"`([^`\s|]+)`", self._request.digest))
-        return known
 
     def generate(
         self,
@@ -281,38 +222,6 @@ class InsightsGeneration:
             max_tool_rounds=max_tool_rounds,
             **litellm_kwargs,
         )
-
-
-def _uncovered_anomalies(
-    anomalies: Sequence[Mapping[str, Any]], findings: Sequence[Mapping[str, Any]]
-) -> list[dict[str, Any]]:
-    covered = {str(finding["trace_id"]) for finding in findings}
-    return [
-        {
-            "trace_id": row["trace_id"],
-            "anomaly_score": row["anomaly_score"],
-            "anomaly_reasons": list(row.get("anomaly_reasons") or []),
-        }
-        for row in anomalies
-        if row.get("is_anomaly") and row["trace_id"] not in covered
-    ]
-
-
-def _select_cards(
-    cards: Sequence[Mapping[str, Any]], *, all_cards: bool = False
-) -> tuple[list[dict[str, Any]], int]:
-    """Split cards into what the Analyst sees and what is withheld.
-
-    The recurrence gate is the whole point of `eligible_for_analyst`: a card
-    that has not recurred across three independent logical cases is real
-    evidence but weak evidence. Showing everything by default would hand the
-    model a pile of single-case findings and invite it to promote them.
-    """
-
-    if all_cards:
-        return [dict(c) for c in cards], 0
-    eligible = [dict(c) for c in cards if c.get("eligible_for_analyst")]
-    return eligible, len(cards) - len(eligible)
 
 
 def _corpus_summary(corpus: Mapping[str, Any]) -> str:
@@ -375,64 +284,54 @@ def _build_prompt(request: _AnalystRequest) -> tuple[str, str]:
     if summary:
         sections += [f"Corpus: {summary}.", ""]
 
-    sections += [
-        "---",
-        "",
-        "# Stream 1 — IA2 evidence digest",
-        "",
-        request.digest.strip(),
-        "",
-        "---",
-        "",
-        "# Stream 2 — IA3 TID evidence cards",
-        "",
-    ]
-
-    if request.cards:
-        sections += [
-            f"{len(request.cards)} card(s), as JSON:",
-            "",
-            "```json",
-            json.dumps(request.cards, indent=2, ensure_ascii=False),
-            "```",
-        ]
-    else:
+    sections += ["---", "", "# Candidate problems", ""]
+    if not request.evidence:
         sections.append(
-            "No cards reached the Analyst. Either no tool-contract rule fired, or "
-            "nothing recurred across enough independent logical cases to qualify. "
-            "Author from the IA2 digest alone, and do not compensate by lowering "
-            "the bar."
+            "No evidence streams ran. Return no Insights rather than inventing a problem."
         )
 
-    if request.withheld_card_count:
+    for result in request.evidence:
         sections += [
+            f"## {result.stream_name} (version {result.stream_version})",
             "",
-            f"A further {request.withheld_card_count} card(s) were withheld: they are real "
-            "findings that did not recur across three independent logical cases. They are "
-            "not shown here and must not be cited.",
-        ]
-
-    sections += ["", "---", "", "# Cross-stream: anomalies no rule covers", ""]
-    if request.uncovered_anomalies:
-        sections += [
-            f"{len(request.uncovered_anomalies)} trace(s) were flagged as statistical "
-            "outliers by IA2 and have **no IA3 finding of any kind**. No rule covers "
-            "whatever they are doing, so nothing here is proven — but this is the one "
-            "place IA2 sees something IA3 cannot.",
+            (
+                f"Status: {result.status}. Coverage: examined "
+                f"{result.coverage.traces_examined:,} of "
+                f"{result.coverage.traces_available:,} available traces; "
+                f"{result.coverage.traces_evaluable:,} were evaluable."
+            ),
             "",
-            "| Trace | Score | Feature reasons |",
-            "|---|---:|---|",
         ]
-        for row in request.uncovered_anomalies:
-            reasons = "; ".join(row.get("anomaly_reasons") or [])
+        if result.problems:
+            sections += [
+                f"{len(result.problems)} candidate problem(s), as JSON:",
+                "",
+                "```json",
+                json.dumps(
+                    [problem.model_dump(mode="json") for problem in result.problems],
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                "```",
+            ]
+        else:
             sections.append(
-                f"| `{row['trace_id']}` | {float(row['anomaly_score']):.5f} | {reasons} |"
+                "This stream returned no candidate problems. Do not compensate by lowering "
+                "the bar or inferring a problem from the absence of evidence."
             )
-    else:
-        sections.append(
-            "Every anomaly-flagged trace also has at least one IA3 finding, so there is "
-            "no uncovered-behaviour gap to report."
-        )
+        if result.withheld_problem_count:
+            sections += [
+                "",
+                f"A further {result.withheld_problem_count} candidate problem(s) were "
+                "withheld by this stream's own evidence threshold. They are not shown and "
+                "must not be cited.",
+            ]
+        if result.coverage.abstention_reasons:
+            sections += [
+                "",
+                "Coverage limits: " + "; ".join(result.coverage.abstention_reasons) + ".",
+            ]
+        sections += ["", "---", ""]
 
     kickoff = ["Author Insights for this corpus."]
     if '"trace_ids"' not in template and "`trace_ids`" not in template:

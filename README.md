@@ -30,7 +30,7 @@ There are 2 current evidence streams, and we can expect to add more in the futur
 
 The focused CLI commands retain the `run-ia2` and `run-ia3` names from their research lineage.
 
-After the evidence streams run, their outputs are passed to the Analyst Agent to guide its analysis. The Analyst can also look up normalized supporting traces from the same snapshot. The evidence streams identify potentially problematic traces, and the Analyst uses that evidence as a starting point for more detailed exploration and synthesis. It is instructed not to rely exclusively on the evidence streams themselves.
+After the evidence streams run, each returns candidate `Problem` objects with a description and supporting trace IDs. Those Problems are passed to the Analyst Agent to guide its analysis. The Analyst can also look up normalized supporting traces from the same snapshot and uses that evidence as a starting point for more detailed exploration and synthesis.
 
 The Analyst Agent ultimately produces a set of "insights" which are meant to describe a recurring and actionable problem observed from the trace corpus. 
 
@@ -71,10 +71,10 @@ TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insig
 ./out/analyst contains the final output in insights.json. It also contains a prompt.md which is the full interpolated prompt sent to the Analyst Agent. 
 
 ./out/ia2 contains the artifacts from the anomaly-and-pattern evidence stream.
-Those intermediate artifacts are aggregated into a digest.md which is injected into the system prompt of the Analyst. 
+`digest.md` retains its native diagnostic summary; `problems.json` contains the generic handoff sent to Insights generation.
 
 out/ia3 contains the artifacts from the tool-issue evidence stream.
-Those artifacts are aggregated into cards.json which is injected into the system prompt of the Analyst. 
+`cards.json` retains all native tool-issue cards; `problems.json` contains the recurrence-qualified handoff sent to Insights generation.
 
 ## Running the agent on your own traces
 

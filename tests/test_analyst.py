@@ -17,8 +17,14 @@ from pathlib import Path
 import pytest
 
 from insight_agent.cli import EXIT_ERROR, EXIT_OK, main
+from insight_agent.evidence_streams.contracts import (
+    EvidenceCoverage,
+    EvidenceStreamResult,
+    Problem,
+)
 from insight_agent.insights_generation import (
     DEFAULT_MODEL,
+    InsightsGeneration,
     InsightsGenerationError,
     ResponseParseError,
 )
@@ -29,7 +35,6 @@ from insight_agent.insights_generation.llm import (
     _fetch_traces,
     _parse_insights,
     _prompt_template,
-    _select_cards,
 )
 from insight_agent.traces import Span, SpanKind, ToolCall, Trace, TraceSnapshot
 
@@ -42,36 +47,42 @@ def generate(request: _AnalystRequest, *, snapshot: TraceSnapshot = EMPTY_SNAPSH
     return _author_insights(request, snapshot=snapshot, **kwargs)
 
 
-def card(card_id: str, *, eligible: bool = True, trace: str = "t1") -> dict:
-    return {
-        "card_id": card_id,
-        "issue_type": "unknown_tool",
-        "issue_family": "tool_contract_and_arguments",
-        "mechanism_key": "unknown_tool",
-        "finding_count": 5,
-        "independent_case_count": 3 if eligible else 1,
-        "eligible_for_analyst": eligible,
-        "representative_evidence": [
-            {
-                "trace_id": trace,
-                "call_id": f"{trace}#0",
-                "call_index": 0,
-                "tool_name": "GhostTool",
-                "observation": "Tool is absent from the active catalog.",
-            }
-        ],
-        "impact_status": "not_established",
-        "impact_boundary": "No impact is claimed beyond the directly observed tool-use issue.",
-    }
+def evidence_result(
+    *,
+    name: str = "test-stream",
+    problems: tuple[Problem, ...] = (),
+    withheld: int = 0,
+) -> EvidenceStreamResult:
+    return EvidenceStreamResult(
+        stream_name=name,
+        stream_version="1",
+        status="completed",
+        coverage=EvidenceCoverage(
+            traces_available=18,
+            traces_examined=18,
+            traces_evaluable=18,
+        ),
+        problems=problems,
+        withheld_problem_count=withheld,
+    )
 
 
 @pytest.fixture
 def request_obj():
     return _AnalystRequest(
         agent="DocOps agent",
-        digest="# IA2 cited evidence digest\n\n| Trace |\n| `docops-outlier` |",
-        cards=[card("tid:unknown_tool:unknown_tool")],
-        withheld_card_count=4,
+        evidence=(
+            evidence_result(
+                name="anomaly-and-patterns",
+                problems=(
+                    Problem(
+                        description="Recurring search failures affect document lookup.",
+                        supporting_trace_ids=("docops-outlier", "t1"),
+                    ),
+                ),
+                withheld=4,
+            ),
+        ),
         corpus={"trace_count": 18, "call_count": 79, "distinct_logical_cases": 16},
     )
 
@@ -112,21 +123,17 @@ def test_prompt_carries_the_agent_name(request_obj):
     assert "{agent}" not in system
 
 
-def test_prompt_includes_the_digest_verbatim(request_obj):
+def test_prompt_includes_problem_description_and_supporting_traces(request_obj):
     system, _ = _build_prompt(request_obj)
-    assert request_obj.digest.strip() in system
+    assert "Recurring search failures affect document lookup." in system
+    assert "docops-outlier" in system
+    assert "supporting_trace_ids" in system
 
 
-def test_prompt_includes_every_shown_card(request_obj):
+def test_prompt_states_the_withheld_problem_count(request_obj):
+    """Silently filtering candidate problems would misrepresent the evidence set."""
     system, _ = _build_prompt(request_obj)
-    assert "tid:unknown_tool:unknown_tool" in system
-    assert "independent_case_count" in system
-
-
-def test_prompt_states_the_withheld_card_count(request_obj):
-    """Silently dropping audit-only cards would misrepresent the evidence set."""
-    system, _ = _build_prompt(request_obj)
-    assert "4 card(s) were withheld" in system
+    assert "4 candidate problem(s) were withheld" in system
     assert "must not be cited" in system
 
 
@@ -159,7 +166,7 @@ def test_output_contract_is_supplied_when_the_template_omits_it(tmp_path, monkey
     monkeypatch.setattr(
         llm, "_prompt_template", lambda v=None: "Find problems in {agent}.\n\n{evidence}"
     )
-    system, user = llm._build_prompt(llm._AnalystRequest(agent="A", digest="d"))
+    system, user = llm._build_prompt(llm._AnalystRequest(agent="A"))
     assert '"trace_ids"' in user
 
 
@@ -170,35 +177,54 @@ def test_a_template_without_the_evidence_marker_is_an_error(monkeypatch):
 
     monkeypatch.setattr(llm, "_prompt_template", lambda v=None: "Analyse {agent}.")
     with pytest.raises(InsightsGenerationError, match="{evidence}"):
-        llm._build_prompt(llm._AnalystRequest(agent="A", digest="d"))
+        llm._build_prompt(llm._AnalystRequest(agent="A"))
 
 
-def test_prompt_explains_a_missing_card_stream():
-    request = _AnalystRequest(agent="A", digest="d", cards=[])
+def test_prompt_explains_a_missing_evidence_stream():
+    request = _AnalystRequest(agent="A")
     system, _ = _build_prompt(request)
-    assert "No cards reached the Analyst" in system
-    assert "do not compensate by lowering" in system
+    assert "No evidence streams ran" in system
+    assert "rather than inventing" in system
 
 
 def test_prompt_template_is_versioned_and_packaged():
     assert "You are the Analyst agent" in _prompt_template()
 
 
-# -- card selection --------------------------------------------------------
+# -- generic evidence handoff ---------------------------------------------
 
 
-def test_only_eligible_cards_are_shown_by_default():
-    cards = [card("a"), card("b", eligible=False), card("c", eligible=False)]
-    shown, withheld = _select_cards(cards)
-    assert [c["card_id"] for c in shown] == ["a"]
-    assert withheld == 2
+def test_insights_generation_accepts_an_arbitrary_evidence_stream():
+    evidence = evidence_result(
+        name="latency-profile",
+        problems=(
+            Problem(
+                description="Model calls dominate end-to-end latency.",
+                supporting_trace_ids=("t1",),
+            ),
+        ),
+    )
+    generation = InsightsGeneration(
+        snapshot=EMPTY_SNAPSHOT,
+        evidence=(evidence,),
+        agent="A",
+        corpus={},
+    )
+
+    assert generation.problems_presented == 1
+    assert generation.known_trace_ids == {"t1"}
+    assert "latency-profile" in generation.build_prompt()[0]
 
 
-def test_all_cards_shows_everything_and_withholds_nothing():
-    cards = [card("a"), card("b", eligible=False)]
-    shown, withheld = _select_cards(cards, all_cards=True)
-    assert len(shown) == 2
-    assert withheld == 0
+def test_insights_generation_rejects_duplicate_stream_names():
+    evidence = evidence_result(name="duplicate")
+    with pytest.raises(InsightsGenerationError, match="unique"):
+        InsightsGeneration(
+            snapshot=EMPTY_SNAPSHOT,
+            evidence=(evidence, evidence),
+            agent="A",
+            corpus={},
+        )
 
 
 # -- response parsing ------------------------------------------------------
@@ -559,9 +585,10 @@ def test_full_run_writes_insights_and_provenance(tmp_path, mock_litellm):
 
     run = json.loads((out / "analyst" / "run.json").read_text(encoding="utf-8"))
     assert run["agent"] == "DocOps"
-    assert run["prompt_version"] == "analyst_v3"
+    assert run["prompt_version"] == "analyst_v4"
     assert run["insight_count"] == 1
-    assert run["cards_withheld"] > 0
+    assert run["problems_withheld"] > 0
+    assert run["problems_presented"] > 0
 
 
 def test_unparseable_response_is_saved_not_lost(tmp_path, mock_litellm, capsys):
@@ -714,6 +741,35 @@ def test_digest_and_cards_must_be_given_together(tmp_path, capsys):
     )
     assert code == EXIT_ERROR
     assert "must be given together" in capsys.readouterr().err
+
+
+def test_existing_ia2_and_ia3_artifacts_rebuild_the_problem_handoff(tmp_path):
+    out = tmp_path / "out"
+    assert main(["run-all", str(CORPUS), "-o", str(out), "--quiet", "--no-analyst"]) == EXIT_OK
+
+    assert (
+        main(
+            [
+                "run-analyst",
+                str(CORPUS),
+                "--agent",
+                "DocOps",
+                "-o",
+                str(out),
+                "--digest",
+                str(out / "ia2" / "digest.md"),
+                "--cards",
+                str(out / "ia3" / "cards.json"),
+                "--dry-run",
+            ]
+        )
+        == EXIT_OK
+    )
+
+    prompt = (out / "analyst" / "prompt.md").read_text(encoding="utf-8")
+    assert "anomaly-and-patterns" in prompt
+    assert "tool-issues" in prompt
+    assert "candidate problem(s), as JSON" in prompt
 
 
 def test_no_analyst_keeps_run_all_free_of_any_api_dependency(tmp_path, monkeypatch):

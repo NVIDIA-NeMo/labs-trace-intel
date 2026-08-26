@@ -327,10 +327,10 @@ def _write_anomaly_and_patterns(
     from .evidence_streams.anomaly_and_patterns import AnomalyAndPatternsArtifacts
     from .serialize import prepared_features, write_json
 
-    payload = evidence.payload
-    if not isinstance(payload, AnomalyAndPatternsArtifacts):
-        raise TypeError("anomaly-and-patterns stream returned an unexpected payload")
-    result = payload.result
+    artifacts = evidence.artifacts
+    if not isinstance(artifacts, AnomalyAndPatternsArtifacts):
+        raise TypeError("anomaly-and-patterns stream returned unexpected artifacts")
+    result = artifacts.result
 
     if args.out == Path("-"):
         sys.stdout.write(str(result["digest"]))
@@ -346,7 +346,11 @@ def _write_anomaly_and_patterns(
     write_json(target / "cross_tool_failure_groups.json", result["cross_tool_failure_groups"])
     write_json(target / "failure_events.json", result["failure_events"])
     write_json(target / "features.json", prepared_features(result["prepared"]))
-    write_json(target / "run.json", _run_metadata(loader, profile, dict(payload.parameters)))
+    write_json(
+        target / "problems.json",
+        [problem.model_dump(mode="json") for problem in evidence.problems],
+    )
+    write_json(target / "run.json", _run_metadata(loader, profile, dict(artifacts.parameters)))
 
     if not args.quiet:
         flagged = [row for row in result["anomalies"] if row["is_anomaly"]]
@@ -388,6 +392,7 @@ def _analyze_tool_issues(
     stream = ToolIssueEvidenceStream(
         minimum_independent_cases=args.min_independent_cases,
         retry_threshold=args.retry_threshold,
+        include_audit_problems=args.all_cards,
         profile=profile,
     )
     return stream.analyze(snapshot)
@@ -403,19 +408,23 @@ def _write_tool_issues(
     from .evidence_streams.tool_issues import ToolIssueEvidenceArtifacts
     from .serialize import write_json
 
-    payload = evidence.payload
-    if not isinstance(payload, ToolIssueEvidenceArtifacts):
-        raise TypeError("tool-issue evidence stream returned an unexpected payload")
+    artifacts = evidence.artifacts
+    if not isinstance(artifacts, ToolIssueEvidenceArtifacts):
+        raise TypeError("tool-issue evidence stream returned unexpected artifacts")
 
-    findings = list(payload.findings)
-    cards = list(payload.cards)
+    findings = list(artifacts.findings)
+    cards = list(artifacts.cards)
     eligible = [card for card in cards if card["eligible_for_analyst"]]
     rendered = cards if (args.all_cards or not eligible) else eligible
     target = args.out / "ia3"
     target.mkdir(parents=True, exist_ok=True)
     write_json(target / "findings.json", findings)
     write_json(target / "cards.json", cards)
-    write_json(target / "coverage.json", payload.catalog_coverage)
+    write_json(target / "coverage.json", artifacts.catalog_coverage)
+    write_json(
+        target / "problems.json",
+        [problem.model_dump(mode="json") for problem in evidence.problems],
+    )
     (target / "cards.md").write_text(_render_cards(rendered, total=len(cards)), encoding="utf-8")
     write_json(
         target / "run.json",
@@ -635,14 +644,30 @@ def _insights_inputs(args):
     profile = _venue_profile(args)
 
     if args.digest:
-        from .evidence_streams.anomaly_and_patterns import AnomalyAndPatternsArtifacts
+        from .evidence_streams.anomaly_and_patterns import (
+            AnomalyAndPatternsArtifacts,
+            problems_from_analysis,
+        )
         from .evidence_streams.contracts import EvidenceCoverage, EvidenceStreamResult
-        from .evidence_streams.tool_issues import ToolIssueEvidenceArtifacts
+        from .evidence_streams.tool_issues import (
+            ToolIssueEvidenceArtifacts,
+            problems_from_cards,
+        )
 
         digest = Path(args.digest).read_text(encoding="utf-8")
         cards = json.loads(Path(args.cards).read_text(encoding="utf-8"))
         anomalies = _read_sibling(args.digest, "anomalies.json") or []
+        failure_groups = _read_sibling(args.digest, "failure_groups.json") or []
+        cross_tool_groups = _read_sibling(args.digest, "cross_tool_failure_groups.json") or []
         finding_rows = _read_sibling(args.cards, "findings.json") or []
+        anomaly_result = {
+            "digest": digest,
+            "anomalies": anomalies,
+            "failure_groups": failure_groups,
+            "cross_tool_failure_groups": cross_tool_groups,
+        }
+        anomaly_problems = problems_from_analysis(anomaly_result)
+        tool_problems = problems_from_cards(cards, include_audit=args.all_cards)
         coverage = EvidenceCoverage(
             traces_available=snapshot.trace_count,
             traces_examined=snapshot.trace_count,
@@ -654,21 +679,33 @@ def _insights_inputs(args):
                 stream_version="1",
                 status="completed",
                 coverage=coverage,
-                payload=AnomalyAndPatternsArtifacts(
-                    result={"digest": digest, "anomalies": anomalies},
+                problems=anomaly_problems,
+                artifacts=AnomalyAndPatternsArtifacts(
+                    result=anomaly_result,
                     parameters={},
                 ),
+                metrics={"problem_count": len(anomaly_problems)},
             ),
             EvidenceStreamResult(
                 stream_name="tool-issues",
                 stream_version="1",
                 status="completed",
                 coverage=coverage,
-                payload=ToolIssueEvidenceArtifacts(
+                problems=tool_problems,
+                artifacts=ToolIssueEvidenceArtifacts(
                     findings=tuple(finding_rows),
                     cards=tuple(cards),
                     catalog_coverage={},
                 ),
+                withheld_problem_count=(
+                    0
+                    if args.all_cards
+                    else sum(not bool(card["eligible_for_analyst"]) for card in cards)
+                ),
+                metrics={
+                    "card_count": len(cards),
+                    "problem_count": len(tool_problems),
+                },
             ),
         )
         return loader, snapshot, evidence
@@ -687,10 +724,7 @@ def _read_sibling(reference: Path, name: str) -> Any:
     candidate = Path(reference).parent / name
     if not candidate.is_file():
         return None
-    try:
-        return json.loads(candidate.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
+    return json.loads(candidate.read_text(encoding="utf-8"))
 
 
 def _run_insights(
@@ -721,7 +755,6 @@ def _run_insights(
             agent=args.agent,
             corpus=loader.describe(),
             prompt_version=args.prompt_version,
-            all_cards=args.all_cards,
         )
     except (InsightsGenerationError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -746,8 +779,10 @@ def _run_insights(
         print(f"  credentials           : {'found' if api_key else 'NOT FOUND'}")
         if loaded:
             print(f"  loaded from .env      : {', '.join(sorted(loaded))}")
-        print(f"  cards shown / withheld: {generation.cards_shown} / {generation.cards_withheld}")
-        print(f"  uncovered anomalies   : {generation.uncovered_anomaly_count}")
+        print(
+            "  problems shown/withheld: "
+            f"{generation.problems_presented} / {generation.problems_withheld}"
+        )
         print(f"  prompt                : {target / 'prompt.md'}")
         print(f"  approx input tokens   : {approx:,}")
         return EXIT_OK
@@ -787,15 +822,15 @@ def _run_insights(
             "api_base": api_base,
             "tool_calls": result.tool_calls,
             "traces_fetched": list(result.traces_fetched),
-            "cards_shown": generation.cards_shown,
-            "cards_withheld": generation.cards_withheld,
+            "problems_presented": generation.problems_presented,
+            "problems_withheld": generation.problems_withheld,
             "insight_count": len(result.insights),
             "corpus": loader.describe(),
         },
     )
 
     if not args.quiet:
-        print(f"Analyst over {generation.cards_shown} card(s) -> {target}")
+        print(f"Analyst over {generation.problems_presented} problem(s) -> {target}")
         print(f"  model                 : {result.model}")
         if result.usage:
             tokens = result.usage.get("total_tokens") or result.usage.get("prompt_tokens")
@@ -809,11 +844,11 @@ def _run_insights(
         print(f"  insights              : {len(result.insights)}")
         print(f"  insights              : {target / 'insights.json'}")
 
-        if generation.cards_withheld:
+        if generation.problems_withheld:
             print(
-                f"  note: {generation.cards_withheld} audit-only card(s) were withheld "
-                "(they did not recur "
-                "across enough independent cases). Pass --all-cards to include them."
+                f"  note: {generation.problems_withheld} candidate problem(s) were withheld "
+                "by their evidence streams. Pass --all-cards to include audit-only "
+                "tool issues."
             )
         if not result.insights:
             print(

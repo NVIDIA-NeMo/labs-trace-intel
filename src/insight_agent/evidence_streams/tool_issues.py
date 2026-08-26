@@ -20,7 +20,7 @@ from jsonschema import validators
 
 from ..traces import UNSET, SpanKind, SpanStatus, Trace, TraceSnapshot
 from ..venue import DEFAULT_PROFILE, VenueProfile
-from .contracts import EvidenceCoverage, EvidenceStreamResult
+from .contracts import EvidenceCoverage, EvidenceStreamResult, Problem
 
 DETECTOR_VERSION = "tid-v1"
 CARD_MINIMUM_CASES = 3
@@ -536,6 +536,47 @@ class ToolIssueEvidenceArtifacts:
     catalog_coverage: Mapping[str, int]
 
 
+def problems_from_cards(
+    cards: Sequence[Mapping[str, Any]], *, include_audit: bool = False
+) -> tuple[Problem, ...]:
+    """Project recurring tool-issue cards into candidate problems for synthesis."""
+
+    problems: list[Problem] = []
+    for card in cards:
+        if not include_audit and not card.get("eligible_for_analyst"):
+            continue
+        representatives = tuple(card.get("representative_evidence", ()))
+        trace_ids = tuple(
+            dict.fromkeys(
+                str(item["trace_id"])
+                for item in representatives
+                if item.get("trace_id")
+            )
+        )
+        if not trace_ids:
+            continue
+        observation_parts = []
+        for item in representatives:
+            observation = str(item.get("observation") or "issue observed").rstrip(". ")
+            observation_parts.append(
+                f"{item.get('tool_name') or 'unknown tool'}: {observation}"
+            )
+        observations = "; ".join(observation_parts)
+        problems.append(
+            Problem(
+                description=(
+                    f"Tool issue `{card['issue_type']}` with mechanism "
+                    f"`{card['mechanism_key']}` produced {card['finding_count']} finding(s) "
+                    f"across {card['independent_case_count']} independent case(s). "
+                    f"Representative observations: {observations}. "
+                    f"{card['impact_boundary']}"
+                ),
+                supporting_trace_ids=trace_ids,
+            )
+        )
+    return tuple(problems)
+
+
 def _trace_input_text(trace: Trace) -> str:
     if isinstance(trace.input, str):
         return trace.input
@@ -635,6 +676,7 @@ class ToolIssueEvidenceStream:
 
     minimum_independent_cases: int = CARD_MINIMUM_CASES
     retry_threshold: int = RETRY_THRESHOLD
+    include_audit_problems: bool = False
     profile: VenueProfile = DEFAULT_PROFILE
 
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
@@ -648,6 +690,13 @@ class ToolIssueEvidenceStream:
             findings,
             minimum_independent_cases=self.minimum_independent_cases,
         )
+        problems = problems_from_cards(cards, include_audit=self.include_audit_problems)
+        selected_card_count = (
+            len(cards)
+            if self.include_audit_problems
+            else sum(bool(card["eligible_for_analyst"]) for card in cards)
+        )
+        withheld = len(cards) - selected_card_count
         return EvidenceStreamResult(
             stream_name=self.name,
             stream_version=self.version,
@@ -658,7 +707,8 @@ class ToolIssueEvidenceStream:
                 traces_evaluable=len(traces),
                 abstention_reasons=_tool_issue_abstentions(traces),
             ),
-            payload=ToolIssueEvidenceArtifacts(
+            problems=problems,
+            artifacts=ToolIssueEvidenceArtifacts(
                 findings=tuple(findings),
                 cards=tuple(cards),
                 catalog_coverage=catalog_coverage(findings),
@@ -666,5 +716,7 @@ class ToolIssueEvidenceStream:
             metrics={
                 "finding_count": len(findings),
                 "card_count": len(cards),
+                "problem_count": len(problems),
             },
+            withheld_problem_count=withheld,
         )

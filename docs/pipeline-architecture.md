@@ -310,7 +310,7 @@ of `TraceSnapshot` or `scan()`.
 flowchart TB
     input["Input<br/>TraceSnapshot"]
     stream["Concrete example<br/>AnomalyAndPatternsEvidenceStream"]
-    output["Output<br/>EvidenceStreamResult"]
+    output["Output<br/>EvidenceStreamResult<br/>Problems + native artifacts"]
     input --> stream --> output
 ```
 
@@ -320,7 +320,8 @@ Evidence streams independently surface evidence that may support an Insight. Eve
 - can be enabled, disabled, and evaluated independently;
 - does not read prior Insights or another stream's result;
 - distinguishes a completed empty result, an explicit abstention, and an execution failure;
-- reports its coverage and returns its native evidence with trace IDs where applicable.
+- reports its coverage and returns candidate `Problem` values with supporting trace IDs;
+- may retain native artifacts for focused inspection and evaluation.
 
 A stream may contain complex internal steps. IA2, for example, performs feature extraction,
 anomaly detection, clustering, and recurring-pattern analysis. Those actions belong to IA2;
@@ -337,18 +338,30 @@ class EvidenceStream(Protocol):
     ) -> EvidenceStreamResult: ...
 
 
+class Problem(ContractModel):
+    description: str
+    supporting_trace_ids: tuple[str, ...]
+
+
 class EvidenceStreamResult(ContractModel):
     stream_name: str
     stream_version: str
     status: Literal["completed", "abstained"]
     coverage: EvidenceCoverage
-    payload: Any  # stream-specific typed artifact
+    problems: tuple[Problem, ...]
+    artifacts: Any = None
+    withheld_problem_count: int = 0
     metrics: Mapping[str, JsonValue] = field(default_factory=dict)
 ```
 
-The common result contract stays small. Each result retains a stream-specific typed payload,
-such as IA2's feature/clustering output or IA3's findings and cards. This preserves different
-levels of fidelity without forcing every technique into one universal evidence schema.
+`Problem` is the common handoff to Insights generation. It says what may be wrong and which
+normalized traces support investigating it. It does not claim root cause, impact, prevalence,
+or that every matching trace has been found.
+
+Native stream outputs remain available in `artifacts`, such as IA2's feature and clustering
+results or IA3's findings and cards. They support diagnostics and evaluation but are not part
+of the synthesis interface. Each stream owns the projection from its native analysis into
+Problems, including its own evidence threshold.
 
 The Analyst collects the results and passes them directly to `InsightsGeneration`. Collection
 is ordinary orchestration, not a separate merge or composition phase.
@@ -387,9 +400,10 @@ result = generation.generate()
 insights = result.insights
 ```
 
-Concrete example: the existing Analyst receives IA2's digest and IA3's recurrence-qualified
-tool-issue cards, fetches the cited canonical traces, and produces Insights through a versioned
-LLM prompt. The implementation and its prompt live together under `insights_generation/`.
+Concrete example: the existing Analyst receives Problems from IA2 and IA3, fetches their
+supporting canonical traces, and produces Insights through a versioned LLM prompt. It has no
+dependency on either stream's native artifact type. The implementation and its prompt live
+together under `insights_generation/`.
 
 Historical reconciliation, lifecycle management, and comprehensive trace categorization can
 be implemented inside this concrete capability as they are added. They do not require generic

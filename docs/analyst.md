@@ -1,14 +1,14 @@
 # The Analyst stage
 
-IA2 and IA3 stop deliberately short of a conclusion. The specification is
-explicit about it — *"only the Analyst LLM authors formal Insights"* — and the
-IA2 digest ends with five numbered "Analyst authoring rules" addressed to a
-reader that, until now, this repo did not contain.
+IA2 and IA3 stop deliberately short of a conclusion. Each evidence stream
+projects its native analysis into candidate `Problem` objects containing a
+description and supporting trace IDs. Only the Analyst LLM turns those Problems
+into formal Insights.
 
-`run-analyst` is that reader. It sends the IA2 digest and the recurrence-
-qualified IA3 cards to a model through [litellm](https://github.com/BerriAI/litellm),
-gives it a tool for inspecting normalized traces from the snapshot, and writes back the
-authored Insights.
+`run-analyst` sends the Problems from every configured evidence stream to a
+model through [litellm](https://github.com/BerriAI/litellm), gives it a tool for
+inspecting normalized traces from the snapshot, and writes back the authored
+Insights.
 
 ```bash
 cp .env.example .env      # then fill in INSIGHT_AGENT_API_KEY
@@ -42,37 +42,27 @@ Each Insight has exactly three fields:
 |---|---|
 | `insights.json` | the deliverable |
 | `prompt.md` | the opening prompt that was sent, system and user turns |
-| `run.json` | model, token usage, prompt version, card counts, corpus description, and every trace the model fetched |
+| `run.json` | model, token usage, prompt version, Problem counts, corpus description, and every trace the model fetched |
 | `analyst_raw.txt` | only on a parse failure — the unparsed response, kept rather than discarded |
 
 ## What the Analyst sees
 
-Two streams up front, kept separate, exactly as the spec requires:
+The Analyst receives every `EvidenceStreamResult`, grouped by stream, but only
+its generic fields: status, coverage, Problems, and the count of Problems the
+stream withheld. It does not import or interpret IA2 or IA3 artifact types.
 
-1. **The IA2 digest**, verbatim — including its own reader contract and
-   authoring rules.
-2. **The IA3 cards** as JSON, so `card_id`, `independent_case_count`,
-   `attribution`, and every `representative_evidence` pointer stay quotable.
-
-**Only cards marked `eligible_for_analyst` are shown by default.** Audit-only
-cards are real findings that did not recur across three independent logical
-cases; showing them by default would hand the model a pile of single-case
-findings and invite it to promote them. The prompt states how many were
-withheld, so the evidence set is never silently filtered. `--all-cards`
-includes them.
-
-`findings.json` is deliberately **not** sent. It grows linearly with finding
-count — 67 findings is already 60 KB — and `cards.json` is its bounded
-projection.
+IA2 creates Problems for statistical outliers, recurring strict failures, and
+failures whose normalized message crosses tool boundaries. Its digest,
+features, and clustering output remain diagnostic artifacts. IA3 creates one
+Problem per recurrence-qualified tool-issue card. Audit-only cards remain in
+`cards.json`; `--all-cards` also exposes them as Problems.
 
 ### And normalized traces, on request
 
-The digest and the cards are a *map*, not the territory. Both are lossy by
-design: the digest reports that a trace is anomalous without saying what
-happened in it, and a card quotes one line of observation per representative
-call. An Analyst reading only those two streams can restate them, rank them,
-and merge them — but it cannot discover a mechanism neither stage was built to
-look for.
+The Problems are a *map*, not the territory. They are compact and lossy by
+design. An Analyst reading only the descriptions can restate, rank, and merge
+them, but it cannot discover a mechanism that requires inspecting the actual
+messages, calls, and results.
 
 So the model is also given a tool:
 
@@ -98,14 +88,11 @@ there would be nothing telling the model what it is for.
 
 ### Size
 
-The **opening** prompt is bounded, not linear in corpus size — the digest caps
-every variable section, and card count is bounded by distinct
-`(issue_type, mechanism_key)` pairs. Measured across corpora spanning two
-orders of magnitude, the opening prompt held at roughly 3,000 tokens
-throughout.
-
-No chunking layer is needed: a 38k-call corpus opens with the same size prompt
-as a 193-call one.
+The opening prompt scales with the number and size of candidate Problems, not
+with raw trace or finding count. IA2 caps the supporting IDs on its aggregate
+anomaly Problem, and IA3's Problem count is bounded by distinct
+`(issue_type, mechanism_key)` pairs. Corpus-scale prompt measurements should be
+tracked as additional streams are added.
 
 What is *not* bounded is the rest of the turn. Cost now depends on how many
 traces the model opens and how large they are, which is a property of the
@@ -197,17 +184,17 @@ usually also the right choice.
 
 ## Re-running without recomputing
 
-`--digest` and `--cards` bypass IA2 and IA3 and use existing artifacts, so a
-prompt change can be re-issued against a frozen evidence set:
+`--digest` and `--cards` bypass IA2 and IA3 and rebuild Problems from existing
+artifacts, so a prompt change can be re-issued against a frozen evidence set:
 
 ```bash
 insight-agent run-analyst traces.jsonl --agent A -o out \
   --digest out/ia2/digest.md --cards out/ia3/cards.json
 ```
 
-`run-all` does this automatically, reusing the digest and cards it just
-computed. `--agent` is only a label for the system under test and defaults to
-the corpus filename.
+`run-all` reuses the in-memory `EvidenceStreamResult` values it just computed.
+`--agent` is only a label for the system under test and defaults to the corpus
+filename.
 
 ## Reading the output honestly
 
@@ -231,21 +218,15 @@ terms, because that is fabrication rather than an undocumented lookup. Invented
 pointers are the failure that killed all six candidate Insights in those
 recorded trials, so if that warning ever appears, treat the run as unreliable.
 
-**The shipped prompt does not forbid impact claims.** Earlier drafts carried the
-spec's guardrails verbatim — impact is `not_established` and may not be
-upgraded, cite at least three traces, do not restate an anomaly flag as a
-defect. `analyst_v3` deliberately drops them in favour of a shorter prompt that
-leans on the tool loop, and the tradeoff is visible in the output: on one real
-corpus it authored two single-trace Insights and used impact language ("interrupts
-workflows", "wastes turns") that the earlier prompts produced none of. In
-exchange it named mechanisms neither evidence stream contains — that the failing
-tool required the formula output to be passed as a parameter — because it went
-and read the calls. Judge the descriptions on their evidence, not on their
-confidence; nothing upstream measured consequences.
+**The shipped prompt treats Problems as evidence, not conclusions.** It directs
+the Analyst to inspect supporting traces, consolidate only when mechanisms
+match, and avoid upgrading anomaly or rule-match evidence into unsupported root
+cause or impact claims. Judge descriptions on the cited traces; evidence
+streams identify where to investigate but do not measure consequences.
 
 ## Prompt
 
-`src/insight_agent/insights_generation/prompts/analyst_v3.md`, packaged with the wheel. The spec
+`src/insight_agent/insights_generation/prompts/analyst_v4.md`, packaged with the wheel. The spec
 assumes a frozen prompt and output contract across matched comparisons, so the
 version is recorded in every `run.json` and the assembled text is echoed into
 every `prompt.md`.
@@ -253,8 +234,8 @@ every `prompt.md`.
 To try your own, drop a `<name>.md` beside it and pass `--prompt-version <name>`.
 Two requirements:
 
-- It must contain the marker `{evidence}`, which is where the digest, the cards,
-  and the withheld/uncovered counts are substituted. A template without it is an
+- It must contain the marker `{evidence}`, which is where evidence-stream
+  coverage, Problems, and withheld counts are substituted. A template without it is an
   error rather than an append, so a typo cannot send a paid request whose
   evidence landed somewhere the prompt never refers to. `{agent}` is also
   substituted if present.
