@@ -16,7 +16,7 @@ CANONICAL_SCHEMA_VERSION = "insight-trace/v1"
 _LAZY = {
     "evidence_streams",
     "insights_generation",
-    "loader",
+    "trace_loaders",
     "validate",
     "venue",
     "coverage",
@@ -31,8 +31,8 @@ if TYPE_CHECKING:  # pragma: no cover - import-time typing only
         coverage,
         evidence_streams,
         insights_generation,
-        loader,
         serialize,
+        trace_loaders,
         traces,
         validate,
         venue,

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from insight_agent.loader import to_trace
+from insight_agent.trace_loaders import InsightTraceV1Loader
 from insight_agent.traces import (
     UNSET,
     Span,
@@ -52,7 +52,12 @@ def test_deep_flat_span_topology_is_valid_and_serializable():
         ),
     )
 
-    assert [span.parent_span_id for span in trace.spans] == [None, "agent-root", "chain", "agent-child"]
+    assert [span.parent_span_id for span in trace.spans] == [
+        None,
+        "agent-root",
+        "chain",
+        "agent-child",
+    ]
     dumped = trace.model_dump(mode="json")
     assert dumped["input"] == [{"role": "user", "content": "Find the report"}]
     assert dumped["output"] == [{"role": "assistant", "content": "Found it"}]
@@ -71,9 +76,7 @@ def test_full_llm_messages_remain_structured():
             {
                 "role": "assistant",
                 "content": None,
-                "tool_calls": [
-                    {"id": "call-1", "name": "search", "arguments": {"query": "it"}}
-                ],
+                "tool_calls": [{"id": "call-1", "name": "search", "arguments": {"query": "it"}}],
             }
         ]
     }
@@ -171,7 +174,7 @@ def test_snapshot_scans_are_stable_and_independent():
     assert [trace.id for trace in first] == ["trace-2"]
     assert [trace.id for trace in second] == ["trace-1", "trace-2"]
     assert snapshot.trace_count == 3
-    assert snapshot.snapshot_id.startswith("sha256:")
+    assert snapshot.source == "fixture"
 
 
 def test_snapshot_rejects_duplicate_trace_ids():
@@ -186,32 +189,38 @@ def test_timestamp_must_be_timezone_aware():
 
 
 def test_input_normalization_preserves_missing_null_and_duplicate_source_ids():
-    trace = to_trace(
-        {
-            "schema_version": "insight-trace/v1",
-            "trace_id": "duplicate-source-ids",
-            "calls": [
+    trace = next(
+        InsightTraceV1Loader.from_records(
+            [
                 {
-                    "call_id": "duplicate",
-                    "call_index": 0,
-                    "tool_name": "search",
-                    "arguments": {"query": "first"},
-                },
-                {
-                    "call_id": "duplicate",
-                    "call_index": 1,
-                    "tool_name": "search",
-                    "arguments": {"query": "second"},
-                    "result": None,
-                },
-            ],
-            "steps": [
-                {"step_index": 0, "step_type": "planning", "content": "search twice"},
-                {"step_index": 1, "step_type": "tool", "name": "search"},
-                {"step_index": 2, "step_type": "tool", "name": "search"},
-            ],
-            "tool_catalog": {"search": {"type": "object"}},
-        }
+                    "schema_version": "insight-trace/v1",
+                    "trace_id": "duplicate-source-ids",
+                    "calls": [
+                        {
+                            "call_id": "duplicate",
+                            "call_index": 0,
+                            "tool_name": "search",
+                            "arguments": {"query": "first"},
+                        },
+                        {
+                            "call_id": "duplicate",
+                            "call_index": 1,
+                            "tool_name": "search",
+                            "arguments": {"query": "second"},
+                            "result": None,
+                        },
+                    ],
+                    "steps": [
+                        {"step_index": 0, "step_type": "planning", "content": "search twice"},
+                        {"step_index": 1, "step_type": "tool", "name": "search"},
+                        {"step_index": 2, "step_type": "tool", "name": "search"},
+                    ],
+                    "tool_catalog": {"search": {"type": "object"}},
+                }
+            ]
+        )
+        .load()
+        .scan()
     )
 
     tool_spans = [span for span in trace.spans if span.kind is SpanKind.TOOL]

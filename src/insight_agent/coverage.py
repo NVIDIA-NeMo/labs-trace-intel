@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .evidence_streams.tool_issues import FINDING_TYPES
-from .loader import Corpus
+from .trace_loaders import InsightTraceV1Loader
 
 __all__ = ["RULE_REQUIREMENTS", "corpus_coverage", "format_coverage"]
 
@@ -228,12 +228,16 @@ def _rule_status(
     }
 
 
-def corpus_coverage(corpus: Corpus, *, findings: Sequence[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+def corpus_coverage(
+    loader: InsightTraceV1Loader,
+    *,
+    findings: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Build the full capability report for a loaded corpus."""
 
-    records = list(corpus.records)
+    records = list(loader.records)
     presence = _field_presence(records)
-    has_corpus_catalog = corpus.options.tool_catalog is not None
+    has_corpus_catalog = loader.options.tool_catalog is not None
     fired = {f["issue_type"] for f in (findings or [])}
 
     rules = [_rule_status(r, presence, fired, has_corpus_catalog) for r in RULE_REQUIREMENTS]
@@ -297,7 +301,7 @@ def corpus_coverage(corpus: Corpus, *, findings: Sequence[Mapping[str, Any]] | N
         )
 
     return {
-        "source": corpus.source,
+        "source": loader.source,
         "trace_count": trace_count,
         "call_count": presence["total_calls"],
         "step_count": presence["total_steps"],

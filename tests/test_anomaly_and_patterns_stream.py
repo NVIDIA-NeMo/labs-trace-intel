@@ -9,7 +9,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsEvidenceStream,
     to_ia2_trace,
 )
-from insight_agent.loader import LoadOptions, load_corpus, to_trace
+from insight_agent.trace_loaders import InsightTraceV1Loader
 from insight_agent.traces import Span, SpanKind, Trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
@@ -17,9 +17,10 @@ CORPUS = DATA_DIR / "sample_corpus.jsonl"
 
 
 def test_input_normalization_preserves_every_field_ia2_uses():
-    corpus = load_corpus(CORPUS, LoadOptions())
-    record = corpus.records[0]
-    projected = to_ia2_trace(to_trace(record), profile=corpus.options.profile)
+    loader = InsightTraceV1Loader.from_path(CORPUS)
+    record = loader.records[0]
+    trace = next(loader.load().scan())
+    projected = to_ia2_trace(trace)
 
     assert projected.trace_id == record["trace_id"]
     assert [call.call_id for call in projected.calls] == [
@@ -28,9 +29,7 @@ def test_input_normalization_preserves_every_field_ia2_uses():
     assert [call.arguments for call in projected.calls] == [
         call["arguments"] for call in record["calls"]
     ]
-    assert [call.result for call in projected.calls] == [
-        call["result"] for call in record["calls"]
-    ]
+    assert [call.result for call in projected.calls] == [call["result"] for call in record["calls"]]
     assert [step.step_type for step in projected.steps] == [
         step["step_type"] for step in record["steps"]
     ]
@@ -58,7 +57,8 @@ def test_tool_calls_are_a_valid_trajectory_when_no_other_spans_exist():
         ],
     }
 
-    projected = to_ia2_trace(to_trace(record))
+    trace = next(InsightTraceV1Loader.from_records([record]).load().scan())
+    projected = to_ia2_trace(trace)
     assert len(projected.calls) == 1
     assert [(step.step_type, step.name) for step in projected.steps] == [("tool", "search")]
 
@@ -110,16 +110,16 @@ def test_native_projection_uses_canonical_spans_for_steps_and_tool_calls():
 
 
 def test_ia2_stream_runs_the_engine_from_a_snapshot():
-    corpus = load_corpus(CORPUS, LoadOptions())
-    stream = AnomalyAndPatternsEvidenceStream(profile=corpus.options.profile)
-    snapshot = corpus.snapshot()
+    loader = InsightTraceV1Loader.from_path(CORPUS)
+    stream = AnomalyAndPatternsEvidenceStream()
+    snapshot = loader.load()
     actual = stream.analyze(snapshot)
 
     assert actual.status == "completed"
-    assert actual.coverage.traces_examined == len(corpus)
+    assert actual.coverage.traces_examined == len(loader)
     assert isinstance(actual.payload, AnomalyAndPatternsArtifacts)
     assert "## Unusual traces" in actual.payload.result["digest"]
     assert "docops-outlier" in actual.payload.result["digest"]
     assert [trace.id for trace in snapshot.scan()] == [
-        record["trace_id"] for record in corpus.records
+        record["trace_id"] for record in loader.records
     ]

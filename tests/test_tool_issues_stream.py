@@ -11,7 +11,7 @@ from insight_agent.evidence_streams.tool_issues import (
     ToolIssueEvidenceStream,
     to_ia3_trace,
 )
-from insight_agent.loader import LoadOptions, load_corpus, to_trace
+from insight_agent.trace_loaders import InsightTraceV1Loader
 from insight_agent.traces import Span, SpanKind, Trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
@@ -45,7 +45,8 @@ def test_input_normalization_preserves_every_field_ia3_uses():
         ],
     }
 
-    projected = to_ia3_trace(to_trace(record))
+    trace = next(InsightTraceV1Loader.from_records([record]).load().scan())
+    projected = to_ia3_trace(trace)
     call = projected.calls[0]
     assert projected.trace_id == "trace-1"
     assert projected.logical_case_id == "case-1"
@@ -67,26 +68,32 @@ def test_input_normalization_preserves_every_field_ia3_uses():
 
 
 def test_missing_output_uses_ia3_singleton_but_json_null_remains_none():
-    trace = to_trace(
-        {
-            "schema_version": "insight-trace/v1",
-            "trace_id": "missing-null",
-            "calls": [
+    trace = next(
+        InsightTraceV1Loader.from_records(
+            [
                 {
-                    "call_id": "missing",
-                    "call_index": 0,
-                    "tool_name": "search",
-                    "arguments": {},
-                },
-                {
-                    "call_id": "null",
-                    "call_index": 1,
-                    "tool_name": "search",
-                    "arguments": {},
-                    "result": None,
-                },
-            ],
-        }
+                    "schema_version": "insight-trace/v1",
+                    "trace_id": "missing-null",
+                    "calls": [
+                        {
+                            "call_id": "missing",
+                            "call_index": 0,
+                            "tool_name": "search",
+                            "arguments": {},
+                        },
+                        {
+                            "call_id": "null",
+                            "call_index": 1,
+                            "tool_name": "search",
+                            "arguments": {},
+                            "result": None,
+                        },
+                    ],
+                }
+            ]
+        )
+        .load()
+        .scan()
     )
 
     projected = to_ia3_trace(trace)
@@ -117,18 +124,16 @@ def test_full_trace_input_supplies_prior_user_context():
 
 
 def test_tool_issue_stream_retains_all_findings_and_cards():
-    corpus = load_corpus(CORPUS, LoadOptions())
-    snapshot = corpus.snapshot()
-    evidence = ToolIssueEvidenceStream(profile=corpus.options.profile).analyze(snapshot)
+    loader = InsightTraceV1Loader.from_path(CORPUS)
+    snapshot = loader.load()
+    evidence = ToolIssueEvidenceStream().analyze(snapshot)
 
     assert evidence.status == "completed"
-    assert evidence.coverage.traces_examined == len(corpus)
+    assert evidence.coverage.traces_examined == len(loader)
     assert isinstance(evidence.payload, ToolIssueEvidenceArtifacts)
-    assert {finding["issue_type"] for finding in evidence.payload.findings} == set(
-        FINDING_TYPES
-    )
+    assert {finding["issue_type"] for finding in evidence.payload.findings} == set(FINDING_TYPES)
     assert any(card["eligible_for_analyst"] for card in evidence.payload.cards)
     assert set(evidence.payload.catalog_coverage) == set(FINDING_TYPES)
     assert [trace.id for trace in snapshot.scan()] == [
-        record["trace_id"] for record in corpus.records
+        record["trace_id"] for record in loader.records
     ]

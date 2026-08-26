@@ -1,38 +1,32 @@
-"""Load validated input records into normalized traces."""
+"""Load ``insight-trace/v1`` records into normalized traces."""
 
 from __future__ import annotations
 
 import json
 import warnings
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .traces import UNSET, Span, SpanKind, SpanStatus, ToolCall, Trace, TraceSnapshot
-from .validate import (
-    CANONICAL_VERSION,
+from ..traces import UNSET, Span, SpanKind, SpanStatus, ToolCall, Trace, TraceSnapshot
+from ..validate import (
     Diagnostic,
     ValidationReport,
     iter_jsonl,
     validate_records,
 )
-from .venue import DEFAULT_PROFILE, VenueProfile
 
 __all__ = [
-    "CANONICAL_VERSION",
-    "Corpus",
-    "CorpusError",
-    "LoadOptions",
-    "load_corpus",
-    "load_records",
-    "read_jsonl",
-    "to_trace",
+    "InsightTraceV1Loader",
+    "InsightTraceV1Options",
+    "TraceLoadError",
+    "load_tool_catalog",
 ]
 
 
-class CorpusError(ValueError):
-    """Raised when a corpus cannot be loaded.
+class TraceLoadError(ValueError):
+    """Raised when a trace source cannot be loaded.
 
     Carries the full diagnostic list so callers can render every problem at
     once rather than one per run.
@@ -44,14 +38,12 @@ class CorpusError(ValueError):
 
 
 @dataclass(frozen=True)
-class LoadOptions:
-    """Knobs for turning canonical records into engine inputs."""
+class InsightTraceV1Options:
+    """Options for loading ``insight-trace/v1`` records."""
 
-    #: Corpus-wide fallback catalog, used for any record that has none of its
+    #: Source-wide fallback catalog, used for any record that has none of its
     #: own. Record-level catalogs always win.
     tool_catalog: Mapping[str, Mapping[str, Any] | None] | None = None
-
-    profile: VenueProfile = DEFAULT_PROFILE
 
     #: Treat validation errors as fatal. Warnings are always surfaced.
     strict: bool = True
@@ -59,24 +51,11 @@ class LoadOptions:
     allow_metric_shadowing: bool = False
 
 
-def read_jsonl(path: str | Path) -> Iterator[tuple[int, dict[str, Any]]]:
-    """Yield ``(line_number, record)`` for each non-blank line.
-
-    Raises on the first malformed line. Use ``validate_corpus`` when you want
-    every problem reported instead of just the first.
-    """
-
-    for line, record, error in iter_jsonl(path):
-        if error is not None:
-            raise CorpusError(f"{path}: {error}", ValidationReport())
-        yield line, record
-
-
 # -- helpers ---------------------------------------------------------------
 
 
 def _result_is_missing(call: Mapping[str, Any]) -> bool:
-    """Decide whether IA3 should see the MISSING sentinel for this call.
+    """Decide whether this source record reports an unobserved result.
 
     Key absence is the primary signal; ``result_missing`` and
     ``result_count: 0`` are explicit escape hatches for emitters that cannot
@@ -84,9 +63,7 @@ def _result_is_missing(call: Mapping[str, Any]) -> bool:
     """
 
     return (
-        "result" not in call
-        or call.get("result_missing") is True
-        or call.get("result_count") == 0
+        "result" not in call or call.get("result_missing") is True or call.get("result_count") == 0
     )
 
 
@@ -186,7 +163,7 @@ def _step_span(
     )
 
 
-def to_trace(
+def _normalize_trace(
     record: Mapping[str, Any],
     *,
     tool_catalog: Mapping[str, Any] | None = None,
@@ -213,9 +190,7 @@ def to_trace(
                 )
             )
         else:
-            spans.append(
-                _step_span(str(record["trace_id"]), step, used_span_ids=used_span_ids)
-            )
+            spans.append(_step_span(str(record["trace_id"]), step, used_span_ids=used_span_ids))
 
     for index, call in enumerate(calls):
         if index not in used_calls:
@@ -239,39 +214,35 @@ def to_trace(
         logical_case_id=record.get("logical_case_id"),
         observed_verdict=record.get("observed_verdict"),
         metrics=dict(record.get("metrics") or {}),
-        complete_provenance_context=bool(
-            record.get("complete_provenance_context", False)
-        ),
+        complete_provenance_context=bool(record.get("complete_provenance_context", False)),
         orphan_results=tuple(
-            dict(item)
-            for item in record.get("orphan_results", ())
-            if isinstance(item, Mapping)
+            dict(item) for item in record.get("orphan_results", ()) if isinstance(item, Mapping)
         ),
         source_pointer=dict(record.get("source_pointer") or {}),
     )
 
 
-# -- corpus ----------------------------------------------------------------
+# -- loader ----------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class Corpus:
-    """A validated set of input records."""
+class InsightTraceV1Loader:
+    """Validate and normalize one ``insight-trace/v1`` source."""
 
     records: tuple[Mapping[str, Any], ...]
-    options: LoadOptions = field(default_factory=LoadOptions)
+    options: InsightTraceV1Options = field(default_factory=InsightTraceV1Options)
     report: ValidationReport = field(default_factory=ValidationReport)
     source: str = "<memory>"
 
     def __len__(self) -> int:
         return len(self.records)
 
-    def snapshot(self) -> TraceSnapshot:
-        """Normalize the records into a reiterable snapshot."""
+    def load(self) -> TraceSnapshot:
+        """Normalize the validated records into a reiterable snapshot."""
 
         return TraceSnapshot.from_traces(
             (
-                to_trace(
+                _normalize_trace(
                     record,
                     tool_catalog=self.options.tool_catalog,
                 )
@@ -279,6 +250,68 @@ class Corpus:
             ),
             source=self.source,
         )
+
+    @classmethod
+    def from_records(
+        cls,
+        records: Iterable[Mapping[str, Any]],
+        options: InsightTraceV1Options | None = None,
+        *,
+        source: str = "<memory>",
+    ) -> InsightTraceV1Loader:
+        """Create a loader from already-parsed records."""
+
+        options = options or InsightTraceV1Options()
+        numbered = [(index + 1, record) for index, record in enumerate(records)]
+        report = validate_records(numbered, allow_metric_shadowing=options.allow_metric_shadowing)
+
+        if report.errors and options.strict:
+            raise TraceLoadError(
+                f"{source}: {len(report.errors)} validation error(s); "
+                "run `insight-agent validate` for the full list",
+                report,
+            )
+        for diagnostic in report.warnings:
+            warnings.warn(diagnostic.format(), UserWarning, stacklevel=2)
+
+        valid = _drop_invalid(numbered, report)
+        dropped = len(numbered) - len(valid)
+        if dropped:
+            warnings.warn(
+                f"{source}: dropped {dropped} of {len(numbered)} record(s) that failed "
+                "structural validation; results below cover only the remaining "
+                f"{len(valid)}. Run `insight-agent validate` to see why.",
+                UserWarning,
+                stacklevel=2,
+            )
+        return cls(records=tuple(valid), options=options, report=report, source=source)
+
+    @classmethod
+    def from_path(
+        cls,
+        path: str | Path,
+        options: InsightTraceV1Options | None = None,
+    ) -> InsightTraceV1Loader:
+        """Create a loader from an ``insight-trace/v1`` JSONL file."""
+
+        options = options or InsightTraceV1Options()
+        path = Path(path)
+        records: list[Mapping[str, Any]] = []
+        parse_errors: list[Diagnostic] = []
+
+        for line, record, error in iter_jsonl(path):
+            if error is not None:
+                parse_errors.append(Diagnostic("error", "invalid_json", error, line=line))
+                continue
+            records.append(record)
+
+        if parse_errors and options.strict:
+            report = ValidationReport(diagnostics=parse_errors, record_count=len(records))
+            raise TraceLoadError(f"{path}: {len(parse_errors)} malformed JSON line(s)", report)
+
+        loader = cls.from_records(records, options, source=str(path))
+        loader.report.diagnostics[:0] = parse_errors
+        return loader
 
     # -- provenance helpers used by `run.json` and `coverage` --------------
 
@@ -300,46 +333,7 @@ class Corpus:
             "distinct_logical_cases": len(
                 {r.get("logical_case_id") or r["trace_id"] for r in self.records}
             ),
-            "venue_profile": self.options.profile.name,
         }
-
-
-def load_records(
-    records: Iterable[Mapping[str, Any]],
-    options: LoadOptions | None = None,
-    *,
-    source: str = "<memory>",
-) -> Corpus:
-    """Validate and wrap already-parsed canonical records."""
-
-    options = options or LoadOptions()
-    numbered = [(index + 1, record) for index, record in enumerate(records)]
-    report = validate_records(
-        numbered, allow_metric_shadowing=options.allow_metric_shadowing
-    )
-
-    if report.errors and options.strict:
-        raise CorpusError(
-            f"{source}: {len(report.errors)} validation error(s); "
-            "run `insight-agent validate` for the full list",
-            report,
-        )
-    for diagnostic in report.warnings:
-        warnings.warn(diagnostic.format(), UserWarning, stacklevel=2)
-
-    valid = _drop_invalid(numbered, report)
-    dropped = len(numbered) - len(valid)
-    if dropped:
-        # Non-strict mode still must not drop records quietly: a corpus that
-        # silently shrinks looks exactly like a corpus that was fully analysed.
-        warnings.warn(
-            f"{source}: dropped {dropped} of {len(numbered)} record(s) that failed structural "
-            "validation; results below cover only the remaining "
-            f"{len(valid)}. Run `insight-agent validate` to see why.",
-            UserWarning,
-            stacklevel=2,
-        )
-    return Corpus(records=tuple(valid), options=options, report=report, source=source)
 
 
 def _drop_invalid(
@@ -351,29 +345,6 @@ def _drop_invalid(
     return [r for line, r in numbered if line not in bad_lines and isinstance(r, Mapping)]
 
 
-def load_corpus(path: str | Path, options: LoadOptions | None = None) -> Corpus:
-    """Load and validate a canonical JSONL corpus from disk."""
-
-    options = options or LoadOptions()
-    path = Path(path)
-    records: list[Mapping[str, Any]] = []
-    parse_errors: list[Diagnostic] = []
-
-    for line, record, error in iter_jsonl(path):
-        if error is not None:
-            parse_errors.append(Diagnostic("error", "invalid_json", error, line=line))
-            continue
-        records.append(record)
-
-    if parse_errors and options.strict:
-        report = ValidationReport(diagnostics=parse_errors, record_count=len(records))
-        raise CorpusError(f"{path}: {len(parse_errors)} malformed JSON line(s)", report)
-
-    corpus = load_records(records, options, source=str(path))
-    corpus.report.diagnostics[:0] = parse_errors
-    return corpus
-
-
 def load_tool_catalog(path: str | Path | None) -> Mapping[str, Any] | None:
     """Load a standalone corpus-wide tool catalog."""
 
@@ -381,5 +352,7 @@ def load_tool_catalog(path: str | Path | None) -> Mapping[str, Any] | None:
         return None
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, Mapping):
-        raise ValueError(f"tool catalog {path} must contain a JSON object mapping tool name to schema")
+        raise ValueError(
+            f"tool catalog {path} must contain a JSON object mapping tool name to schema"
+        )
     return data

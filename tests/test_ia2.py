@@ -13,7 +13,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     run_ia2,
     to_ia2_trace,
 )
-from insight_agent.loader import LoadOptions, load_corpus
+from insight_agent.trace_loaders import InsightTraceV1Loader
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
@@ -31,11 +31,8 @@ DIGEST_SECTIONS = (
 
 @pytest.fixture(scope="module")
 def traces():
-    corpus = load_corpus(CORPUS, LoadOptions())
-    return [
-        to_ia2_trace(trace, profile=corpus.options.profile)
-        for trace in corpus.snapshot().scan()
-    ]
+    loader = InsightTraceV1Loader.from_path(CORPUS)
+    return [to_ia2_trace(trace) for trace in loader.load().scan()]
 
 
 @pytest.fixture(scope="module")
@@ -77,9 +74,13 @@ def test_outcome_labels_never_enter_anomaly_selection(traces):
     """The algorithm boundary: verdicts may be grouped, never fitted on."""
     stripped = [
         type(t)(
-            trace_id=t.trace_id, calls=t.calls, steps=t.steps,
-            source_pointer=t.source_pointer, observed_verdict=None,
-            cost=t.cost, metrics=t.metrics,
+            trace_id=t.trace_id,
+            calls=t.calls,
+            steps=t.steps,
+            source_pointer=t.source_pointer,
+            observed_verdict=None,
+            cost=t.cost,
+            metrics=t.metrics,
         )
         for t in traces
     ]
@@ -142,8 +143,9 @@ def test_custom_metrics_become_usable_features(traces):
 
 def test_a_missing_custom_feature_errors_informatively(traces):
     with pytest.raises(ValueError) as excinfo:
-        run_ia2(traces, feature_names=("tool_call_count", "not_logged"),
-                minimum_independent_traces=3)
+        run_ia2(
+            traces, feature_names=("tool_call_count", "not_logged"), minimum_independent_traces=3
+        )
     message = str(excinfo.value)
     assert "not_logged" in message
     assert "metrics" in message

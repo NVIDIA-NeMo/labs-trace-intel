@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Iterable, Iterator
 from datetime import datetime
 from enum import Enum
@@ -21,8 +19,8 @@ from pydantic import (
 from pydantic.experimental.missing_sentinel import MISSING
 
 # Pydantic's missing sentinel is omitted by ``model_dump`` and JSON Schema, while
-# an explicitly supplied ``None`` remains JSON null. IA3 depends on this exact
-# distinction for tool results.
+# an explicitly supplied ``None`` remains JSON null. Tool-result analysis depends
+# on this distinction.
 UNSET = MISSING
 
 
@@ -170,9 +168,7 @@ class Trace(ContractModel):
         positions: dict[str, int] = {}
         for position, span in enumerate(self.spans):
             if span.span_id in by_id:
-                raise ValueError(
-                    f"trace {self.id!r} contains duplicate span_id {span.span_id!r}"
-                )
+                raise ValueError(f"trace {self.id!r} contains duplicate span_id {span.span_id!r}")
             by_id[span.span_id] = span
             positions[span.span_id] = position
 
@@ -231,7 +227,6 @@ class Trace(ContractModel):
 class TraceSnapshot(ContractModel):
     """An in-memory corpus with a fresh iterator for every scan."""
 
-    snapshot_id: str = Field(min_length=1)
     source: str
     traces: tuple[Trace, ...] = Field(repr=False, exclude=True)
 
@@ -246,15 +241,7 @@ class TraceSnapshot(ContractModel):
 
     @classmethod
     def from_traces(cls, traces: Iterable[Trace], *, source: str = "<memory>") -> TraceSnapshot:
-        materialized = tuple(traces)
-        payload = json.dumps(
-            [trace.model_dump(mode="json") for trace in materialized],
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        snapshot_id = f"sha256:{hashlib.sha256(payload).hexdigest()}"
-        return cls(snapshot_id=snapshot_id, source=source, traces=materialized)
+        return cls(source=source, traces=tuple(traces))
 
     @property
     def trace_count(self) -> int:

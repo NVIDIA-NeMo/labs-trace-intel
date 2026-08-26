@@ -90,7 +90,7 @@ def test_the_tool_catalog_uplift_claim_is_the_measured_number():
     import warnings
 
     from insight_agent.coverage import corpus_coverage
-    from insight_agent.loader import LoadOptions, load_records
+    from insight_agent.trace_loaders import InsightTraceV1Loader
 
     corpus_path = REPO_ROOT / "src" / "insight_agent" / "data" / "sample_corpus.jsonl"
     records = [
@@ -102,8 +102,8 @@ def test_the_tool_catalog_uplift_claim_is_the_measured_number():
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        full = corpus_coverage(load_records(records, LoadOptions()))
-        without = corpus_coverage(load_records(stripped, LoadOptions()))
+        full = corpus_coverage(InsightTraceV1Loader.from_records(records))
+        without = corpus_coverage(InsightTraceV1Loader.from_records(stripped))
 
     uplift = full["rules"]["evaluable"] - without["rules"]["evaluable"]
     gated = sum(1 for r in RULE_REQUIREMENTS if r.needs == "tool_catalog")
@@ -146,9 +146,13 @@ def test_skill_documents_the_required_fields_exactly():
 
 def test_skill_names_the_verify_loop_commands():
     text = SKILL_MD.read_text(encoding="utf-8")
-    for command in ("insight-agent schema", "insight-agent validate",
-                    "insight-agent coverage", "insight-agent explain-failures",
-                    "insight-agent init-adapter"):
+    for command in (
+        "insight-agent schema",
+        "insight-agent validate",
+        "insight-agent coverage",
+        "insight-agent explain-failures",
+        "insight-agent init-adapter",
+    ):
         assert command in text, command
 
 

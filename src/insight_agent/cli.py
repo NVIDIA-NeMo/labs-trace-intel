@@ -19,7 +19,7 @@ import shutil
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import __version__
 
@@ -29,6 +29,12 @@ from .insights_generation import DEFAULT_MAX_TOKENS as ANALYST_DEFAULT_MAX_TOKEN
 from .insights_generation import DEFAULT_MAX_TOOL_ROUNDS as ANALYST_DEFAULT_TOOL_ROUNDS
 from .insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
 from .insights_generation import DEFAULT_PROMPT_VERSION as ANALYST_DEFAULT_PROMPT
+
+if TYPE_CHECKING:
+    from .evidence_streams.contracts import EvidenceStreamResult
+    from .trace_loaders import InsightTraceV1Loader
+    from .traces import TraceSnapshot
+    from .venue import VenueProfile
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -66,39 +72,65 @@ def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--quiet", action="store_true", help="suppress the stdout summary")
 
 
-#: Lint messages already shown this process. ``run-all`` loads the corpus once
-#: per phase, and repeating the same warning three times with a stack trace
-#: attached trains people to ignore it.
+def _add_anomaly_and_patterns_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--contamination", type=float, default=0.02)
+    parser.add_argument("--input-scaling", choices=("none", "robust"), default="none")
+    parser.add_argument("--cluster-candidates", default="2,3,4,5,6,7,8")
+    parser.add_argument("--min-independent-traces", type=int, default=3)
+    parser.add_argument(
+        "--feature", action="append", default=None, help="override the feature list (repeatable)"
+    )
+
+
+def _add_tool_issue_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--min-independent-cases", type=int, default=3)
+    parser.add_argument("--retry-threshold", type=int, default=3)
+    parser.add_argument("--all-cards", action="store_true")
+
+
+#: Loader warnings already shown this process.
 _REPORTED_WARNINGS: set[str] = set()
 
 
-def _load(args: argparse.Namespace):
-    """Load a corpus using the standard corpus arguments."""
+def _trace_loader(args: argparse.Namespace) -> InsightTraceV1Loader:
+    """Configure and validate the CLI's ``insight-trace/v1`` source."""
     import warnings as _warnings
 
-    from .loader import LoadOptions, load_corpus, load_tool_catalog
-    from .venue import load_profile
+    from .trace_loaders import (
+        InsightTraceV1Loader,
+        InsightTraceV1Options,
+        load_tool_catalog,
+    )
 
-    options = LoadOptions(
+    options = InsightTraceV1Options(
         tool_catalog=load_tool_catalog(args.tool_catalog),
-        profile=load_profile(args.profile),
         allow_metric_shadowing=getattr(args, "allow_metric_shadowing", False),
         strict=True,
     )
 
     with _warnings.catch_warnings(record=True) as caught:
         _warnings.simplefilter("always")
-        corpus = load_corpus(args.traces, options)
+        loader = InsightTraceV1Loader.from_path(args.traces, options)
 
     for warning in caught:
         message = str(warning.message)
         if message not in _REPORTED_WARNINGS:
             _REPORTED_WARNINGS.add(message)
             print(f"note: {message}", file=sys.stderr)
-    return corpus
+    return loader
 
 
-def _run_metadata(corpus, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+def _venue_profile(args: argparse.Namespace) -> VenueProfile:
+    from .venue import load_profile
+
+    return load_profile(args.profile)
+
+
+def _run_metadata(
+    loader: InsightTraceV1Loader,
+    profile: VenueProfile,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Provenance recorded beside every result.
 
     Records the library versions because scikit-learn minor releases can change
@@ -114,8 +146,8 @@ def _run_metadata(corpus, extra: dict[str, Any] | None = None) -> dict[str, Any]
         "numpy_version": numpy.__version__,
         "scikit_learn_version": sklearn.__version__,
         "python_version": sys.version.split()[0],
-        "corpus": corpus.describe(),
-        "venue_profile": corpus.options.profile.to_dict(),
+        "corpus": loader.describe(),
+        "venue_profile": profile.to_dict(),
     }
     if extra:
         payload["parameters"] = extra
@@ -171,17 +203,18 @@ def cmd_validate(args) -> int:
 def cmd_coverage(args) -> int:
     from .coverage import corpus_coverage, format_coverage
 
-    corpus = _load(args)
+    loader = _trace_loader(args)
+    profile = _venue_profile(args)
     findings = None
     if args.with_findings:
         from .evidence_streams.tool_issues import detect, to_ia3_trace
 
         findings = detect(
-            (to_ia3_trace(trace) for trace in corpus.snapshot().scan()),
-            profile=corpus.options.profile,
+            (to_ia3_trace(trace) for trace in loader.load().scan()),
+            profile=profile,
         )
 
-    report = corpus_coverage(corpus, findings=findings)
+    report = corpus_coverage(loader, findings=findings)
     if args.json:
         sys.stdout.write(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     else:
@@ -204,9 +237,9 @@ def cmd_explain_failures(args) -> int:
     )
     from .evidence_streams.tool_issues import strict_failure, to_ia3_trace
 
-    corpus = _load(args)
-    profile = corpus.options.profile
-    snapshot = corpus.snapshot()
+    loader = _trace_loader(args)
+    profile = _venue_profile(args)
+    snapshot = loader.load()
     ia2_traces = {trace.id: to_ia2_trace(trace, profile=profile) for trace in snapshot.scan()}
     rows = []
 
@@ -264,24 +297,36 @@ def cmd_explain_failures(args) -> int:
     return EXIT_OK
 
 
-def cmd_run_ia2(args) -> int:
+def _analyze_anomaly_and_patterns(
+    args: argparse.Namespace,
+    snapshot: TraceSnapshot,
+    profile: VenueProfile,
+) -> EvidenceStreamResult:
     from .evidence_streams.anomaly_and_patterns import (
-        AnomalyAndPatternsArtifacts,
         AnomalyAndPatternsEvidenceStream,
     )
-    from .serialize import prepared_features, write_json
 
-    corpus = _load(args)
     stream = AnomalyAndPatternsEvidenceStream(
         contamination=args.contamination,
         input_scaling=args.input_scaling,
         cluster_candidates=tuple(int(item) for item in args.cluster_candidates.split(",")),
         minimum_independent_traces=args.min_independent_traces,
         feature_names=tuple(args.feature) if args.feature else None,
-        profile=corpus.options.profile,
+        profile=profile,
     )
-    snapshot = corpus.snapshot()
-    evidence = stream.analyze(snapshot)
+    return stream.analyze(snapshot)
+
+
+def _write_anomaly_and_patterns(
+    args: argparse.Namespace,
+    loader: InsightTraceV1Loader,
+    snapshot: TraceSnapshot,
+    evidence: EvidenceStreamResult,
+    profile: VenueProfile,
+) -> int:
+    from .evidence_streams.anomaly_and_patterns import AnomalyAndPatternsArtifacts
+    from .serialize import prepared_features, write_json
+
     payload = evidence.payload
     if not isinstance(payload, AnomalyAndPatternsArtifacts):
         raise TypeError("anomaly-and-patterns stream returned an unexpected payload")
@@ -301,7 +346,7 @@ def cmd_run_ia2(args) -> int:
     write_json(target / "cross_tool_failure_groups.json", result["cross_tool_failure_groups"])
     write_json(target / "failure_events.json", result["failure_events"])
     write_json(target / "features.json", prepared_features(result["prepared"]))
-    write_json(target / "run.json", _run_metadata(corpus, dict(payload.parameters)))
+    write_json(target / "run.json", _run_metadata(loader, profile, dict(payload.parameters)))
 
     if not args.quiet:
         flagged = [row for row in result["anomalies"] if row["is_anomaly"]]
@@ -313,30 +358,51 @@ def cmd_run_ia2(args) -> int:
         print(f"  failure groups        : {len(result['failure_groups'])}")
         print(f"  cross-tool groups     : {len(result['cross_tool_failure_groups'])}")
         print(f"  digest                : {target / 'digest.md'}")
-        expected = len(corpus) * args.contamination
+        expected = snapshot.trace_count * args.contamination
         if expected < 1:
             print(
-                f"  note: contamination={args.contamination} on {len(corpus)} traces expects "
+                f"  note: contamination={args.contamination} on {snapshot.trace_count} traces expects "
                 f"{expected:.2f} flags. The default is tuned for corpora in the thousands; "
                 "try --contamination 0.15 on a small sample."
             )
     return EXIT_OK
 
 
-def cmd_run_ia3(args) -> int:
+def cmd_run_ia2(args: argparse.Namespace) -> int:
+    loader = _trace_loader(args)
+    snapshot = loader.load()
+    profile = _venue_profile(args)
+    evidence = _analyze_anomaly_and_patterns(args, snapshot, profile)
+    return _write_anomaly_and_patterns(args, loader, snapshot, evidence, profile)
+
+
+def _analyze_tool_issues(
+    args: argparse.Namespace,
+    snapshot: TraceSnapshot,
+    profile: VenueProfile,
+) -> EvidenceStreamResult:
     from .evidence_streams.tool_issues import (
-        ToolIssueEvidenceArtifacts,
         ToolIssueEvidenceStream,
     )
-    from .serialize import write_json
 
-    corpus = _load(args)
     stream = ToolIssueEvidenceStream(
         minimum_independent_cases=args.min_independent_cases,
         retry_threshold=args.retry_threshold,
-        profile=corpus.options.profile,
+        profile=profile,
     )
-    evidence = stream.analyze(corpus.snapshot())
+    return stream.analyze(snapshot)
+
+
+def _write_tool_issues(
+    args: argparse.Namespace,
+    loader: InsightTraceV1Loader,
+    snapshot: TraceSnapshot,
+    evidence: EvidenceStreamResult,
+    profile: VenueProfile,
+) -> int:
+    from .evidence_streams.tool_issues import ToolIssueEvidenceArtifacts
+    from .serialize import write_json
+
     payload = evidence.payload
     if not isinstance(payload, ToolIssueEvidenceArtifacts):
         raise TypeError("tool-issue evidence stream returned an unexpected payload")
@@ -354,7 +420,8 @@ def cmd_run_ia3(args) -> int:
     write_json(
         target / "run.json",
         _run_metadata(
-            corpus,
+            loader,
+            profile,
             {
                 "retry_threshold": args.retry_threshold,
                 "minimum_independent_cases": args.min_independent_cases,
@@ -370,10 +437,9 @@ def cmd_run_ia3(args) -> int:
         print(f"  eligible for analyst  : {len(eligible)}")
         print(f"  cards                 : {target / 'cards.md'}")
         if cards and not eligible:
-            distinct = len(
-                {record.get("logical_case_id") or record["trace_id"] for record in corpus.records}
-            )
-            populated = any(record.get("logical_case_id") for record in corpus.records)
+            traces = tuple(snapshot.scan())
+            distinct = len({trace.logical_case_id or trace.id for trace in traces})
+            populated = any(trace.logical_case_id for trace in traces)
             print(
                 f"  note: no card reached {args.min_independent_cases} independent logical "
                 "cases, i.e. no single issue type recurred across that many distinct cases."
@@ -390,6 +456,14 @@ def cmd_run_ia3(args) -> int:
                     "distinct tasks under one case id to clear the threshold."
                 )
     return EXIT_OK
+
+
+def cmd_run_ia3(args: argparse.Namespace) -> int:
+    loader = _trace_loader(args)
+    snapshot = loader.load()
+    profile = _venue_profile(args)
+    evidence = _analyze_tool_issues(args, snapshot, profile)
+    return _write_tool_issues(args, loader, snapshot, evidence, profile)
 
 
 def _render_cards(cards: Sequence[Mapping[str, Any]], *, total: int | None = None) -> str:
@@ -435,14 +509,7 @@ def _render_cards(cards: Sequence[Mapping[str, Any]], *, total: int | None = Non
     return "\n".join(lines)
 
 
-def cmd_run_all(args) -> int:
-    from .validate import validate_corpus
-
-    report = validate_corpus(args.traces, allow_metric_shadowing=args.allow_metric_shadowing)
-    if not report.ok:
-        print(f"{len(report.errors)} validation error(s); run `insight-agent validate` for detail.")
-        return EXIT_SCHEMA
-
+def _run_all(args: argparse.Namespace, loader: InsightTraceV1Loader) -> int:
     if not args.no_analyst:
         missing = _analyst_preflight(args)
         if missing:
@@ -450,21 +517,29 @@ def cmd_run_all(args) -> int:
             print("       pass --no-analyst to run IA2 and IA3 only.", file=sys.stderr)
             return EXIT_ERROR
 
+    snapshot = loader.load()
+    profile = _venue_profile(args)
     args.out.mkdir(parents=True, exist_ok=True)
-    for command in (cmd_run_ia2, cmd_run_ia3):
-        code = command(args)
-        if code != EXIT_OK:
-            return code
-        if not args.quiet:
-            print()
+    anomaly_and_patterns = _analyze_anomaly_and_patterns(args, snapshot, profile)
+    if (
+        _write_anomaly_and_patterns(args, loader, snapshot, anomaly_and_patterns, profile)
+        != EXIT_OK
+    ):
+        return EXIT_ERROR
+    if not args.quiet:
+        print()
+
+    tool_issues = _analyze_tool_issues(args, snapshot, profile)
+    if _write_tool_issues(args, loader, snapshot, tool_issues, profile) != EXIT_OK:
+        return EXIT_ERROR
+    if not args.quiet:
+        print()
 
     analyst_ran = False
     if not args.no_analyst:
-        args.digest = args.out / "ia2" / "digest.md"
-        args.cards = args.out / "ia3" / "cards.json"
         if not args.agent:
             args.agent = Path(args.traces).stem
-        code = cmd_run_analyst(args)
+        code = _run_insights(args, loader, snapshot, (anomaly_and_patterns, tool_issues))
         if code != EXIT_OK:
             return code
         analyst_ran = True
@@ -478,6 +553,10 @@ def cmd_run_all(args) -> int:
     if not args.quiet:
         print(f"index: {args.out / 'index.md'}")
     return EXIT_OK
+
+
+def cmd_run_all(args: argparse.Namespace) -> int:
+    return _run_all(args, _trace_loader(args))
 
 
 def _analyst_preflight(args: argparse.Namespace) -> str | None:
@@ -551,8 +630,9 @@ def _insights_inputs(args):
     if bool(args.digest) != bool(args.cards):
         raise ValueError("--digest and --cards must be given together")
 
-    corpus = _load(args)
-    snapshot = corpus.snapshot()
+    loader = _trace_loader(args)
+    snapshot = loader.load()
+    profile = _venue_profile(args)
 
     if args.digest:
         from .evidence_streams.anomaly_and_patterns import AnomalyAndPatternsArtifacts
@@ -591,32 +671,16 @@ def _insights_inputs(args):
                 ),
             ),
         )
-        return corpus, snapshot, evidence
+        return loader, snapshot, evidence
 
-    from .evidence_streams.anomaly_and_patterns import (
-        AnomalyAndPatternsArtifacts,
-        AnomalyAndPatternsEvidenceStream,
+    return (
+        loader,
+        snapshot,
+        (
+            _analyze_anomaly_and_patterns(args, snapshot, profile),
+            _analyze_tool_issues(args, snapshot, profile),
+        ),
     )
-    from .evidence_streams.tool_issues import (
-        ToolIssueEvidenceArtifacts,
-        ToolIssueEvidenceStream,
-    )
-
-    ia2 = AnomalyAndPatternsEvidenceStream(
-        contamination=args.contamination,
-        minimum_independent_traces=args.min_independent_traces,
-        profile=corpus.options.profile,
-    ).analyze(snapshot)
-    tool_issues = ToolIssueEvidenceStream(
-        minimum_independent_cases=args.min_independent_cases,
-        retry_threshold=getattr(args, "retry_threshold", 3),
-        profile=corpus.options.profile,
-    ).analyze(snapshot)
-    if not isinstance(ia2.payload, AnomalyAndPatternsArtifacts):
-        raise TypeError("anomaly-and-patterns stream returned an unexpected payload")
-    if not isinstance(tool_issues.payload, ToolIssueEvidenceArtifacts):
-        raise TypeError("tool-issue evidence stream returned an unexpected payload")
-    return corpus, snapshot, (ia2, tool_issues)
 
 
 def _read_sibling(reference: Path, name: str) -> Any:
@@ -629,17 +693,16 @@ def _read_sibling(reference: Path, name: str) -> Any:
         return None
 
 
-def cmd_run_analyst(args) -> int:
-    """Author Insights from the IA2 digest and IA3 cards.
-
-    The only command in the package that calls out to a model, and the only
-    non-deterministic one. `run-all` and `demo` invoke it by default; pass
-    `--no-analyst` to either for a purely deterministic run.
-    """
+def _run_insights(
+    args: argparse.Namespace,
+    loader: InsightTraceV1Loader,
+    snapshot: TraceSnapshot,
+    evidence: Sequence[EvidenceStreamResult],
+) -> int:
     from .config import ENV_API_BASE, ENV_API_KEY, ENV_MODEL, load_dotenv, resolve
     from .insights_generation import (
-        AnalystError,
         InsightsGeneration,
+        InsightsGenerationError,
         ResponseParseError,
     )
     from .serialize import write_json
@@ -652,16 +715,15 @@ def cmd_run_analyst(args) -> int:
     api_key = resolve(ENV_API_KEY)
 
     try:
-        corpus, snapshot, evidence = _insights_inputs(args)
-        generation = InsightsGeneration.from_evidence(
+        generation = InsightsGeneration(
             snapshot=snapshot,
             evidence=evidence,
             agent=args.agent,
-            corpus=corpus.describe(),
+            corpus=loader.describe(),
             prompt_version=args.prompt_version,
             all_cards=args.all_cards,
         )
-    except (AnalystError, ValueError) as exc:
+    except (InsightsGenerationError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
@@ -685,7 +747,7 @@ def cmd_run_analyst(args) -> int:
         if loaded:
             print(f"  loaded from .env      : {', '.join(sorted(loaded))}")
         print(f"  cards shown / withheld: {generation.cards_shown} / {generation.cards_withheld}")
-        print(f"  uncovered anomalies   : {len(generation.request.uncovered_anomalies)}")
+        print(f"  uncovered anomalies   : {generation.uncovered_anomaly_count}")
         print(f"  prompt                : {target / 'prompt.md'}")
         print(f"  approx input tokens   : {approx:,}")
         return EXIT_OK
@@ -710,7 +772,7 @@ def cmd_run_analyst(args) -> int:
         print(f"error: {exc}", file=sys.stderr)
         print(f"       raw response saved to {target / 'analyst_raw.txt'}", file=sys.stderr)
         return EXIT_ERROR
-    except AnalystError as exc:
+    except InsightsGenerationError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
@@ -728,7 +790,7 @@ def cmd_run_analyst(args) -> int:
             "cards_shown": generation.cards_shown,
             "cards_withheld": generation.cards_withheld,
             "insight_count": len(result.insights),
-            "corpus": corpus.describe(),
+            "corpus": loader.describe(),
         },
     )
 
@@ -780,6 +842,22 @@ def cmd_run_analyst(args) -> int:
                     "treat this run's citations as unreliable."
                 )
     return EXIT_OK
+
+
+def cmd_run_analyst(args: argparse.Namespace) -> int:
+    """Author Insights from a snapshot and its evidence streams.
+
+    The only command in the package that calls out to a model, and the only
+    non-deterministic one. `run-all` and `demo` invoke it by default; pass
+    `--no-analyst` to either for a purely deterministic run.
+    """
+
+    try:
+        loader, snapshot, evidence = _insights_inputs(args)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    return _run_insights(args, loader, snapshot, evidence)
 
 
 def cmd_adapt_messages(args) -> int:
@@ -959,27 +1037,23 @@ def cmd_demo(args) -> int:
 
     print(f"Using the bundled sample corpus: {corpus}\n")
 
-    from .validate import validate_corpus
-
-    report = validate_corpus(corpus)
-    print(
-        f"validate: {report.record_count} records, {len(report.errors)} error(s), "
-        f"{len(report.warnings)} warning(s)"
-    )
-    if not report.ok:
-        return EXIT_SCHEMA
-
-    from .coverage import corpus_coverage
-
     args.traces = corpus
     args.tool_catalog = None
     args.profile = None
     args.allow_metric_shadowing = False
 
-    cov = corpus_coverage(_load(args))
+    loaded = _trace_loader(args)
+    print(
+        f"validate: {loaded.report.record_count} records, "
+        f"{len(loaded.report.errors)} error(s), {len(loaded.report.warnings)} warning(s)"
+    )
+
+    from .coverage import corpus_coverage
+
+    cov = corpus_coverage(loaded)
     print(f"coverage: {cov['rules']['evaluable']}/{cov['rules']['total']} IA3 rules evaluable\n")
 
-    return cmd_run_all(args)
+    return _run_all(args, loaded)
 
 
 # -- parser ----------------------------------------------------------------
@@ -1030,36 +1104,22 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("run-ia2", help="anomalies, recurring patterns, and the Analyst digest")
     _add_corpus_arguments(p)
     _add_output_arguments(p)
-    p.add_argument("--contamination", type=float, default=0.02)
-    p.add_argument("--input-scaling", choices=("none", "robust"), default="none")
-    p.add_argument("--cluster-candidates", default="2,3,4,5,6,7,8")
-    p.add_argument("--min-independent-traces", type=int, default=3)
-    p.add_argument(
-        "--feature", action="append", default=None, help="override the feature list (repeatable)"
-    )
+    _add_anomaly_and_patterns_arguments(p)
     p.set_defaults(func=cmd_run_ia2)
 
     # run-ia3
     p = sub.add_parser("run-ia3", help="deterministic tool-issue detection and evidence cards")
     _add_corpus_arguments(p)
     _add_output_arguments(p)
-    p.add_argument("--min-independent-cases", type=int, default=3)
-    p.add_argument("--retry-threshold", type=int, default=3)
-    p.add_argument("--all-cards", action="store_true")
+    _add_tool_issue_arguments(p)
     p.set_defaults(func=cmd_run_ia3)
 
     # run-all
     p = sub.add_parser("run-all", help="validate, then run IA2, IA3 and the Analyst")
     _add_corpus_arguments(p)
     _add_output_arguments(p)
-    p.add_argument("--contamination", type=float, default=0.02)
-    p.add_argument("--input-scaling", choices=("none", "robust"), default="none")
-    p.add_argument("--cluster-candidates", default="2,3,4,5,6,7,8")
-    p.add_argument("--min-independent-traces", type=int, default=3)
-    p.add_argument("--feature", action="append", default=None)
-    p.add_argument("--min-independent-cases", type=int, default=3)
-    p.add_argument("--retry-threshold", type=int, default=3)
-    p.add_argument("--all-cards", action="store_true")
+    _add_anomaly_and_patterns_arguments(p)
+    _add_tool_issue_arguments(p)
     p.add_argument(
         "--no-analyst",
         action="store_true",
@@ -1117,11 +1177,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="only sent when given; several current models reject it outright",
     )
     p.add_argument("--max-tokens", type=int, default=ANALYST_DEFAULT_MAX_TOKENS)
-    p.add_argument(
-        "--all-cards",
-        action="store_true",
-        help="also show audit-only cards that did not clear the recurrence gate",
-    )
     p.add_argument("--digest", type=Path, default=None, help="use an existing digest.md")
     p.add_argument("--cards", type=Path, default=None, help="use an existing cards.json")
     p.add_argument(
@@ -1129,9 +1184,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="assemble and write the prompt, make no API call",
     )
-    p.add_argument("--contamination", type=float, default=0.02)
-    p.add_argument("--min-independent-traces", type=int, default=3)
-    p.add_argument("--min-independent-cases", type=int, default=3)
+    _add_anomaly_and_patterns_arguments(p)
+    _add_tool_issue_arguments(p)
     p.set_defaults(func=cmd_run_analyst)
 
     # adapt-messages
@@ -1161,14 +1215,8 @@ def build_parser() -> argparse.ArgumentParser:
     # demo
     p = sub.add_parser("demo", help="run everything on the bundled sample data")
     _add_output_arguments(p)
-    p.add_argument("--contamination", type=float, default=0.02)
-    p.add_argument("--input-scaling", choices=("none", "robust"), default="none")
-    p.add_argument("--cluster-candidates", default="2,3,4,5,6,7,8")
-    p.add_argument("--min-independent-traces", type=int, default=3)
-    p.add_argument("--feature", action="append", default=None)
-    p.add_argument("--min-independent-cases", type=int, default=3)
-    p.add_argument("--retry-threshold", type=int, default=3)
-    p.add_argument("--all-cards", action="store_true")
+    _add_anomaly_and_patterns_arguments(p)
+    _add_tool_issue_arguments(p)
     p.add_argument(
         "--no-analyst",
         action="store_true",
@@ -1200,9 +1248,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
     except Exception as exc:  # noqa: BLE001 - CLI boundary
-        from .loader import CorpusError
+        from .trace_loaders import TraceLoadError
 
-        if isinstance(exc, CorpusError):
+        if isinstance(exc, TraceLoadError):
             print(f"error: {exc}", file=sys.stderr)
             for diagnostic in exc.report.errors[:20]:
                 print(f"  {diagnostic.format()}", file=sys.stderr)

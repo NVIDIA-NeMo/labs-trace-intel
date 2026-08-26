@@ -19,15 +19,17 @@ import pytest
 from insight_agent.cli import EXIT_ERROR, EXIT_OK, main
 from insight_agent.insights_generation import (
     DEFAULT_MODEL,
-    AnalystError,
-    AnalystRequest,
-    InsightsGeneration,
+    InsightsGenerationError,
     ResponseParseError,
-    build_prompt,
-    fetch_traces,
-    parse_insights,
-    prompt_template,
-    select_cards,
+)
+from insight_agent.insights_generation.llm import (
+    _AnalystRequest,
+    _author_insights,
+    _build_prompt,
+    _fetch_traces,
+    _parse_insights,
+    _prompt_template,
+    _select_cards,
 )
 from insight_agent.traces import Span, SpanKind, ToolCall, Trace, TraceSnapshot
 
@@ -36,8 +38,8 @@ CORPUS = DATA_DIR / "sample_corpus.jsonl"
 EMPTY_SNAPSHOT = TraceSnapshot.from_traces(())
 
 
-def generate(request: AnalystRequest, *, snapshot: TraceSnapshot = EMPTY_SNAPSHOT, **kwargs):
-    return InsightsGeneration(snapshot=snapshot, request=request).generate(**kwargs)
+def generate(request: _AnalystRequest, *, snapshot: TraceSnapshot = EMPTY_SNAPSHOT, **kwargs):
+    return _author_insights(request, snapshot=snapshot, **kwargs)
 
 
 def card(card_id: str, *, eligible: bool = True, trace: str = "t1") -> dict:
@@ -65,7 +67,7 @@ def card(card_id: str, *, eligible: bool = True, trace: str = "t1") -> dict:
 
 @pytest.fixture
 def request_obj():
-    return AnalystRequest(
+    return _AnalystRequest(
         agent="DocOps agent",
         digest="# IA2 cited evidence digest\n\n| Trace |\n| `docops-outlier` |",
         cards=[card("tid:unknown_tool:unknown_tool")],
@@ -105,25 +107,25 @@ def mock_litellm(monkeypatch):
 
 
 def test_prompt_carries_the_agent_name(request_obj):
-    system, _ = build_prompt(request_obj)
+    system, _ = _build_prompt(request_obj)
     assert "DocOps agent" in system
     assert "{agent}" not in system
 
 
 def test_prompt_includes_the_digest_verbatim(request_obj):
-    system, _ = build_prompt(request_obj)
+    system, _ = _build_prompt(request_obj)
     assert request_obj.digest.strip() in system
 
 
 def test_prompt_includes_every_shown_card(request_obj):
-    system, _ = build_prompt(request_obj)
+    system, _ = _build_prompt(request_obj)
     assert "tid:unknown_tool:unknown_tool" in system
     assert "independent_case_count" in system
 
 
 def test_prompt_states_the_withheld_card_count(request_obj):
     """Silently dropping audit-only cards would misrepresent the evidence set."""
-    system, _ = build_prompt(request_obj)
+    system, _ = _build_prompt(request_obj)
     assert "4 card(s) were withheld" in system
     assert "must not be cited" in system
 
@@ -131,21 +133,21 @@ def test_prompt_states_the_withheld_card_count(request_obj):
 def test_prompt_declares_the_lookup_tool(request_obj):
     """Naming the tool is what enables the loop — a prompt that promises tools
     without naming one would be offered no tools at all."""
-    system, _ = build_prompt(request_obj)
+    system, _ = _build_prompt(request_obj)
     assert "fetch_traces" in system
     assert "max_chars_per_result" in system
 
 
 def test_prompt_states_the_output_contract_and_permits_zero_insights(request_obj):
     """Without explicit permission a model will manufacture something."""
-    system, _ = build_prompt(request_obj)
+    system, _ = _build_prompt(request_obj)
     assert '"trace_ids"' in system
     assert "`[]`" in system
 
 
 def test_output_contract_is_not_duplicated(request_obj):
     """The shipped prompt states the contract; a second copy could conflict."""
-    system, user = build_prompt(request_obj)
+    system, user = _build_prompt(request_obj)
     assert '"trace_ids"' in system
     assert '"trace_ids"' not in user
 
@@ -155,9 +157,9 @@ def test_output_contract_is_supplied_when_the_template_omits_it(tmp_path, monkey
     from insight_agent.insights_generation import llm
 
     monkeypatch.setattr(
-        llm, "prompt_template", lambda v=None: "Find problems in {agent}.\n\n{evidence}"
+        llm, "_prompt_template", lambda v=None: "Find problems in {agent}.\n\n{evidence}"
     )
-    system, user = llm.build_prompt(llm.AnalystRequest(agent="A", digest="d"))
+    system, user = llm._build_prompt(llm._AnalystRequest(agent="A", digest="d"))
     assert '"trace_ids"' in user
 
 
@@ -166,20 +168,20 @@ def test_a_template_without_the_evidence_marker_is_an_error(monkeypatch):
     send a paid request whose evidence landed somewhere the prompt never refers to."""
     from insight_agent.insights_generation import llm
 
-    monkeypatch.setattr(llm, "prompt_template", lambda v=None: "Analyse {agent}.")
-    with pytest.raises(AnalystError, match="{evidence}"):
-        llm.build_prompt(llm.AnalystRequest(agent="A", digest="d"))
+    monkeypatch.setattr(llm, "_prompt_template", lambda v=None: "Analyse {agent}.")
+    with pytest.raises(InsightsGenerationError, match="{evidence}"):
+        llm._build_prompt(llm._AnalystRequest(agent="A", digest="d"))
 
 
 def test_prompt_explains_a_missing_card_stream():
-    request = AnalystRequest(agent="A", digest="d", cards=[])
-    system, _ = build_prompt(request)
+    request = _AnalystRequest(agent="A", digest="d", cards=[])
+    system, _ = _build_prompt(request)
     assert "No cards reached the Analyst" in system
     assert "do not compensate by lowering" in system
 
 
 def test_prompt_template_is_versioned_and_packaged():
-    assert "You are the Analyst agent" in prompt_template()
+    assert "You are the Analyst agent" in _prompt_template()
 
 
 # -- card selection --------------------------------------------------------
@@ -187,14 +189,14 @@ def test_prompt_template_is_versioned_and_packaged():
 
 def test_only_eligible_cards_are_shown_by_default():
     cards = [card("a"), card("b", eligible=False), card("c", eligible=False)]
-    shown, withheld = select_cards(cards)
+    shown, withheld = _select_cards(cards)
     assert [c["card_id"] for c in shown] == ["a"]
     assert withheld == 2
 
 
 def test_all_cards_shows_everything_and_withholds_nothing():
     cards = [card("a"), card("b", eligible=False)]
-    shown, withheld = select_cards(cards, all_cards=True)
+    shown, withheld = _select_cards(cards, all_cards=True)
     assert len(shown) == 2
     assert withheld == 0
 
@@ -214,26 +216,26 @@ def test_all_cards_shows_everything_and_withholds_nothing():
     ids=["bare", "wrapped", "fenced", "prose", "single-object"],
 )
 def test_parse_tolerates_the_shapes_a_model_actually_returns(raw):
-    assert parse_insights(raw) == [{"name": "N", "description": "D", "trace_ids": ["t1"]}]
+    assert _parse_insights(raw) == [{"name": "N", "description": "D", "trace_ids": ["t1"]}]
 
 
 def test_parse_accepts_an_empty_array():
-    assert parse_insights("[]") == []
+    assert _parse_insights("[]") == []
 
 
 def test_parse_coerces_a_bare_string_trace_id():
-    assert parse_insights('[{"name":"N","description":"D","trace_ids":"t1"}]')[0]["trace_ids"] == [
+    assert _parse_insights('[{"name":"N","description":"D","trace_ids":"t1"}]')[0]["trace_ids"] == [
         "t1"
     ]
 
 
 def test_parse_drops_entries_without_a_name():
-    parsed = parse_insights('[{"description":"no name"},{"name":"keep","description":"d"}]')
+    parsed = _parse_insights('[{"description":"no name"},{"name":"keep","description":"d"}]')
     assert [i["name"] for i in parsed] == ["keep"]
 
 
 def test_parse_deduplicates_trace_ids():
-    parsed = parse_insights('[{"name":"N","description":"D","trace_ids":["t1","t1","t2"]}]')
+    parsed = _parse_insights('[{"name":"N","description":"D","trace_ids":["t1","t1","t2"]}]')
     assert parsed[0]["trace_ids"] == ["t1", "t2"]
 
 
@@ -241,7 +243,7 @@ def test_parse_deduplicates_trace_ids():
 def test_parse_failure_carries_the_raw_text(raw):
     """The response was already paid for; losing it is the wrong failure mode."""
     with pytest.raises(ResponseParseError) as excinfo:
-        parse_insights(raw)
+        _parse_insights(raw)
     assert excinfo.value.raw == raw
 
 
@@ -315,7 +317,7 @@ def test_missing_litellm_names_the_extra_to_install(monkeypatch, request_obj):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", blocked)
-    with pytest.raises(AnalystError, match=r"\[analyst\]"):
+    with pytest.raises(InsightsGenerationError, match=r"\[analyst\]"):
         generate(request_obj)
 
 
@@ -349,17 +351,18 @@ SNAPSHOT = TraceSnapshot.from_traces(
         Trace(id="t2", spans=()),
     )
 )
+TRACE_INDEX = {trace.id: trace for trace in SNAPSHOT.scan()}
 
 
 def test_fetch_returns_the_requested_traces():
-    out = fetch_traces(SNAPSHOT, ["t1", "t2"])
+    out = _fetch_traces(TRACE_INDEX, ["t1", "t2"])
     assert [trace["id"] for trace in out["traces"]] == ["t1", "t2"]
     assert "not_found" not in out
 
 
 def test_fetch_truncates_large_results_but_says_so():
     """The traces worth opening are the ones flagged for huge outputs."""
-    result = fetch_traces(SNAPSHOT, ["t1"], max_chars_per_result=100)["traces"][0]["spans"][0][
+    result = _fetch_traces(TRACE_INDEX, ["t1"], max_chars_per_result=100)["traces"][0]["spans"][0][
         "output"
     ]
     assert "truncated" in result
@@ -367,22 +370,22 @@ def test_fetch_truncates_large_results_but_says_so():
 
 
 def test_fetch_honours_a_raised_cap():
-    result = fetch_traces(SNAPSHOT, ["t1"], max_chars_per_result=50_000)["traces"][0]["spans"][0][
-        "output"
-    ]
+    result = _fetch_traces(TRACE_INDEX, ["t1"], max_chars_per_result=50_000)["traces"][0]["spans"][
+        0
+    ]["output"]
     assert result == {"content": "y" * 5000}
 
 
 def test_fetch_preserves_the_missing_result_distinction():
     """`result` absent must stay absent — it is what missing_tool_result means."""
-    spans = fetch_traces(SNAPSHOT, ["t1"])["traces"][0]["spans"]
+    spans = _fetch_traces(TRACE_INDEX, ["t1"])["traces"][0]["spans"]
     assert "output" in spans[0]
     assert "output" not in spans[1]
 
 
 def test_fetch_reports_unknown_ids_rather_than_dropping_them():
     """An empty result would read as 'this trace has no calls'."""
-    out = fetch_traces(SNAPSHOT, ["t1", "nope"])
+    out = _fetch_traces(TRACE_INDEX, ["t1", "nope"])
     assert out["not_found"] == ["nope"]
     assert "do not reconstruct" in out["note"]
 
@@ -433,7 +436,7 @@ def tool_prompt(monkeypatch):
 
     monkeypatch.setattr(
         llm,
-        "prompt_template",
+        "_prompt_template",
         lambda v=None: "Analyse {agent}. Use fetch_traces to read raw traces.\n\n{evidence}",
     )
 
@@ -452,7 +455,7 @@ def test_a_prompt_that_never_names_the_tool_gets_no_tools(
     explain it to the model, so offering it anyway just invites confusion."""
     from insight_agent.insights_generation import llm
 
-    monkeypatch.setattr(llm, "prompt_template", lambda v=None: "Analyse {agent}.\n\n{evidence}")
+    monkeypatch.setattr(llm, "_prompt_template", lambda v=None: "Analyse {agent}.\n\n{evidence}")
     calls = scripted_litellm(ANSWER)
     generate(request_obj, snapshot=SNAPSHOT)
     assert "tools" not in calls[0]
@@ -502,7 +505,7 @@ def test_final_retry_withdraws_the_tools(scripted_litellm, tool_prompt, request_
 
 
 def test_evidence_is_inlined_when_the_template_asks_for_it(tool_prompt, request_obj):
-    system, user = build_prompt(request_obj)
+    system, user = _build_prompt(request_obj)
     assert "# Evidence for DocOps agent" in system, "evidence substituted at {evidence}"
     assert "{evidence}" not in system
     assert "# Evidence for" not in user, "evidence goes in the system prompt, not both"
@@ -514,10 +517,10 @@ def test_a_self_contained_template_gets_only_a_kickoff(monkeypatch, request_obj)
 
     monkeypatch.setattr(
         llm,
-        "prompt_template",
+        "_prompt_template",
         lambda v=None: 'Analyse {agent}. Emit "trace_ids". Use fetch_traces.\n\n{evidence}',
     )
-    system, user = llm.build_prompt(request_obj)
+    system, user = llm._build_prompt(request_obj)
     assert user.strip() == "Author Insights for this corpus."
 
 

@@ -9,12 +9,10 @@ import pytest
 
 from insight_agent.evidence_streams.anomaly_and_patterns import to_ia2_trace
 from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
-from insight_agent.loader import (
-    CorpusError,
-    LoadOptions,
-    load_corpus,
-    load_records,
-    to_trace,
+from insight_agent.trace_loaders import (
+    InsightTraceV1Loader,
+    InsightTraceV1Options,
+    TraceLoadError,
 )
 from insight_agent.validate import CANONICAL_VERSION
 from insight_agent.venue import DEFAULT_PROFILE
@@ -45,14 +43,18 @@ def one_call(**call_overrides):
 
 
 def ia2_trace(rec, *, profile=DEFAULT_PROFILE, tool_catalog=None):
+    options = InsightTraceV1Options(tool_catalog=tool_catalog)
+    trace = next(InsightTraceV1Loader.from_records([rec], options).load().scan())
     return to_ia2_trace(
-        to_trace(rec, tool_catalog=tool_catalog),
+        trace,
         profile=profile,
     )
 
 
 def ia3_trace(rec, *, tool_catalog=None):
-    return to_ia3_trace(to_trace(rec, tool_catalog=tool_catalog))
+    options = InsightTraceV1Options(tool_catalog=tool_catalog)
+    trace = next(InsightTraceV1Loader.from_records([rec], options).load().scan())
+    return to_ia3_trace(trace)
 
 
 def first_ia3_call(rec):
@@ -69,7 +71,7 @@ def test_absent_result_key_becomes_the_missing_sentinel():
 
 
 def test_explicit_json_null_is_none_and_is_not_missing():
-    """"result": null means the tool genuinely returned null."""
+    """ "result": null means the tool genuinely returned null."""
     call = first_ia3_call(one_call(result=None))
     assert call.result is None
     assert call.result is not MISSING
@@ -282,72 +284,74 @@ def test_existing_returned_data_key_is_not_overwritten():
 
 
 def test_load_records_validates_and_raises_in_strict_mode():
-    with pytest.raises(CorpusError) as excinfo:
-        load_records([{"schema_version": CANONICAL_VERSION, "trace_id": "t"}])
+    with pytest.raises(TraceLoadError) as excinfo:
+        InsightTraceV1Loader.from_records([{"schema_version": CANONICAL_VERSION, "trace_id": "t"}])
     assert excinfo.value.report.errors
 
 
 def test_metric_shadowing_is_an_error_unless_allowed():
     bad = record(metrics={"tool_call_count": 5.0})
-    with pytest.raises(CorpusError):
-        load_records([bad])
+    with pytest.raises(TraceLoadError):
+        InsightTraceV1Loader.from_records([bad])
 
-    corpus = load_records([bad], LoadOptions(allow_metric_shadowing=True))
-    assert len(corpus) == 1
+    loader = InsightTraceV1Loader.from_records(
+        [bad], InsightTraceV1Options(allow_metric_shadowing=True)
+    )
+    assert len(loader) == 1
 
 
 def test_non_strict_mode_drops_bad_records_and_keeps_the_rest():
     good = record()
     bad = {"schema_version": CANONICAL_VERSION, "trace_id": "t2"}  # no calls
     with pytest.warns(UserWarning):
-        corpus = load_records([good, bad], LoadOptions(strict=False))
-    assert [r["trace_id"] for r in corpus.records] == ["t1"]
-    assert corpus.report.errors
+        loader = InsightTraceV1Loader.from_records([good, bad], InsightTraceV1Options(strict=False))
+    assert [r["trace_id"] for r in loader.records] == ["t1"]
+    assert loader.report.errors
 
 
-def test_corpus_builds_a_reiterable_snapshot():
-    corpus = load_records([record(trace_id=f"t{i}") for i in range(3)])
-    snapshot = corpus.snapshot()
+def test_loader_builds_a_reiterable_snapshot():
+    loader = InsightTraceV1Loader.from_records([record(trace_id=f"t{i}") for i in range(3)])
+    snapshot = loader.load()
     assert snapshot.trace_count == 3
     assert [trace.id for trace in snapshot.scan()] == ["t0", "t1", "t2"]
     assert [trace.id for trace in snapshot.scan()] == ["t0", "t1", "t2"]
 
 
-def test_corpus_describe_reports_provenance_relevant_facts():
-    corpus = load_records(
+def test_loader_describe_reports_provenance_relevant_facts():
+    loader = InsightTraceV1Loader.from_records(
         [
             record(trace_id="t1", logical_case_id="case-a"),
             record(trace_id="t2", logical_case_id="case-a"),
             record(trace_id="t3", logical_case_id="case-b"),
         ]
     )
-    described = corpus.describe()
+    described = loader.describe()
     assert described["trace_count"] == 3
     assert described["distinct_logical_cases"] == 2
     assert described["steps_present"] is False
 
 
-def test_load_corpus_reads_jsonl_from_disk(tmp_path):
+def test_loader_reads_jsonl_from_disk(tmp_path):
     path = tmp_path / "corpus.jsonl"
     path.write_text(
         "\n".join(json.dumps(record(trace_id=f"t{i}")) for i in range(3)) + "\n",
         encoding="utf-8",
     )
-    corpus = load_corpus(path)
-    assert len(corpus) == 3
-    assert corpus.source == str(path)
+    loader = InsightTraceV1Loader.from_path(path)
+    assert len(loader) == 3
+    assert loader.source == str(path)
 
 
-def test_load_corpus_rejects_malformed_json_lines(tmp_path):
+def test_loader_rejects_malformed_json_lines(tmp_path):
     path = tmp_path / "corpus.jsonl"
     path.write_text(json.dumps(record()) + "\n{oops\n", encoding="utf-8")
-    with pytest.raises(CorpusError, match="malformed JSON"):
-        load_corpus(path)
+    with pytest.raises(TraceLoadError, match="malformed JSON"):
+        InsightTraceV1Loader.from_path(path)
 
 
 def test_duplicate_trace_ids_are_rejected():
-    with pytest.raises(CorpusError):
-        load_records([record(), record()])
+    with pytest.raises(TraceLoadError):
+        InsightTraceV1Loader.from_records([record(), record()])
 
 
 # -- structural round trip -------------------------------------------------
@@ -371,7 +375,7 @@ def test_round_trip_preserves_identity_fields():
             },
         ]
     )
-    trace = to_trace(rec)
+    trace = next(InsightTraceV1Loader.from_records([rec]).load().scan())
     ia2 = to_ia2_trace(trace)
     ia3 = to_ia3_trace(trace)
 

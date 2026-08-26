@@ -12,7 +12,7 @@ model through litellm and writes back a list of Insights, each with a name, a
 short description, and the trace IDs it cites.
 
 The Analyst is not limited to the preprocessed evidence. It is given a
-``fetch_traces`` tool and reads raw traces itself, using the digest and cards
+``fetch_traces`` tool and reads normalized traces itself, using the digest and cards
 as a map of where to look. That is what lets it name a mechanism ("the formula
 output must be a parameter") rather than restate a card.
 
@@ -43,22 +43,17 @@ from functools import lru_cache
 from typing import Any
 
 from ..evidence_streams.contracts import EvidenceStreamResult
-from ..traces import TraceSnapshot
+from ..traces import Trace, TraceSnapshot
 
 __all__ = [
     "DEFAULT_MAX_TOKENS",
+    "DEFAULT_MAX_TOOL_ROUNDS",
     "DEFAULT_MODEL",
     "DEFAULT_PROMPT_VERSION",
-    "AnalystError",
-    "AnalystRequest",
-    "AnalystResult",
     "InsightsGeneration",
+    "InsightsGenerationError",
+    "InsightsGenerationResult",
     "ResponseParseError",
-    "available_prompt_versions",
-    "build_prompt",
-    "fetch_traces",
-    "parse_insights",
-    "prompt_template",
 ]
 
 #: litellm takes ``provider/model``. Claude Opus 5 is the default; any litellm
@@ -97,11 +92,11 @@ MAX_TOOL_RESPONSE_CHARS = 120_000
 DEFAULT_MAX_TOOL_ROUNDS = 8
 
 
-class AnalystError(RuntimeError):
-    """Base class for Analyst failures."""
+class InsightsGenerationError(RuntimeError):
+    """Base class for InsightsGeneration failures."""
 
 
-class ResponseParseError(AnalystError):
+class ResponseParseError(InsightsGenerationError):
     """The model replied, but not with parseable Insights.
 
     Carries the raw text so the caller can persist it for inspection instead of
@@ -120,24 +115,26 @@ def _prompts_dir():
 
 
 @lru_cache(maxsize=8)
-def prompt_template(version: str = DEFAULT_PROMPT_VERSION) -> str:
+def _prompt_template(version: str = DEFAULT_PROMPT_VERSION) -> str:
     """One versioned Analyst prompt, read from the packaged resources."""
 
     try:
         return _prompts_dir().joinpath(f"{version}.md").read_text(encoding="utf-8")
     except FileNotFoundError as exc:
-        known = ", ".join(available_prompt_versions()) or "(none found)"
-        raise AnalystError(f"unknown prompt version {version!r}; available: {known}") from exc
+        known = ", ".join(_available_prompt_versions()) or "(none found)"
+        raise InsightsGenerationError(
+            f"unknown prompt version {version!r}; available: {known}"
+        ) from exc
 
 
-def available_prompt_versions() -> list[str]:
+def _available_prompt_versions() -> list[str]:
     """Every prompt shipped with the package, oldest name first."""
 
     return sorted(p.name[: -len(".md")] for p in _prompts_dir().iterdir() if p.name.endswith(".md"))
 
 
 @dataclass(frozen=True)
-class AnalystRequest:
+class _AnalystRequest:
     """Everything the Analyst is allowed to see."""
 
     #: Name of the agent under test, substituted into the prompt.
@@ -147,14 +144,14 @@ class AnalystRequest:
     #: authoring rules; passing it unmodified keeps those intact.
     digest: str
 
-    #: IA3 cards. Eligible-only by default — see `select_cards`.
+    #: IA3 cards. Eligible-only by default.
     cards: Sequence[Mapping[str, Any]] = ()
 
     #: Audit-only cards deliberately not shown. Stated in the prompt as a count
     #: so the model knows the evidence set is filtered, not exhaustive.
     withheld_card_count: int = 0
 
-    #: `Corpus.describe()` output, for corpus-level grounding.
+    #: Trace-loader summary, for corpus-level grounding.
     corpus: Mapping[str, Any] = field(default_factory=dict)
 
     #: Which packaged prompt to use. Recorded in `run.json` so a given
@@ -169,7 +166,7 @@ class AnalystRequest:
 
 
 @dataclass(frozen=True)
-class AnalystResult:
+class InsightsGenerationResult:
     """One Analyst run."""
 
     insights: list[dict[str, Any]]
@@ -190,19 +187,11 @@ class AnalystResult:
         return {t for insight in self.insights for t in insight.get("trace_ids", [])}
 
 
-@dataclass(frozen=True)
 class InsightsGeneration:
     """Generate Insights from a normalized snapshot and evidence-stream results."""
 
-    snapshot: TraceSnapshot
-    request: AnalystRequest
-    evidence: tuple[EvidenceStreamResult, ...] = ()
-    cards_shown: int = 0
-    cards_withheld: int = 0
-
-    @classmethod
-    def from_evidence(
-        cls,
+    def __init__(
+        self,
         *,
         snapshot: TraceSnapshot,
         evidence: Sequence[EvidenceStreamResult],
@@ -210,8 +199,8 @@ class InsightsGeneration:
         corpus: Mapping[str, Any],
         prompt_version: str = DEFAULT_PROMPT_VERSION,
         all_cards: bool = False,
-    ) -> InsightsGeneration:
-        """Construct the concrete stage from the outputs of IA2 and IA3."""
+    ) -> None:
+        """Prepare the concrete stage from the outputs of IA2 and IA3."""
 
         from ..evidence_streams.anomaly_and_patterns import AnomalyAndPatternsArtifacts
         from ..evidence_streams.tool_issues import ToolIssueEvidenceArtifacts
@@ -227,16 +216,18 @@ class InsightsGeneration:
             if isinstance(result.payload, ToolIssueEvidenceArtifacts)
         ]
         if len(anomaly_payloads) != 1:
-            raise AnalystError(
+            raise InsightsGenerationError(
                 "InsightsGeneration requires exactly one anomaly-and-patterns result"
             )
         if len(tool_issue_payloads) != 1:
-            raise AnalystError("InsightsGeneration requires exactly one tool-issues result")
+            raise InsightsGenerationError(
+                "InsightsGeneration requires exactly one tool-issues result"
+            )
 
         anomaly_result = anomaly_payloads[0].result
         all_tool_cards = list(tool_issue_payloads[0].cards)
-        cards, withheld = select_cards(all_tool_cards, all_cards=all_cards)
-        request = AnalystRequest(
+        cards, withheld = _select_cards(all_tool_cards, all_cards=all_cards)
+        self._request = _AnalystRequest(
             agent=agent,
             digest=str(anomaly_result["digest"]),
             cards=cards,
@@ -248,16 +239,14 @@ class InsightsGeneration:
                 tool_issue_payloads[0].findings,
             ),
         )
-        return cls(
-            snapshot=snapshot,
-            request=request,
-            evidence=tuple(evidence),
-            cards_shown=len(cards),
-            cards_withheld=withheld,
-        )
+        self.snapshot = snapshot
+        self.evidence = tuple(evidence)
+        self.cards_shown = len(cards)
+        self.cards_withheld = withheld
+        self.uncovered_anomaly_count = len(self._request.uncovered_anomalies)
 
     def build_prompt(self) -> tuple[str, str]:
-        return build_prompt(self.request)
+        return _build_prompt(self._request)
 
     @property
     def known_trace_ids(self) -> set[str]:
@@ -265,11 +254,11 @@ class InsightsGeneration:
 
         known = {
             str(item.get("trace_id"))
-            for card in self.request.cards
+            for card in self._request.cards
             for item in card.get("representative_evidence", ())
             if item.get("trace_id")
         }
-        known |= set(re.findall(r"`([^`\s|]+)`", self.request.digest))
+        known |= set(re.findall(r"`([^`\s|]+)`", self._request.digest))
         return known
 
     def generate(
@@ -281,9 +270,9 @@ class InsightsGeneration:
         api_key: str | None = None,
         max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
         **litellm_kwargs: Any,
-    ) -> AnalystResult:
+    ) -> InsightsGenerationResult:
         return _author_insights(
-            self.request,
+            self._request,
             model=model,
             max_tokens=max_tokens,
             api_base=api_base,
@@ -309,7 +298,7 @@ def _uncovered_anomalies(
     ]
 
 
-def select_cards(
+def _select_cards(
     cards: Sequence[Mapping[str, Any]], *, all_cards: bool = False
 ) -> tuple[list[dict[str, Any]], int]:
     """Split cards into what the Analyst sees and what is withheld.
@@ -362,7 +351,7 @@ Each element has exactly these three fields:
 Return `[]` if nothing meets the bar."""
 
 
-def build_prompt(request: AnalystRequest) -> tuple[str, str]:
+def _build_prompt(request: _AnalystRequest) -> tuple[str, str]:
     """Assemble the (system, user) prompt pair.
 
     The template owns the whole system prompt and says where the evidence goes
@@ -372,9 +361,9 @@ def build_prompt(request: AnalystRequest) -> tuple[str, str]:
     not get a second, possibly conflicting, copy stapled on.
     """
 
-    template = prompt_template(request.prompt_version)
+    template = _prompt_template(request.prompt_version)
     if EVIDENCE_PLACEHOLDER not in template:
-        raise AnalystError(
+        raise InsightsGenerationError(
             f"prompt {request.prompt_version!r} has no {EVIDENCE_PLACEHOLDER} marker, so the "
             "evidence has nowhere to go. Add it where the evidence should appear."
         )
@@ -495,8 +484,8 @@ def _trim(value: Any, limit: int) -> Any:
     return f"{text[:limit]}… [truncated: {len(text):,} chars total, showing {limit:,}]"
 
 
-def fetch_traces(
-    snapshot: TraceSnapshot,
+def _fetch_traces(
+    traces_by_id: Mapping[str, Trace],
     trace_ids: Sequence[str],
     *,
     max_chars_per_result: int = DEFAULT_RESULT_CHARS,
@@ -504,14 +493,13 @@ def fetch_traces(
     """Return normalized traces for the model, trimmed to fit a context window.
 
     Unknown ids are reported rather than silently dropped: a model that
-        mistyped an id needs to see that it mistyped it, not an empty result it
-        might read as "this trace has no spans".
+    mistyped an id needs to see that it mistyped it, not an empty result it
+    might read as "this trace has no spans".
     """
 
     limit = max(
         200, min(int(max_chars_per_result or DEFAULT_RESULT_CHARS), MAX_TOOL_RESPONSE_CHARS)
     )
-    traces_by_id = {trace.id: trace for trace in snapshot.scan()}
     found, missing, budget = [], [], MAX_TOOL_RESPONSE_CHARS
 
     for trace_id in trace_ids:
@@ -618,7 +606,7 @@ def _coerce_insight(value: Any) -> dict[str, Any] | None:
     }
 
 
-def parse_insights(text: str) -> list[dict[str, Any]]:
+def _parse_insights(text: str) -> list[dict[str, Any]]:
     """Extract the Insight list from a model response.
 
     Deliberately tolerant. There is no validator downstream, and a strict parser
@@ -714,7 +702,7 @@ def _extract_usage(response: Any) -> dict[str, Any]:
 
 
 def _author_insights(
-    request: AnalystRequest,
+    request: _AnalystRequest,
     *,
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -723,7 +711,7 @@ def _author_insights(
     snapshot: TraceSnapshot,
     max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
     **litellm_kwargs: Any,
-) -> AnalystResult:
+) -> InsightsGenerationResult:
     """Send the evidence to the model and return the authored Insights.
 
     ``api_base`` points litellm at an OpenAI-compatible gateway (an internal
@@ -740,12 +728,12 @@ def _author_insights(
     try:
         import litellm
     except ModuleNotFoundError as exc:  # pragma: no cover - exercised via monkeypatch
-        raise AnalystError(
+        raise InsightsGenerationError(
             "the Analyst stage needs litellm, which is not installed. "
             'Install it with:  pip install -e ".[analyst]"'
         ) from exc
 
-    system, user = build_prompt(request)
+    system, user = _build_prompt(request)
 
     # Only forward what was actually supplied: passing api_base=None would stop
     # litellm resolving the provider's own default endpoint.
@@ -759,6 +747,9 @@ def _author_insights(
     wants_tools = TRACE_LOOKUP_TOOL in system
     if wants_tools:
         litellm_kwargs["tools"] = [TRACE_LOOKUP_SCHEMA]
+        traces_by_id = {trace.id: trace for trace in snapshot.scan()}
+    else:
+        traces_by_id = {}
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system},
@@ -796,8 +787,8 @@ def _author_insights(
             if name == TRACE_LOOKUP_TOOL:
                 ids = [str(t) for t in (arguments.get("trace_ids") or [])]
                 traces_fetched.extend(ids)
-                payload = fetch_traces(
-                    snapshot,
+                payload = _fetch_traces(
+                    traces_by_id,
                     ids,
                     max_chars_per_result=arguments.get(
                         "max_chars_per_result", DEFAULT_RESULT_CHARS
@@ -836,9 +827,9 @@ def _author_insights(
                     usage[key] = usage.get(key, 0) + value
 
     raw = _extract_text(response)
-    insights = parse_insights(raw)
+    insights = _parse_insights(raw)
 
-    return AnalystResult(
+    return InsightsGenerationResult(
         insights=insights,
         model=model,
         system_prompt=system,
