@@ -41,9 +41,7 @@ def _span(
 def test_deep_flat_span_topology_is_valid_and_serializable():
     trace = Trace(
         id="trace-1",
-        root_span_id="agent-root",
         input=[{"role": "user", "content": "Find the report"}],
-        output=[{"role": "assistant", "content": "Found it"}],
         spans=(
             _span("agent-root"),
             _span("chain", parent="agent-root", seconds=1, kind=SpanKind.CHAIN),
@@ -60,7 +58,6 @@ def test_deep_flat_span_topology_is_valid_and_serializable():
     ]
     dumped = trace.model_dump(mode="json")
     assert dumped["input"] == [{"role": "user", "content": "Find the report"}]
-    assert dumped["output"] == [{"role": "assistant", "content": "Found it"}]
     assert dumped["spans"][3]["kind"] == "LLM"
 
 
@@ -157,9 +154,9 @@ def test_models_reject_unknown_fields_and_field_reassignment():
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         Span(span_id="s", kind=SpanKind.AGENT, made_up=True)
 
-    span = Span(span_id="s", kind=SpanKind.AGENT, attributes={"nested": {"value": 1}})
+    span = Span(span_id="s", kind=SpanKind.AGENT, source_pointer={"nested": {"value": 1}})
     with pytest.raises(ValidationError, match="Instance is frozen"):
-        span.attributes = {}  # type: ignore[misc]
+        span.source_pointer = {}  # type: ignore[misc]
 
 
 def test_snapshot_scans_are_stable_and_independent():

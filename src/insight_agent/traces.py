@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from datetime import datetime
 from enum import Enum
-from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -67,30 +66,21 @@ class Span(ContractModel):
 
     span_id: str = Field(min_length=1)
     kind: SpanKind
-    status: SpanStatus = SpanStatus.UNKNOWN
-    # Source records can preserve order without recording wall-clock timestamps.
-    started_at: datetime | None = None
     parent_span_id: str | None = None
     name: str | None = None
     subtype: str | None = None
     summary: str | None = None
+    status: SpanStatus = SpanStatus.UNKNOWN
+    # Source records can preserve order without recording wall-clock timestamps.
+    started_at: datetime | None = None
     ended_at: datetime | None = None
     duration_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     input: JsonValue | UNSET = UNSET
     output: JsonValue | UNSET = UNSET
-    provider: str | None = None
-    model: str | None = None
     tool_name: str | None = None
-    input_tokens: int | None = Field(default=None, ge=0)
-    output_tokens: int | None = Field(default=None, ge=0)
-    cached_tokens: int | None = Field(default=None, ge=0)
-    total_tokens: int | None = Field(default=None, ge=0)
-    cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     error_type: str | None = None
-    error_message: str | None = None
     tool_call: ToolCall | None = None
     source_pointer: dict[str, JsonValue] = Field(default_factory=dict)
-    attributes: dict[str, JsonValue] = Field(default_factory=dict)
 
     @field_validator("started_at", "ended_at")
     @classmethod
@@ -117,49 +107,18 @@ class Trace(ContractModel):
 
     id: str = Field(min_length=1)
     spans: tuple[Span, ...]
-    schema_version: Literal["trace/v1"] = "trace/v1"
-    root_span_id: str | None = None
-    session_id: str | None = None
-    name: str | None = None
     input: JsonValue | UNSET = UNSET
-    output: JsonValue | UNSET = UNSET
-    started_at: datetime | None = None
-    ended_at: datetime | None = None
-    status: SpanStatus = SpanStatus.UNKNOWN
-    agent_name: str | None = None
-    agent_version: str | None = None
-    input_tokens: int | None = Field(default=None, ge=0)
-    output_tokens: int | None = Field(default=None, ge=0)
-    cached_tokens: int | None = Field(default=None, ge=0)
-    total_tokens: int | None = Field(default=None, ge=0)
     cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
-    models: tuple[str, ...] = ()
-    providers: tuple[str, ...] = ()
     tool_catalog: dict[str, JsonValue | None] | None = None
     logical_case_id: str | None = None
     observed_verdict: str | None = None
     metrics: dict[str, FiniteFloat] = Field(default_factory=dict)
     complete_provenance_context: bool = False
     orphan_results: tuple[dict[str, JsonValue], ...] = ()
-    evaluation_context: dict[str, JsonValue] = Field(default_factory=dict)
     source_pointer: dict[str, JsonValue] = Field(default_factory=dict)
-    attributes: dict[str, JsonValue] = Field(default_factory=dict)
-
-    @field_validator("started_at", "ended_at")
-    @classmethod
-    def timestamps_include_timezone(cls, value: datetime | None) -> datetime | None:
-        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
-            raise ValueError("timestamp must include a timezone")
-        return value
 
     @model_validator(mode="after")
     def validate_trace(self) -> Trace:
-        if (
-            self.started_at is not None
-            and self.ended_at is not None
-            and self.ended_at < self.started_at
-        ):
-            raise ValueError(f"trace {self.id!r} ends before it starts")
         self._validate_span_graph()
         return self
 
@@ -172,19 +131,9 @@ class Trace(ContractModel):
             by_id[span.span_id] = span
             positions[span.span_id] = position
 
-        if self.root_span_id is not None:
-            root = by_id.get(self.root_span_id)
-            if root is None:
-                raise ValueError(
-                    f"trace {self.id!r} root_span_id {self.root_span_id!r} does not resolve"
-                )
-            if root.parent_span_id is not None:
-                raise ValueError(f"trace {self.id!r} root span must not have a parent")
-
-        partial = self.attributes.get("trace.partial") is True
         for span in self.spans:
             parent_id = span.parent_span_id
-            if parent_id is not None and parent_id not in by_id and not partial:
+            if parent_id is not None and parent_id not in by_id:
                 raise ValueError(
                     f"trace {self.id!r} span {span.span_id!r} references missing parent "
                     f"{parent_id!r}"

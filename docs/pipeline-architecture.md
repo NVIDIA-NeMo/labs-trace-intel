@@ -62,10 +62,10 @@ definitions, and corpus identity.
 
 ### Normalized Trace
 
-The normalized model follows the useful shape of NeMo Platform Intake without importing its
-models or depending on its service. A trace provides an end-to-end summary and contains one
-canonically ordered, parent-linked array of spans. Each span records one unit of agent work,
-such as an LLM call, tool call, agent turn, chain, retriever, or evaluator.
+The normalized model is a purpose-built input to the current evidence streams and Analyst. It
+does not mirror a trace-store API. A trace contains one canonically ordered, parent-linked
+array of spans plus the corpus-level fields IA2 and IA3 consume. Each span records one unit of
+agent work, such as an LLM call, tool call, agent turn, chain, retriever, or evaluator.
 
 Unlike NeMo Platform's storage/API models, this contract keeps `input` and `output` as JSON
 values. An LLM span can therefore preserve complete input and output messages instead of
@@ -107,61 +107,34 @@ class ToolCall(ContractModel):
 class Span(ContractModel):
     span_id: str
     kind: SpanKind
-    status: SpanStatus
-    started_at: datetime | None = None
     parent_span_id: str | None = None
     name: str | None = None
     subtype: str | None = None
     summary: str | None = None
+    status: SpanStatus = SpanStatus.UNKNOWN
+    started_at: datetime | None = None
     ended_at: datetime | None = None
     duration_ms: float | None = None
     input: JsonValue | UNSET = UNSET
     output: JsonValue | UNSET = UNSET
-    provider: str | None = None
-    model: str | None = None
     tool_name: str | None = None
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    cached_tokens: int | None = None
-    total_tokens: int | None = None
-    cost_usd: float | None = None
     error_type: str | None = None
-    error_message: str | None = None
     tool_call: ToolCall | None = None
     source_pointer: dict[str, JsonValue] = Field(default_factory=dict)
-    attributes: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class Trace(ContractModel):
     id: str
     spans: tuple[Span, ...]  # canonical topological-temporal order
-    schema_version: Literal["trace/v1"] = "trace/v1"
-    root_span_id: str | None = None
-    session_id: str | None = None
-    name: str | None = None
     input: JsonValue | UNSET = UNSET
-    output: JsonValue | UNSET = UNSET
-    started_at: datetime | None = None
-    ended_at: datetime | None = None
-    status: SpanStatus = SpanStatus.UNKNOWN
-    agent_name: str | None = None
-    agent_version: str | None = None
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    cached_tokens: int | None = None
-    total_tokens: int | None = None
     cost_usd: float | None = None
-    models: tuple[str, ...] = ()
-    providers: tuple[str, ...] = ()
     tool_catalog: dict[str, JsonValue | None] | None = None
     logical_case_id: str | None = None
     observed_verdict: str | None = None
     metrics: dict[str, float] = Field(default_factory=dict)
     complete_provenance_context: bool = False
     orphan_results: tuple[dict[str, JsonValue], ...] = ()
-    evaluation_context: dict[str, JsonValue] = Field(default_factory=dict)
     source_pointer: dict[str, JsonValue] = Field(default_factory=dict)
-    attributes: dict[str, JsonValue] = Field(default_factory=dict)
 ```
 
 `UNSET` is Pydantic's missing sentinel and is distinct from JSON `null`. For example, an absent tool-span `output` means no result
@@ -181,9 +154,9 @@ not fabricate timestamps merely to satisfy the model.
 - `parent_span_id` represents topology. A flat array can describe arbitrarily deep nesting,
   such as `AGENT -> CHAIN -> AGENT -> LLM`, without recursively embedding spans. Parent and
   child spans need not be adjacent in the array.
-- `root_span_id` identifies the root when one is known. Within a complete trace, span IDs must
-  be unique, every non-root parent must resolve inside the same trace, and parent links must be
-  acyclic. A partial export must say that it is partial rather than silently inventing parents.
+- Span IDs must be unique, every parent must resolve inside the same trace, and parent links
+  must be acyclic. Root spans are the spans without a parent; a separate root ID would be
+  redundant and would not represent traces with more than one top-level span.
 
 Consumers that need a recursive view can derive `children(span_id)` or `span_tree()` from the
 same array. That view is a convenience and is not a second serialized representation.
@@ -192,16 +165,8 @@ A normalized record can preserve LLM messages and tool activity in one span tree
 
 ```json
 {
-  "schema_version": "trace/v1",
   "id": "trace-123",
-  "root_span_id": "agent-1",
-  "session_id": "session-42",
-  "name": "research-agent",
   "input": [{"role": "user", "content": "Find the latest report"}],
-  "output": [{"role": "assistant", "content": "I found the report."}],
-  "started_at": "2026-08-26T18:00:00Z",
-  "ended_at": "2026-08-26T18:00:02Z",
-  "status": "success",
   "spans": [
     {
       "span_id": "agent-1",
@@ -220,8 +185,6 @@ A normalized record can preserve LLM messages and tool activity in one span tree
       "name": "reason-and-select-tool",
       "started_at": "2026-08-26T18:00:00Z",
       "ended_at": "2026-08-26T18:00:01Z",
-      "provider": "openai",
-      "model": "example-model",
       "input": {
         "messages": [
           {"role": "system", "content": "Use tools when needed."},
@@ -238,10 +201,7 @@ A normalized record can preserve LLM messages and tool activity in one span tree
             ]
           }
         ]
-      },
-      "input_tokens": 120,
-      "output_tokens": 24,
-      "total_tokens": 144
+      }
     },
     {
       "span_id": "call-1",
@@ -259,18 +219,18 @@ A normalized record can preserve LLM messages and tool activity in one span tree
 }
 ```
 
-The trace-level input, output, token, cost, model, provider, status, and timing fields summarize
-the span tree. They can be supplied by the source or computed during normalization, but their
-provenance must be recorded so captured values are distinguishable from derived values.
+The contract deliberately contains only fields consumed by the current system:
 
-The existing engines consume projections of this richer model:
-
-- IA2 derives its ordered steps, tool calls, cost, verdicts, and numeric features from spans
-  and trace-level fields.
+- IA2 derives its ordered steps, tool calls, durations, cost, verdicts, and numeric features
+  from spans and trace-level fields.
 - IA3 derives `CallRecord` values from `TOOL` spans and uses the trace's tool catalog and
-  provenance attributes.
-- New evidence streams can inspect LLM messages, model calls, token usage, latency, retrieval,
-  guardrail, evaluator, and user-interaction spans without another schema redesign.
+  provenance fields.
+- Insights Generation can fetch the same structured trace and inspect its message, tool, and
+  result payloads.
+
+Provider, model, token, session, agent, and trace-summary fields are omitted until an evidence
+stream actually consumes them. Future analysis should extend this contract from a concrete
+requirement rather than copying a provider's storage model wholesale.
 
 Concrete example: `InsightTraceV1Loader` validates `insight-trace/v1` records, maps their
 steps and calls into normalized spans, and returns a snapshot. A future loader for NeMo
