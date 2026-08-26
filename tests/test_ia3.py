@@ -18,6 +18,8 @@ import pytest
 from insight_agent.evidence_streams.tool_issues import (
     FINDING_TYPES,
     MISSING,
+    RepresentativeEvidence,
+    ToolIssueCard,
     build_cards,
     catalog_coverage,
     detect,
@@ -158,26 +160,32 @@ def test_a_null_schema_enables_unknown_tool_but_not_argument_checks():
 def test_cards_are_promoted_only_at_three_independent_cases(findings):
     cards = build_cards(findings, minimum_independent_cases=3)
     assert cards
+    assert all(isinstance(card, ToolIssueCard) for card in cards)
+    assert all(
+        isinstance(evidence, RepresentativeEvidence)
+        for card in cards
+        for evidence in card.representative_evidence
+    )
     for card in cards:
-        assert card["eligible_for_analyst"] == (card["independent_case_count"] >= 3)
-    assert any(card["eligible_for_analyst"] for card in cards)
+        assert card.eligible_for_analyst == (card.independent_case_count >= 3)
+    assert any(card.eligible_for_analyst for card in cards)
 
 
 def test_card_eligibility_counts_cases_not_traces(loader, findings):
     """Two traces share a logical case, so the counts must differ."""
-    cards = {c["card_id"]: c for c in build_cards(findings)}
+    cards = {card.card_id: card for card in build_cards(findings)}
     card = cards["tid:explicit_tool_failure:error_prefix"]
-    assert card["finding_count"] > card["independent_case_count"]
+    assert card.finding_count > card.independent_case_count
 
 
 def test_cards_never_claim_impact(findings):
     for card in build_cards(findings):
-        assert card["impact_status"] == "not_established"
+        assert card.impact_status == "not_established"
 
 
 def test_raising_the_threshold_disqualifies_everything(findings):
     cards = build_cards(findings, minimum_independent_cases=999)
-    assert cards and not any(c["eligible_for_analyst"] for c in cards)
+    assert cards and not any(card.eligible_for_analyst for card in cards)
 
 
 # -- parameters ------------------------------------------------------------

@@ -30,14 +30,14 @@ def _jsonable(value):
 
 
 def test_ia2_digest_matches_the_pre_refactor_golden():
-    digest = run_ia2(baseline_corpus.ia2_traces(), minimum_independent_traces=3)["digest"]
+    digest = run_ia2(baseline_corpus.ia2_traces(), minimum_independent_traces=3).digest
     assert digest == (DATA / "baseline_digest.md").read_text(encoding="utf-8")
 
 
 def test_ia2_default_profile_is_identical_to_passing_none():
     traces = baseline_corpus.ia2_traces()
-    implicit = run_ia2(traces, minimum_independent_traces=3)["digest"]
-    explicit = run_ia2(traces, minimum_independent_traces=3, profile=DEFAULT_PROFILE)["digest"]
+    implicit = run_ia2(traces, minimum_independent_traces=3).digest
+    explicit = run_ia2(traces, minimum_independent_traces=3, profile=DEFAULT_PROFILE).digest
     assert implicit == explicit
 
 

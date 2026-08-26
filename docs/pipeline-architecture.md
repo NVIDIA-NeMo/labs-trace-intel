@@ -363,6 +363,11 @@ results or IA3's findings and cards. They support diagnostics and evaluation but
 of the synthesis interface. Each stream owns the projection from its native analysis into
 Problems, including its own evidence threshold.
 
+Stable algorithm outputs are typed at the stream boundary as well. IA2 returns an
+`AnomalyAndPatternsAnalysis` with typed anomalies and recurring-failure groups; IA3 returns
+typed `ToolIssueCard` values with typed representative evidence. Temporary detector structures
+can remain local dictionaries, but code outside the algorithm uses validated model attributes.
+
 The Analyst collects the results and passes them directly to `InsightsGeneration`. Collection
 is ordinary orchestration, not a separate merge or composition phase.
 

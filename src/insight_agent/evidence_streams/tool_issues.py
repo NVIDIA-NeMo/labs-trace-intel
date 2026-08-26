@@ -14,11 +14,12 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from jsonschema import validators
+from pydantic import Field
 
-from ..traces import UNSET, SpanKind, SpanStatus, Trace, TraceSnapshot
+from ..traces import UNSET, ContractModel, SpanKind, SpanStatus, Trace, TraceSnapshot
 from ..venue import DEFAULT_PROFILE, VenueProfile
 from .contracts import EvidenceCoverage, EvidenceStreamResult, Problem
 
@@ -479,15 +480,40 @@ def detect(
     )
 
 
+class RepresentativeEvidence(ContractModel):
+    trace_id: str = Field(min_length=1)
+    call_id: str = Field(min_length=1)
+    call_index: int = Field(
+        ge=-1,
+        description="Zero-based tool-call index; -1 identifies an orphan tool result.",
+    )
+    tool_name: str = Field(min_length=1)
+    source_pointer: Mapping[str, Any]
+    observation: str
+
+
+class ToolIssueCard(ContractModel):
+    card_id: str = Field(min_length=1)
+    issue_type: str = Field(min_length=1)
+    issue_family: str = Field(min_length=1)
+    mechanism_key: str = Field(min_length=1)
+    finding_count: int = Field(ge=1)
+    independent_case_count: int = Field(ge=1)
+    eligible_for_analyst: bool
+    representative_evidence: tuple[RepresentativeEvidence, ...] = Field(min_length=1)
+    impact_status: Literal["not_established"]
+    impact_boundary: str
+
+
 def build_cards(
     findings: Iterable[Mapping[str, Any]], *, minimum_independent_cases: int = CARD_MINIMUM_CASES
-) -> list[dict[str, Any]]:
+) -> list[ToolIssueCard]:
     """Promote recurring findings into compact Analyst-facing evidence cards."""
 
     groups: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
     for finding in findings:
         groups[(str(finding["issue_type"]), str(finding.get("mechanism_key") or ""))].append(finding)
-    cards: list[dict[str, Any]] = []
+    cards: list[ToolIssueCard] = []
     for (issue_type, mechanism), members in sorted(groups.items()):
         logical_cases = sorted({str(member["logical_case_id"]) for member in members})
         representatives: dict[str, Mapping[str, Any]] = {}
@@ -506,18 +532,18 @@ def build_cards(
             for member in list(representatives.values())[:3]
         ]
         cards.append(
-            {
-                "card_id": f"tid:{issue_type}:{mechanism}",
-                "issue_type": issue_type,
-                "issue_family": FAMILY[issue_type],
-                "mechanism_key": mechanism,
-                "finding_count": len(members),
-                "independent_case_count": len(logical_cases),
-                "eligible_for_analyst": eligible,
-                "representative_evidence": examples,
-                "impact_status": "not_established",
-                "impact_boundary": "No impact is claimed beyond the directly observed tool-use issue.",
-            }
+            ToolIssueCard(
+                card_id=f"tid:{issue_type}:{mechanism}",
+                issue_type=issue_type,
+                issue_family=FAMILY[issue_type],
+                mechanism_key=mechanism,
+                finding_count=len(members),
+                independent_case_count=len(logical_cases),
+                eligible_for_analyst=eligible,
+                representative_evidence=tuple(examples),
+                impact_status="not_established",
+                impact_boundary="No impact is claimed beyond the directly observed tool-use issue.",
+            )
         )
     return cards
 
@@ -532,44 +558,40 @@ def catalog_coverage(findings: Iterable[Mapping[str, Any]]) -> dict[str, int]:
 @dataclass(frozen=True)
 class ToolIssueEvidenceArtifacts:
     findings: tuple[Mapping[str, Any], ...]
-    cards: tuple[Mapping[str, Any], ...]
+    cards: tuple[ToolIssueCard, ...]
     catalog_coverage: Mapping[str, int]
 
 
 def problems_from_cards(
-    cards: Sequence[Mapping[str, Any]], *, include_audit: bool = False
+    cards: Sequence[ToolIssueCard], *, include_audit: bool = False
 ) -> tuple[Problem, ...]:
     """Project recurring tool-issue cards into candidate problems for synthesis."""
 
     problems: list[Problem] = []
     for card in cards:
-        if not include_audit and not card.get("eligible_for_analyst"):
+        if not include_audit and not card.eligible_for_analyst:
             continue
-        representatives = tuple(card.get("representative_evidence", ()))
+        representatives = card.representative_evidence
         trace_ids = tuple(
-            dict.fromkeys(
-                str(item["trace_id"])
-                for item in representatives
-                if item.get("trace_id")
-            )
+            dict.fromkeys(item.trace_id for item in representatives if item.trace_id)
         )
         if not trace_ids:
             continue
         observation_parts = []
         for item in representatives:
-            observation = str(item.get("observation") or "issue observed").rstrip(". ")
+            observation = (item.observation or "issue observed").rstrip(". ")
             observation_parts.append(
-                f"{item.get('tool_name') or 'unknown tool'}: {observation}"
+                f"{item.tool_name or 'unknown tool'}: {observation}"
             )
         observations = "; ".join(observation_parts)
         problems.append(
             Problem(
                 description=(
-                    f"Tool issue `{card['issue_type']}` with mechanism "
-                    f"`{card['mechanism_key']}` produced {card['finding_count']} finding(s) "
-                    f"across {card['independent_case_count']} independent case(s). "
+                    f"Tool issue `{card.issue_type}` with mechanism "
+                    f"`{card.mechanism_key}` produced {card.finding_count} finding(s) "
+                    f"across {card.independent_case_count} independent case(s). "
                     f"Representative observations: {observations}. "
-                    f"{card['impact_boundary']}"
+                    f"{card.impact_boundary}"
                 ),
                 supporting_trace_ids=trace_ids,
             )
@@ -694,7 +716,7 @@ class ToolIssueEvidenceStream:
         selected_card_count = (
             len(cards)
             if self.include_audit_problems
-            else sum(bool(card["eligible_for_analyst"]) for card in cards)
+            else sum(card.eligible_for_analyst for card in cards)
         )
         withheld = len(cards) - selected_card_count
         return EvidenceStreamResult(

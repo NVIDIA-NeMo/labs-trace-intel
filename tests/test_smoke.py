@@ -33,7 +33,7 @@ def test_engine_modules_are_importable_by_dotted_path():
 def test_run_ia2_produces_a_digest():
     result = run_ia2(baseline_corpus.ia2_traces(), minimum_independent_traces=3)
 
-    assert set(result) >= {
+    assert set(type(result).model_fields) >= {
         "prepared",
         "failure_events",
         "anomalies",
@@ -43,14 +43,14 @@ def test_run_ia2_produces_a_digest():
         "cross_tool_failure_groups",
         "digest",
     }
-    assert result["digest"].strip()
-    assert len(result["prepared"]) == len(baseline_corpus.ia2_traces())
+    assert result.digest.strip()
+    assert len(result.prepared) == len(baseline_corpus.ia2_traces())
 
 
 def test_run_ia2_is_deterministic_in_process():
     traces = baseline_corpus.ia2_traces()
-    first = run_ia2(traces, minimum_independent_traces=3)["digest"]
-    second = run_ia2(traces, minimum_independent_traces=3)["digest"]
+    first = run_ia2(traces, minimum_independent_traces=3).digest
+    second = run_ia2(traces, minimum_independent_traces=3).digest
     assert first == second
 
 
@@ -68,10 +68,10 @@ def test_build_cards_requires_three_independent_cases():
     cards = build_cards(findings, minimum_independent_cases=3)
 
     assert cards
-    assert any(card["eligible_for_analyst"] for card in cards)
+    assert any(card.eligible_for_analyst for card in cards)
     for card in cards:
-        expected = card["independent_case_count"] >= 3
-        assert card["eligible_for_analyst"] is expected
+        expected = card.independent_case_count >= 3
+        assert card.eligible_for_analyst is expected
 
 
 def test_build_cards_at_a_higher_threshold_disqualifies_everything():
@@ -79,7 +79,7 @@ def test_build_cards_at_a_higher_threshold_disqualifies_everything():
     cards = build_cards(findings, minimum_independent_cases=99)
 
     assert cards
-    assert not any(card["eligible_for_analyst"] for card in cards)
+    assert not any(card.eligible_for_analyst for card in cards)
 
 
 @pytest.mark.parametrize("n_traces", [1, 2])
@@ -93,8 +93,8 @@ def test_run_ia2_abstains_from_grouping_corpora_too_small_to_cluster(n_traces):
     traces = baseline_corpus.ia2_traces()[:n_traces]
     result = run_ia2(traces, minimum_independent_traces=3)
 
-    assert result["trajectory_groups"] is None
-    assert result["digest"].strip()
+    assert result.trajectory_groups is None
+    assert result.digest.strip()
 
 
 def test_group_trajectories_raises_directly_on_small_corpora():

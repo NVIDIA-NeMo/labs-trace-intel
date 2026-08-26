@@ -19,6 +19,7 @@ from statistics import median
 from typing import Any, Literal
 
 import numpy as np
+from pydantic import Field, FiniteFloat
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.ensemble import IsolationForest
@@ -26,7 +27,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
-from ..traces import UNSET, Span, SpanKind, Trace, TraceSnapshot
+from ..traces import UNSET, ContractModel, Span, SpanKind, Trace, TraceSnapshot
 from ..venue import DEFAULT_PROFILE, VenueProfile
 from .contracts import EvidenceCoverage, EvidenceStreamResult, Problem
 
@@ -840,6 +841,45 @@ def build_evidence_digest(
     return "\n".join(lines)
 
 
+class Anomaly(ContractModel):
+    trace_id: str = Field(min_length=1)
+    anomaly_score: FiniteFloat
+    is_anomaly: bool
+    anomaly_reasons: tuple[str, ...]
+    pca_x: FiniteFloat
+    pca_y: FiniteFloat
+    source_pointer: Mapping[str, Any]
+
+
+class FailureGroup(ContractModel):
+    signature: str = Field(min_length=1)
+    event_count: int = Field(ge=1)
+    independent_trace_count: int = Field(ge=1)
+    trace_ids: tuple[str, ...] = Field(min_length=1)
+    top_tools: tuple[str, ...]
+    representatives: tuple[Mapping[str, Any], ...] = Field(min_length=1)
+
+
+class CrossToolFailureGroup(ContractModel):
+    message_signature: str = Field(min_length=1)
+    event_count: int = Field(ge=1)
+    independent_trace_count: int = Field(ge=1)
+    tool_names: tuple[str, ...]
+    trace_ids: tuple[str, ...] = Field(min_length=1)
+    representatives: tuple[Mapping[str, Any], ...] = Field(min_length=1)
+
+
+class AnomalyAndPatternsAnalysis(ContractModel):
+    prepared: tuple[PreparedTrace, ...]
+    failure_events: tuple[Mapping[str, Any], ...]
+    anomalies: tuple[Anomaly, ...]
+    trajectory_groups: Mapping[str, Any] | None
+    verdict_groups: tuple[Mapping[str, Any], ...]
+    failure_groups: tuple[FailureGroup, ...]
+    cross_tool_failure_groups: tuple[CrossToolFailureGroup, ...]
+    digest: str
+
+
 def run_ia2(
     traces: Sequence[NormalizedTrace],
     *,
@@ -849,7 +889,7 @@ def run_ia2(
     minimum_independent_traces: int = RECURRENCE_THRESHOLD,
     input_scaling: str = "none",
     profile: VenueProfile = DEFAULT_PROFILE,
-) -> dict[str, Any]:
+) -> AnomalyAndPatternsAnalysis:
     """Execute Stages 3–6 and return every intermediate plus the cited digest."""
 
     prepared, failure_events = prepare_traces(traces, profile=profile)
@@ -882,38 +922,38 @@ def run_ia2(
         failure_groups,
         cross_tool_groups,
     )
-    return {
-        "prepared": prepared,
-        "failure_events": failure_events,
-        "anomalies": anomalies,
-        "trajectory_groups": trajectory_groups,
-        "verdict_groups": verdict_groups,
-        "failure_groups": failure_groups,
-        "cross_tool_failure_groups": cross_tool_groups,
-        "digest": digest,
-    }
+    return AnomalyAndPatternsAnalysis(
+        prepared=tuple(prepared),
+        failure_events=tuple(failure_events),
+        anomalies=tuple(anomalies),
+        trajectory_groups=trajectory_groups,
+        verdict_groups=tuple(verdict_groups),
+        failure_groups=tuple(failure_groups),
+        cross_tool_failure_groups=tuple(cross_tool_groups),
+        digest=digest,
+    )
 
 
 @dataclass(frozen=True)
 class AnomalyAndPatternsArtifacts:
-    result: Mapping[str, Any]
+    result: AnomalyAndPatternsAnalysis
     parameters: Mapping[str, Any]
 
 
-def problems_from_analysis(result: Mapping[str, Any]) -> tuple[Problem, ...]:
+def problems_from_analysis(result: AnomalyAndPatternsAnalysis) -> tuple[Problem, ...]:
     """Project IA2's native analysis into candidate problems for synthesis."""
 
     problems: list[Problem] = []
-    anomalies = [row for row in result.get("anomalies", ()) if row.get("is_anomaly")]
+    anomalies = [row for row in result.anomalies if row.is_anomaly]
     if anomalies:
         ranked = sorted(
             anomalies,
-            key=lambda row: (-float(row.get("anomaly_score", 0.0)), str(row["trace_id"])),
+            key=lambda row: (-row.anomaly_score, row.trace_id),
         )
         reason_counts = Counter(
             str(reason)
             for row in anomalies
-            for reason in row.get("anomaly_reasons", ())
+            for reason in row.anomaly_reasons
         )
         common_reasons = ", ".join(
             f"{reason} ({count})" for reason, count in reason_counts.most_common(5)
@@ -927,38 +967,38 @@ def problems_from_analysis(result: Mapping[str, Any]) -> tuple[Problem, ...]:
         problems.append(
             Problem(
                 description=description,
-                supporting_trace_ids=tuple(str(row["trace_id"]) for row in ranked[:50]),
+                supporting_trace_ids=tuple(row.trace_id for row in ranked[:50]),
             )
         )
 
-    for group in result.get("failure_groups", ()):
-        tools = ", ".join(str(tool) for tool in group.get("top_tools", ())) or "unknown tools"
+    for group in result.failure_groups:
+        tools = ", ".join(group.top_tools) or "unknown tools"
         problems.append(
             Problem(
                 description=(
-                    f"Recurring strict tool failure `{group['signature']}` appeared in "
-                    f"{group['event_count']} event(s) across "
-                    f"{group['independent_trace_count']} independent trace(s). "
+                    f"Recurring strict tool failure `{group.signature}` appeared in "
+                    f"{group.event_count} event(s) across "
+                    f"{group.independent_trace_count} independent trace(s). "
                     f"Affected tools: {tools}."
                 ),
-                supporting_trace_ids=tuple(str(item) for item in group["trace_ids"]),
+                supporting_trace_ids=group.trace_ids,
             )
         )
 
-    for group in result.get("cross_tool_failure_groups", ()):
-        tools = tuple(str(tool) for tool in group.get("tool_names", ()))
+    for group in result.cross_tool_failure_groups:
+        tools = group.tool_names
         if len(tools) < 2:
             continue
         problems.append(
             Problem(
                 description=(
-                    f"The normalized failure `{group['message_signature']}` appeared in "
-                    f"{group['event_count']} event(s) across "
-                    f"{group['independent_trace_count']} independent trace(s) and multiple "
+                    f"The normalized failure `{group.message_signature}` appeared in "
+                    f"{group.event_count} event(s) across "
+                    f"{group.independent_trace_count} independent trace(s) and multiple "
                     f"tools: {', '.join(tools)}. Inspect the supporting traces to determine "
                     "whether those occurrences share a cause."
                 ),
-                supporting_trace_ids=tuple(str(item) for item in group["trace_ids"]),
+                supporting_trace_ids=group.trace_ids,
             )
         )
 
@@ -1107,7 +1147,7 @@ class AnomalyAndPatternsEvidenceStream:
             ),
             metrics={
                 "anomaly_count": sum(
-                    1 for row in result["anomalies"] if row["is_anomaly"]
+                    1 for row in result.anomalies if row.is_anomaly
                 ),
                 "problem_count": len(problems),
             },

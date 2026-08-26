@@ -17,7 +17,7 @@ import argparse
 import json
 import shutil
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -32,6 +32,7 @@ from .insights_generation import DEFAULT_PROMPT_VERSION as ANALYST_DEFAULT_PROMP
 
 if TYPE_CHECKING:
     from .evidence_streams.contracts import EvidenceStreamResult
+    from .evidence_streams.tool_issues import ToolIssueCard
     from .trace_loaders import InsightTraceV1Loader
     from .traces import TraceSnapshot
     from .venue import VenueProfile
@@ -333,19 +334,19 @@ def _write_anomaly_and_patterns(
     result = artifacts.result
 
     if args.out == Path("-"):
-        sys.stdout.write(str(result["digest"]))
+        sys.stdout.write(result.digest)
         return EXIT_OK
 
     target = args.out / "ia2"
     target.mkdir(parents=True, exist_ok=True)
-    (target / "digest.md").write_text(str(result["digest"]), encoding="utf-8")
-    write_json(target / "anomalies.json", result["anomalies"])
-    write_json(target / "trajectory_groups.json", result["trajectory_groups"])
-    write_json(target / "verdict_groups.json", result["verdict_groups"])
-    write_json(target / "failure_groups.json", result["failure_groups"])
-    write_json(target / "cross_tool_failure_groups.json", result["cross_tool_failure_groups"])
-    write_json(target / "failure_events.json", result["failure_events"])
-    write_json(target / "features.json", prepared_features(result["prepared"]))
+    (target / "digest.md").write_text(result.digest, encoding="utf-8")
+    write_json(target / "anomalies.json", result.anomalies)
+    write_json(target / "trajectory_groups.json", result.trajectory_groups)
+    write_json(target / "verdict_groups.json", result.verdict_groups)
+    write_json(target / "failure_groups.json", result.failure_groups)
+    write_json(target / "cross_tool_failure_groups.json", result.cross_tool_failure_groups)
+    write_json(target / "failure_events.json", result.failure_events)
+    write_json(target / "features.json", prepared_features(result.prepared))
     write_json(
         target / "problems.json",
         [problem.model_dump(mode="json") for problem in evidence.problems],
@@ -353,14 +354,14 @@ def _write_anomaly_and_patterns(
     write_json(target / "run.json", _run_metadata(loader, profile, dict(artifacts.parameters)))
 
     if not args.quiet:
-        flagged = [row for row in result["anomalies"] if row["is_anomaly"]]
-        groups = result["trajectory_groups"]
+        flagged = [row for row in result.anomalies if row.is_anomaly]
+        groups = result.trajectory_groups
         print(f"IA2 over {snapshot.trace_count} traces -> {target}")
         print(f"  unusual traces        : {len(flagged)}")
         print(f"  trajectory clusters   : {len(groups['clusters']) if groups else 'not evaluable'}")
-        print(f"  verdict groups        : {len(result['verdict_groups'])}")
-        print(f"  failure groups        : {len(result['failure_groups'])}")
-        print(f"  cross-tool groups     : {len(result['cross_tool_failure_groups'])}")
+        print(f"  verdict groups        : {len(result.verdict_groups)}")
+        print(f"  failure groups        : {len(result.failure_groups)}")
+        print(f"  cross-tool groups     : {len(result.cross_tool_failure_groups)}")
         print(f"  digest                : {target / 'digest.md'}")
         expected = snapshot.trace_count * args.contamination
         if expected < 1:
@@ -414,7 +415,7 @@ def _write_tool_issues(
 
     findings = list(artifacts.findings)
     cards = list(artifacts.cards)
-    eligible = [card for card in cards if card["eligible_for_analyst"]]
+    eligible = [card for card in cards if card.eligible_for_analyst]
     rendered = cards if (args.all_cards or not eligible) else eligible
     target = args.out / "ia3"
     target.mkdir(parents=True, exist_ok=True)
@@ -475,9 +476,9 @@ def cmd_run_ia3(args: argparse.Namespace) -> int:
     return _write_tool_issues(args, loader, snapshot, evidence, profile)
 
 
-def _render_cards(cards: Sequence[Mapping[str, Any]], *, total: int | None = None) -> str:
+def _render_cards(cards: Sequence[ToolIssueCard], *, total: int | None = None) -> str:
     lines = ["# IA3 evidence cards", ""]
-    eligible = [card for card in cards if card["eligible_for_analyst"]]
+    eligible = [card for card in cards if card.eligible_for_analyst]
     total = len(cards) if total is None else total
     lines.append(
         f"{total} card(s) in total; {len(eligible)} reached the independent-case threshold "
@@ -495,23 +496,23 @@ def _render_cards(cards: Sequence[Mapping[str, Any]], *, total: int | None = Non
         "Analyst LLM still has to interpret. `impact_status` is never established here.",
         "",
     ]
-    for card in sorted(cards, key=lambda item: (not item["eligible_for_analyst"], item["card_id"])):
-        mark = "ELIGIBLE" if card["eligible_for_analyst"] else "audit only"
+    for card in sorted(cards, key=lambda item: (not item.eligible_for_analyst, item.card_id)):
+        mark = "ELIGIBLE" if card.eligible_for_analyst else "audit only"
         lines += [
-            f"## {card['card_id']}  ({mark})",
+            f"## {card.card_id}  ({mark})",
             "",
-            f"- family: {card['issue_family']}",
-            f"- mechanism: {card['mechanism_key']}",
-            f"- findings: {card['finding_count']}",
-            f"- independent logical cases: {card['independent_case_count']}",
-            f"- impact: {card['impact_status']}",
+            f"- family: {card.issue_family}",
+            f"- mechanism: {card.mechanism_key}",
+            f"- findings: {card.finding_count}",
+            f"- independent logical cases: {card.independent_case_count}",
+            f"- impact: {card.impact_status}",
             "",
         ]
-        for item in card.get("representative_evidence", ())[:3]:
-            pointer = json.dumps(item.get("source_pointer", {}), sort_keys=True)
+        for item in card.representative_evidence[:3]:
+            pointer = json.dumps(item.source_pointer, sort_keys=True)
             lines.append(
-                f"  - `{item.get('trace_id')}` call `{item.get('call_id')}` "
-                f"({item.get('tool_name')}): {str(item.get('observation', '')).strip()}"
+                f"  - `{item.trace_id}` call `{item.call_id}` "
+                f"({item.tool_name}): {item.observation.strip()}"
             )
             lines.append(f"    source: `{pointer}`")
         lines.append("")
@@ -645,27 +646,36 @@ def _insights_inputs(args):
 
     if args.digest:
         from .evidence_streams.anomaly_and_patterns import (
+            AnomalyAndPatternsAnalysis,
             AnomalyAndPatternsArtifacts,
             problems_from_analysis,
         )
         from .evidence_streams.contracts import EvidenceCoverage, EvidenceStreamResult
         from .evidence_streams.tool_issues import (
+            ToolIssueCard,
             ToolIssueEvidenceArtifacts,
             problems_from_cards,
         )
 
         digest = Path(args.digest).read_text(encoding="utf-8")
-        cards = json.loads(Path(args.cards).read_text(encoding="utf-8"))
+        cards = tuple(
+            ToolIssueCard.model_validate(card)
+            for card in json.loads(Path(args.cards).read_text(encoding="utf-8"))
+        )
         anomalies = _read_sibling(args.digest, "anomalies.json") or []
         failure_groups = _read_sibling(args.digest, "failure_groups.json") or []
         cross_tool_groups = _read_sibling(args.digest, "cross_tool_failure_groups.json") or []
         finding_rows = _read_sibling(args.cards, "findings.json") or []
-        anomaly_result = {
-            "digest": digest,
-            "anomalies": anomalies,
-            "failure_groups": failure_groups,
-            "cross_tool_failure_groups": cross_tool_groups,
-        }
+        anomaly_result = AnomalyAndPatternsAnalysis(
+            prepared=(),
+            failure_events=(),
+            anomalies=tuple(anomalies),
+            trajectory_groups=None,
+            verdict_groups=(),
+            failure_groups=tuple(failure_groups),
+            cross_tool_failure_groups=tuple(cross_tool_groups),
+            digest=digest,
+        )
         anomaly_problems = problems_from_analysis(anomaly_result)
         tool_problems = problems_from_cards(cards, include_audit=args.all_cards)
         coverage = EvidenceCoverage(
@@ -694,13 +704,13 @@ def _insights_inputs(args):
                 problems=tool_problems,
                 artifacts=ToolIssueEvidenceArtifacts(
                     findings=tuple(finding_rows),
-                    cards=tuple(cards),
+                    cards=cards,
                     catalog_coverage={},
                 ),
                 withheld_problem_count=(
                     0
                     if args.all_cards
-                    else sum(not bool(card["eligible_for_analyst"]) for card in cards)
+                    else sum(not card.eligible_for_analyst for card in cards)
                 ),
                 metrics={
                     "card_count": len(cards),
