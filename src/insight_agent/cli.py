@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import shutil
 import sys
 from collections.abc import Mapping, Sequence
@@ -24,12 +23,12 @@ from typing import Any
 
 from . import __version__
 
-# analyst.py is import-light (no litellm at module scope), so naming its
+# InsightsGeneration is import-light (no litellm at module scope), so naming its
 # defaults here costs nothing and keeps `--help` accurate.
-from .analyst import DEFAULT_MAX_TOKENS as ANALYST_DEFAULT_MAX_TOKENS
-from .analyst import DEFAULT_MAX_TOOL_ROUNDS as ANALYST_DEFAULT_TOOL_ROUNDS
-from .analyst import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
-from .analyst import DEFAULT_PROMPT_VERSION as ANALYST_DEFAULT_PROMPT
+from .insights_generation import DEFAULT_MAX_TOKENS as ANALYST_DEFAULT_MAX_TOKENS
+from .insights_generation import DEFAULT_MAX_TOOL_ROUNDS as ANALYST_DEFAULT_TOOL_ROUNDS
+from .insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
+from .insights_generation import DEFAULT_PROMPT_VERSION as ANALYST_DEFAULT_PROMPT
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -141,9 +140,7 @@ def cmd_schema(args) -> int:
 def cmd_validate(args) -> int:
     from .validate import validate_corpus
 
-    report = validate_corpus(
-        args.traces, allow_metric_shadowing=args.allow_metric_shadowing
-    )
+    report = validate_corpus(args.traces, allow_metric_shadowing=args.allow_metric_shadowing)
 
     if args.json:
         sys.stdout.write(json.dumps(report.to_dict(), indent=2, ensure_ascii=False) + "\n")
@@ -177,8 +174,7 @@ def cmd_coverage(args) -> int:
     corpus = _load(args)
     findings = None
     if args.with_findings:
-        from .ia3_tid import detect
-        from .streams import to_ia3_trace
+        from .evidence_streams.tool_issues import detect, to_ia3_trace
 
         findings = detect(
             (to_ia3_trace(trace) for trace in corpus.snapshot().scan()),
@@ -202,16 +198,16 @@ def cmd_explain_failures(args) -> int:
     accepts ``called``/a non-empty ``error``/shell exit lines. This command
     makes the divergence visible rather than mysterious.
     """
-    from .ia2_pipeline import decode_explicit_failure
-    from .ia3_tid import strict_failure
-    from .streams import to_ia2_trace, to_ia3_trace
+    from .evidence_streams.anomaly_and_patterns import (
+        decode_explicit_failure,
+        to_ia2_trace,
+    )
+    from .evidence_streams.tool_issues import strict_failure, to_ia3_trace
 
     corpus = _load(args)
     profile = corpus.options.profile
     snapshot = corpus.snapshot()
-    ia2_traces = {
-        trace.id: to_ia2_trace(trace, profile=profile) for trace in snapshot.scan()
-    }
+    ia2_traces = {trace.id: to_ia2_trace(trace, profile=profile) for trace in snapshot.scan()}
     rows = []
 
     for trace in (to_ia3_trace(item) for item in snapshot.scan()):
@@ -253,25 +249,30 @@ def cmd_explain_failures(args) -> int:
         ia2 = f"{'FAIL' if row['ia2_failed'] else 'ok'} {row['ia2_marker'] or ''}".strip()
         ia3 = f"{'FAIL' if row['ia3_failed'] else 'ok'} {row['ia3_marker'] or ''}".strip()
         flag = "" if row["agree"] else "  <-- disagree"
-        print(f"{row['trace_id'][:27]:<28} {row['call_id'][:25]:<26} "
-              f"{row['tool_name'][:19]:<20} {ia2[:23]:<24} {ia3[:23]:<24}{flag}")
+        print(
+            f"{row['trace_id'][:27]:<28} {row['call_id'][:25]:<26} "
+            f"{row['tool_name'][:19]:<20} {ia2[:23]:<24} {ia3[:23]:<24}{flag}"
+        )
 
     disagreements = sum(1 for r in rows if not r["agree"])
     print(f"\n{len(rows)} call(s), {disagreements} disagreement(s).")
     if disagreements:
         print(
             "Disagreements usually mean result text is wrapped under a key IA3 does not "
-            "unwrap. Use {\"content\": ...} for textual results."
+            'unwrap. Use {"content": ...} for textual results.'
         )
     return EXIT_OK
 
 
 def cmd_run_ia2(args) -> int:
+    from .evidence_streams.anomaly_and_patterns import (
+        AnomalyAndPatternsArtifacts,
+        AnomalyAndPatternsEvidenceStream,
+    )
     from .serialize import prepared_features, write_json
-    from .streams import IA2EvidenceArtifacts, IA2EvidenceStream
 
     corpus = _load(args)
-    stream = IA2EvidenceStream(
+    stream = AnomalyAndPatternsEvidenceStream(
         contamination=args.contamination,
         input_scaling=args.input_scaling,
         cluster_candidates=tuple(int(item) for item in args.cluster_candidates.split(",")),
@@ -282,8 +283,8 @@ def cmd_run_ia2(args) -> int:
     snapshot = corpus.snapshot()
     evidence = stream.analyze(snapshot)
     payload = evidence.payload
-    if not isinstance(payload, IA2EvidenceArtifacts):
-        raise TypeError("IA2 evidence stream returned an unexpected payload")
+    if not isinstance(payload, AnomalyAndPatternsArtifacts):
+        raise TypeError("anomaly-and-patterns stream returned an unexpected payload")
     result = payload.result
 
     if args.out == Path("-"):
@@ -307,10 +308,7 @@ def cmd_run_ia2(args) -> int:
         groups = result["trajectory_groups"]
         print(f"IA2 over {snapshot.trace_count} traces -> {target}")
         print(f"  unusual traces        : {len(flagged)}")
-        print(
-            "  trajectory clusters   : "
-            f"{len(groups['clusters']) if groups else 'not evaluable'}"
-        )
+        print(f"  trajectory clusters   : {len(groups['clusters']) if groups else 'not evaluable'}")
         print(f"  verdict groups        : {len(result['verdict_groups'])}")
         print(f"  failure groups        : {len(result['failure_groups'])}")
         print(f"  cross-tool groups     : {len(result['cross_tool_failure_groups'])}")
@@ -326,8 +324,11 @@ def cmd_run_ia2(args) -> int:
 
 
 def cmd_run_ia3(args) -> int:
+    from .evidence_streams.tool_issues import (
+        ToolIssueEvidenceArtifacts,
+        ToolIssueEvidenceStream,
+    )
     from .serialize import write_json
-    from .streams import ToolIssueEvidenceArtifacts, ToolIssueEvidenceStream
 
     corpus = _load(args)
     stream = ToolIssueEvidenceStream(
@@ -349,9 +350,7 @@ def cmd_run_ia3(args) -> int:
     write_json(target / "findings.json", findings)
     write_json(target / "cards.json", cards)
     write_json(target / "coverage.json", payload.catalog_coverage)
-    (target / "cards.md").write_text(
-        _render_cards(rendered, total=len(cards)), encoding="utf-8"
-    )
+    (target / "cards.md").write_text(_render_cards(rendered, total=len(cards)), encoding="utf-8")
     write_json(
         target / "run.json",
         _run_metadata(
@@ -393,9 +392,7 @@ def cmd_run_ia3(args) -> int:
     return EXIT_OK
 
 
-def _render_cards(
-    cards: Sequence[Mapping[str, Any]], *, total: int | None = None
-) -> str:
+def _render_cards(cards: Sequence[Mapping[str, Any]], *, total: int | None = None) -> str:
     lines = ["# IA3 evidence cards", ""]
     eligible = [card for card in cards if card["eligible_for_analyst"]]
     total = len(cards) if total is None else total
@@ -544,16 +541,8 @@ def _render_index(source: Path, *, has_analyst: bool) -> str:
     return "\n".join(lines)
 
 
-def _analyst_inputs(
-    args,
-) -> tuple[
-    str,
-    list[dict[str, Any]],
-    dict[str, Any],
-    list[dict[str, Any]],
-    dict[str, Any],
-]:
-    """Produce (digest, cards, corpus_description) for the Analyst.
+def _insights_inputs(args):
+    """Load a snapshot and the evidence consumed by InsightsGeneration.
 
     Either reads artifacts a previous run already produced, or computes them
     in-process. Explicit `--digest`/`--cards` wins so a paid Analyst call can be
@@ -566,29 +555,54 @@ def _analyst_inputs(
     snapshot = corpus.snapshot()
 
     if args.digest:
+        from .evidence_streams.anomaly_and_patterns import AnomalyAndPatternsArtifacts
+        from .evidence_streams.contracts import EvidenceCoverage, EvidenceStreamResult
+        from .evidence_streams.tool_issues import ToolIssueEvidenceArtifacts
+
         digest = Path(args.digest).read_text(encoding="utf-8")
         cards = json.loads(Path(args.cards).read_text(encoding="utf-8"))
-        # `anomalies.json` and `findings.json` sit beside the artifacts a
-        # previous run wrote; use them when present so the cross-stream section
-        # is identical to the computed path.
         anomalies = _read_sibling(args.digest, "anomalies.json") or []
         finding_rows = _read_sibling(args.cards, "findings.json") or []
-        return (
-            digest,
-            cards,
-            corpus.describe(),
-            _uncovered(anomalies, finding_rows),
-            _records_by_id(snapshot),
+        coverage = EvidenceCoverage(
+            traces_available=snapshot.trace_count,
+            traces_examined=snapshot.trace_count,
+            traces_evaluable=snapshot.trace_count,
         )
+        evidence = (
+            EvidenceStreamResult(
+                stream_name="anomaly-and-patterns",
+                stream_version="1",
+                status="completed",
+                coverage=coverage,
+                payload=AnomalyAndPatternsArtifacts(
+                    result={"digest": digest, "anomalies": anomalies},
+                    parameters={},
+                ),
+            ),
+            EvidenceStreamResult(
+                stream_name="tool-issues",
+                stream_version="1",
+                status="completed",
+                coverage=coverage,
+                payload=ToolIssueEvidenceArtifacts(
+                    findings=tuple(finding_rows),
+                    cards=tuple(cards),
+                    catalog_coverage={},
+                ),
+            ),
+        )
+        return corpus, snapshot, evidence
 
-    from .streams import (
-        IA2EvidenceArtifacts,
-        IA2EvidenceStream,
+    from .evidence_streams.anomaly_and_patterns import (
+        AnomalyAndPatternsArtifacts,
+        AnomalyAndPatternsEvidenceStream,
+    )
+    from .evidence_streams.tool_issues import (
         ToolIssueEvidenceArtifacts,
         ToolIssueEvidenceStream,
     )
 
-    ia2 = IA2EvidenceStream(
+    ia2 = AnomalyAndPatternsEvidenceStream(
         contamination=args.contamination,
         minimum_independent_traces=args.min_independent_traces,
         profile=corpus.options.profile,
@@ -598,26 +612,11 @@ def _analyst_inputs(
         retry_threshold=getattr(args, "retry_threshold", 3),
         profile=corpus.options.profile,
     ).analyze(snapshot)
-    if not isinstance(ia2.payload, IA2EvidenceArtifacts):
-        raise TypeError("IA2 evidence stream returned an unexpected payload")
+    if not isinstance(ia2.payload, AnomalyAndPatternsArtifacts):
+        raise TypeError("anomaly-and-patterns stream returned an unexpected payload")
     if not isinstance(tool_issues.payload, ToolIssueEvidenceArtifacts):
         raise TypeError("tool-issue evidence stream returned an unexpected payload")
-    result = ia2.payload.result
-    findings = list(tool_issues.payload.findings)
-    cards = list(tool_issues.payload.cards)
-    return (
-        result["digest"],
-        cards,
-        corpus.describe(),
-        _uncovered(result["anomalies"], findings),
-        _records_by_id(snapshot),
-    )
-
-
-def _records_by_id(snapshot) -> dict[str, Any]:
-    """Normalized traces keyed by id for the Analyst lookup tool."""
-
-    return {trace.id: trace.model_dump(mode="json") for trace in snapshot.scan()}
+    return corpus, snapshot, (ia2, tool_issues)
 
 
 def _read_sibling(reference: Path, name: str) -> Any:
@@ -630,27 +629,6 @@ def _read_sibling(reference: Path, name: str) -> Any:
         return None
 
 
-def _uncovered(
-    anomalies: Sequence[Mapping[str, Any]], findings: Sequence[Mapping[str, Any]]
-) -> list[dict[str, Any]]:
-    """Anomaly-flagged traces on which no IA3 rule fired.
-
-    Not derivable from the prompt text: a card exposes only three
-    representative traces, so a trace can carry findings and still be absent
-    from every card. Computed from the full finding list instead.
-    """
-    covered = {f["trace_id"] for f in findings}
-    return [
-        {
-            "trace_id": row["trace_id"],
-            "anomaly_score": row["anomaly_score"],
-            "anomaly_reasons": list(row.get("anomaly_reasons") or []),
-        }
-        for row in anomalies
-        if row.get("is_anomaly") and row["trace_id"] not in covered
-    ]
-
-
 def cmd_run_analyst(args) -> int:
     """Author Insights from the IA2 digest and IA3 cards.
 
@@ -658,15 +636,12 @@ def cmd_run_analyst(args) -> int:
     non-deterministic one. `run-all` and `demo` invoke it by default; pass
     `--no-analyst` to either for a purely deterministic run.
     """
-    from .analyst import (
-        AnalystError,
-        AnalystRequest,
-        ResponseParseError,
-        author_insights,
-        build_prompt,
-        select_cards,
-    )
     from .config import ENV_API_BASE, ENV_API_KEY, ENV_MODEL, load_dotenv, resolve
+    from .insights_generation import (
+        AnalystError,
+        InsightsGeneration,
+        ResponseParseError,
+    )
     from .serialize import write_json
 
     # Credentials are only needed here, so `.env` is only read here. A purely
@@ -677,26 +652,23 @@ def cmd_run_analyst(args) -> int:
     api_key = resolve(ENV_API_KEY)
 
     try:
-        digest, all_cards, corpus_description, uncovered, records = _analyst_inputs(args)
-    except ValueError as exc:
+        corpus, snapshot, evidence = _insights_inputs(args)
+        generation = InsightsGeneration.from_evidence(
+            snapshot=snapshot,
+            evidence=evidence,
+            agent=args.agent,
+            corpus=corpus.describe(),
+            prompt_version=args.prompt_version,
+            all_cards=args.all_cards,
+        )
+    except (AnalystError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
-
-    cards, withheld = select_cards(all_cards, all_cards=args.all_cards)
-    request = AnalystRequest(
-        agent=args.agent,
-        digest=digest,
-        cards=cards,
-        withheld_card_count=withheld,
-        corpus=corpus_description,
-        prompt_version=args.prompt_version,
-        uncovered_anomalies=uncovered,
-    )
 
     target = args.out / "analyst"
     target.mkdir(parents=True, exist_ok=True)
 
-    system, user = build_prompt(request)
+    system, user = generation.build_prompt()
     (target / "prompt.md").write_text(
         f"<!-- system -->\n\n{system}\n\n<!-- user -->\n\n{user}\n", encoding="utf-8"
     )
@@ -712,8 +684,8 @@ def cmd_run_analyst(args) -> int:
         print(f"  credentials           : {'found' if api_key else 'NOT FOUND'}")
         if loaded:
             print(f"  loaded from .env      : {', '.join(sorted(loaded))}")
-        print(f"  cards shown / withheld: {len(cards)} / {withheld}")
-        print(f"  uncovered anomalies   : {len(uncovered)}")
+        print(f"  cards shown / withheld: {generation.cards_shown} / {generation.cards_withheld}")
+        print(f"  uncovered anomalies   : {len(generation.request.uncovered_anomalies)}")
         print(f"  prompt                : {target / 'prompt.md'}")
         print(f"  approx input tokens   : {approx:,}")
         return EXIT_OK
@@ -725,13 +697,11 @@ def cmd_run_analyst(args) -> int:
         extra["temperature"] = args.temperature
 
     try:
-        result = author_insights(
-            request,
+        result = generation.generate(
             model=model,
             max_tokens=args.max_tokens,
             api_base=api_base,
             api_key=api_key,
-            trace_records=records,
             max_tool_rounds=args.max_tool_rounds,
             **extra,
         )
@@ -755,29 +725,32 @@ def cmd_run_analyst(args) -> int:
             "api_base": api_base,
             "tool_calls": result.tool_calls,
             "traces_fetched": list(result.traces_fetched),
-            "cards_shown": len(cards),
-            "cards_withheld": withheld,
+            "cards_shown": generation.cards_shown,
+            "cards_withheld": generation.cards_withheld,
             "insight_count": len(result.insights),
-            "corpus": corpus_description,
+            "corpus": corpus.describe(),
         },
     )
 
     if not args.quiet:
-        print(f"Analyst over {len(cards)} card(s) -> {target}")
+        print(f"Analyst over {generation.cards_shown} card(s) -> {target}")
         print(f"  model                 : {result.model}")
         if result.usage:
             tokens = result.usage.get("total_tokens") or result.usage.get("prompt_tokens")
             if tokens:
                 print(f"  tokens                : {tokens:,}")
         if result.tool_calls:
-            print(f"  trace lookups         : {result.tool_calls} call(s), "
-                  f"{len(result.traces_fetched)} distinct trace(s)")
+            print(
+                f"  trace lookups         : {result.tool_calls} call(s), "
+                f"{len(result.traces_fetched)} distinct trace(s)"
+            )
         print(f"  insights              : {len(result.insights)}")
         print(f"  insights              : {target / 'insights.json'}")
 
-        if withheld:
+        if generation.cards_withheld:
             print(
-                f"  note: {withheld} audit-only card(s) were withheld (they did not recur "
+                f"  note: {generation.cards_withheld} audit-only card(s) were withheld "
+                "(they did not recur "
                 "across enough independent cases). Pass --all-cards to include them."
             )
         if not result.insights:
@@ -791,11 +764,12 @@ def cmd_run_analyst(args) -> int:
         # A trace the model opened for itself is legitimate evidence, so the
         # known set has to include what it fetched — otherwise every prompt
         # with trace lookup looks like it is inventing ids.
-        known = _known_trace_ids(digest, cards) | set(result.traces_fetched)
+        known = generation.known_trace_ids | set(result.traces_fetched)
         unknown = sorted(result.cited_trace_ids - known) if known else []
         if unknown:
             # Distinguish "read it but did not show us" from "does not exist".
-            fabricated = sorted(t for t in unknown if t not in records)
+            available = {trace.id for trace in snapshot.scan()}
+            fabricated = sorted(t for t in unknown if t not in available)
             print(
                 f"  note: {len(unknown)} cited trace id(s) are not in the evidence or the "
                 f"traces fetched: {', '.join(unknown[:3])}{'...' if len(unknown) > 3 else ''}"
@@ -806,19 +780,6 @@ def cmd_run_analyst(args) -> int:
                     "treat this run's citations as unreliable."
                 )
     return EXIT_OK
-
-
-def _known_trace_ids(digest: str, cards: Sequence[Mapping[str, Any]]) -> set[str]:
-    """Trace IDs the Analyst was actually shown."""
-    known = {
-        str(e.get("trace_id"))
-        for card in cards
-        for e in card.get("representative_evidence", [])
-        if e.get("trace_id")
-    }
-    # Digest tables render trace ids inside backticks.
-    known |= set(re.findall(r"`([^`\s|]+)`", digest))
-    return known
 
 
 def cmd_adapt_messages(args) -> int:
@@ -1001,8 +962,10 @@ def cmd_demo(args) -> int:
     from .validate import validate_corpus
 
     report = validate_corpus(corpus)
-    print(f"validate: {report.record_count} records, {len(report.errors)} error(s), "
-          f"{len(report.warnings)} warning(s)")
+    print(
+        f"validate: {report.record_count} records, {len(report.errors)} error(s), "
+        f"{len(report.warnings)} warning(s)"
+    )
     if not report.ok:
         return EXIT_SCHEMA
 
@@ -1071,8 +1034,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--input-scaling", choices=("none", "robust"), default="none")
     p.add_argument("--cluster-candidates", default="2,3,4,5,6,7,8")
     p.add_argument("--min-independent-traces", type=int, default=3)
-    p.add_argument("--feature", action="append", default=None,
-                   help="override the feature list (repeatable)")
+    p.add_argument(
+        "--feature", action="append", default=None, help="override the feature list (repeatable)"
+    )
     p.set_defaults(func=cmd_run_ia2)
 
     # run-ia3
@@ -1101,8 +1065,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip the Analyst and stop at IA2/IA3 evidence (no API key needed)",
     )
-    p.add_argument("--agent", default=None,
-                   help="name of the agent under test (defaults to the corpus filename)")
+    p.add_argument(
+        "--agent",
+        default=None,
+        help="name of the agent under test (defaults to the corpus filename)",
+    )
     p.add_argument("--model", default=None)
     p.add_argument("--api-base", default=None)
     p.add_argument("--env-file", type=Path, default=None)
@@ -1129,7 +1096,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="OpenAI-compatible endpoint (default: $INSIGHT_AGENT_API_BASE)",
     )
-    p.add_argument("--env-file", type=Path, default=None, help="path to a .env (default: autodetect)")
+    p.add_argument(
+        "--env-file", type=Path, default=None, help="path to a .env (default: autodetect)"
+    )
     p.add_argument(
         "--prompt-version",
         default=ANALYST_DEFAULT_PROMPT,
@@ -1205,8 +1174,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip the Analyst and stop at IA2/IA3 evidence (no API key needed)",
     )
-    p.add_argument("--agent", default=None,
-                   help="name of the agent under test (defaults to the corpus filename)")
+    p.add_argument(
+        "--agent",
+        default=None,
+        help="name of the agent under test (defaults to the corpus filename)",
+    )
     p.add_argument("--model", default=None)
     p.add_argument("--api-base", default=None)
     p.add_argument("--env-file", type=Path, default=None)

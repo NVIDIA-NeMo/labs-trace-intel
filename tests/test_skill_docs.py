@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from insight_agent.coverage import RULE_REQUIREMENTS
-from insight_agent.ia3_tid import FINDING_TYPES
+from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
 from insight_agent.validate import trace_schema
 from insight_agent.venue import VenueProfile
 

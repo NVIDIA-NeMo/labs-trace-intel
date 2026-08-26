@@ -16,7 +16,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .ia3_tid import FINDING_TYPES
+from .evidence_streams.tool_issues import FINDING_TYPES
 from .loader import Corpus
 
 __all__ = ["RULE_REQUIREMENTS", "corpus_coverage", "format_coverage"]
@@ -34,46 +34,46 @@ class RuleRequirement:
 
 #: Every IA3 finding type, with the canonical field that gates it.
 RULE_REQUIREMENTS: tuple[RuleRequirement, ...] = (
-    RuleRequirement("unknown_tool", "tool_catalog", "ia3_tid.py:157",
+    RuleRequirement("unknown_tool", "tool_catalog", "evidence_streams/tool_issues.py:157",
                     "The catalog is what makes a tool name 'unknown'."),
-    RuleRequirement("missing_required_argument", "tool_catalog", "ia3_tid.py:165",
+    RuleRequirement("missing_required_argument", "tool_catalog", "evidence_streams/tool_issues.py:167",
                     "Needs the per-tool argument schema."),
-    RuleRequirement("unknown_argument", "tool_catalog", "ia3_tid.py:166",
+    RuleRequirement("unknown_argument", "tool_catalog", "evidence_streams/tool_issues.py:168",
                     "Needs a schema with additionalProperties:false."),
-    RuleRequirement("argument_type_mismatch", "tool_catalog", "ia3_tid.py:167",
+    RuleRequirement("argument_type_mismatch", "tool_catalog", "evidence_streams/tool_issues.py:169",
                     "Needs typed properties in the schema."),
-    RuleRequirement("argument_enum_violation", "tool_catalog", "ia3_tid.py:168",
+    RuleRequirement("argument_enum_violation", "tool_catalog", "evidence_streams/tool_issues.py:170",
                     "Needs an enum constraint in the schema."),
-    RuleRequirement("json_schema_violation", "tool_catalog", "ia3_tid.py:169",
+    RuleRequirement("json_schema_violation", "tool_catalog", "evidence_streams/tool_issues.py:171",
                     "Any schema keyword other than required/additionalProperties/type/enum."),
-    RuleRequirement("malformed_tool_call", "always", "ia3_tid.py:155",
+    RuleRequirement("malformed_tool_call", "always", "evidence_streams/tool_issues.py:155",
                     "Fires on non-object arguments with or without a catalog."),
-    RuleRequirement("duplicate_call_id", "always", "ia3_tid.py:298",
+    RuleRequirement("duplicate_call_id", "always", "evidence_streams/tool_issues.py:299",
                     "Needs call_id, which is required."),
-    RuleRequirement("missing_tool_result", "result-key discipline", "ia3_tid.py:303",
+    RuleRequirement("missing_tool_result", "result-key discipline", "evidence_streams/tool_issues.py:304",
                     "Fires only when the 'result' key is absent (or result_missing / "
                     "result_count:0). An adapter that always emits a result, even null, "
                     "silences this rule."),
-    RuleRequirement("duplicate_tool_result", "result_count", "ia3_tid.py:307",
+    RuleRequirement("duplicate_tool_result", "result_count", "evidence_streams/tool_issues.py:308",
                     "Needs result_count > 1."),
-    RuleRequirement("call_result_id_mismatch", "result_id", "ia3_tid.py:318",
+    RuleRequirement("call_result_id_mismatch", "result_id", "evidence_streams/tool_issues.py:319",
                     "Only populate result_id from a genuine result-to-call reference."),
-    RuleRequirement("orphan_tool_result", "orphan_results", "ia3_tid.py:416",
+    RuleRequirement("orphan_tool_result", "orphan_results", "evidence_streams/tool_issues.py:417",
                     "Needs the adapter to capture results with no matching call."),
-    RuleRequirement("mapped_instrumentation_alias", "instrumentation_alias_of", "ia3_tid.py:329",
+    RuleRequirement("mapped_instrumentation_alias", "instrumentation_alias_of", "evidence_streams/tool_issues.py:330",
                     "Needs the adapter to know the real tool behind an alias."),
-    RuleRequirement("explicit_tool_failure", "result", "ia3_tid.py:341",
+    RuleRequirement("explicit_tool_failure", "result", "evidence_streams/tool_issues.py:342",
                     "Needs a decodable result. explicit_error:false disables it entirely."),
-    RuleRequirement("explicit_prerequisite_or_state_failure", "result", "ia3_tid.py:398",
+    RuleRequirement("explicit_prerequisite_or_state_failure", "result", "evidence_streams/tool_issues.py:399",
                     "Needs result text matching the venue's state patterns."),
-    RuleRequirement("unresolved_placeholder_argument", "result", "ia3_tid.py:366",
+    RuleRequirement("unresolved_placeholder_argument", "result", "evidence_streams/tool_issues.py:366",
                     "Needs a failed or rejected call whose argument is exactly a placeholder."),
     RuleRequirement("explicitly_rejected_ungrounded_identifier", "complete_provenance_context",
-                    "ia3_tid.py:377",
+                    "evidence_streams/tool_issues.py:378",
                     "Set true only if every user message and prior result was captured."),
-    RuleRequirement("repeated_identical_failed_call", "result", "ia3_tid.py:429",
+    RuleRequirement("repeated_identical_failed_call", "result", "evidence_streams/tool_issues.py:430",
                     "Needs three failing calls with byte-identical arguments."),
-    RuleRequirement("modified_retry_same_failure", "result", "ia3_tid.py:439",
+    RuleRequirement("modified_retry_same_failure", "result", "evidence_streams/tool_issues.py:442",
                     "Needs three failing calls sharing a failure class across >=2 argument sets."),
 )
 

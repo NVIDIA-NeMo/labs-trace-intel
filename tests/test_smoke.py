@@ -1,9 +1,8 @@
 """Phase 0 smoke tests: the package imports and both engines run end to end.
 
 The import test is not ceremonial. The original handoff shipped the modules in a
-directory named ``code/``, which shadows a stdlib module, so the documented
-``from code.ia2_pipeline import ...`` never worked from the repo root. The src
-layout is what fixes it, and this test is what keeps it fixed.
+directory named ``code/``, which shadows a stdlib module. The src layout is what
+fixes it, and this test is what keeps it fixed.
 """
 
 from __future__ import annotations
@@ -11,8 +10,8 @@ from __future__ import annotations
 import baseline_corpus
 import pytest
 
-from insight_agent.ia2_pipeline import run_ia2
-from insight_agent.ia3_tid import FINDING_TYPES, build_cards, detect
+from insight_agent.evidence_streams.anomaly_and_patterns import run_ia2
+from insight_agent.evidence_streams.tool_issues import FINDING_TYPES, build_cards, detect
 
 
 def test_package_imports_without_shadowing_stdlib():
@@ -21,16 +20,14 @@ def test_package_imports_without_shadowing_stdlib():
     import insight_agent
 
     assert insight_agent.__version__
-    # `code` must still be the stdlib module, not the old research directory.
     assert code.__name__ == "code"
-    assert not hasattr(code, "ia2_pipeline")
 
 
 def test_engine_modules_are_importable_by_dotted_path():
     import importlib
 
-    for name in ("ia2_pipeline", "ia3_tid"):
-        assert importlib.import_module(f"insight_agent.{name}")
+    for name in ("anomaly_and_patterns", "tool_issues"):
+        assert importlib.import_module(f"insight_agent.evidence_streams.{name}")
 
 
 def test_run_ia2_produces_a_digest():
@@ -102,7 +99,10 @@ def test_run_ia2_abstains_from_grouping_corpora_too_small_to_cluster(n_traces):
 
 def test_group_trajectories_raises_directly_on_small_corpora():
     """The guard lives in ``run_ia2``, so direct callers still hit the raise."""
-    from insight_agent.ia2_pipeline import group_trajectories, prepare_traces
+    from insight_agent.evidence_streams.anomaly_and_patterns import (
+        group_trajectories,
+        prepare_traces,
+    )
 
     prepared, _ = prepare_traces(baseline_corpus.ia2_traces()[:2])
     with pytest.raises(ValueError, match="at least three traces"):

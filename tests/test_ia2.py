@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from insight_agent.ia2_pipeline import (
+from insight_agent.evidence_streams.anomaly_and_patterns import (
     DEFAULT_FEATURES,
     RECURRENCE_THRESHOLD,
     normalize_error_template,
     run_ia2,
+    to_ia2_trace,
 )
 from insight_agent.loader import LoadOptions, load_corpus
-from insight_agent.streams import to_ia2_trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"

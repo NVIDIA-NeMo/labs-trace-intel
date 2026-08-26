@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from insight_agent.ia3_tid import FINDING_TYPES, MISSING
-from insight_agent.loader import LoadOptions, load_corpus, to_trace
-from insight_agent.streams import (
+from insight_agent.evidence_streams.tool_issues import (
+    FINDING_TYPES,
+    MISSING,
     ToolIssueEvidenceArtifacts,
     ToolIssueEvidenceStream,
     to_ia3_trace,
 )
+from insight_agent.loader import LoadOptions, load_corpus, to_trace
 from insight_agent.traces import Span, SpanKind, Trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"

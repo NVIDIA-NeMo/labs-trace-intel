@@ -13,7 +13,7 @@ flowchart TB
     normalize["Adapt and validate"]
     snapshot["TraceSnapshot<br/>normalized Trace + Span records"]
 
-    stream1["EvidenceStream<br/>IA2 anomaly and pattern analysis"]
+    stream1["EvidenceStream<br/>anomaly and pattern analysis"]
     stream2["EvidenceStream<br/>tool-issue detection"]
     streamN["EvidenceStream N<br/>another discovery technique"]
 
@@ -45,7 +45,7 @@ flowchart TB
     input --> normalize --> output
 ```
 
-A `TraceSnapshot` is the immutable, run-scoped view of the normalized corpus. It gives every
+A `TraceSnapshot` is the frozen, run-scoped view of the normalized corpus. It gives every
 evidence stream and `InsightsGeneration` the same traces, span trees, source pointers, tool
 definitions, and corpus identity.
 
@@ -268,7 +268,7 @@ Platform classes.
 
 ### Snapshot handoff
 
-`TraceSnapshot` is a logical handle to one immutable corpus, not a requirement to hold every
+`TraceSnapshot` is a logical handle to one stable corpus, not a requirement to hold every
 trace in memory. The first implementation exposes one access pattern: a re-iterable scan.
 
 Conceptually:
@@ -299,7 +299,7 @@ of `TraceSnapshot` or `scan()`.
 ```mermaid
 flowchart TB
     input["Input<br/>TraceSnapshot"]
-    stream["Concrete example<br/>IA2EvidenceStream"]
+    stream["Concrete example<br/>AnomalyAndPatternsEvidenceStream"]
     output["Output<br/>EvidenceStreamResult"]
     input --> stream --> output
 ```
@@ -365,19 +365,22 @@ It uses the evidence streams as a map, inspects supporting raw traces from the s
 authors customer-readable Insights. It may consolidate overlapping evidence from multiple
 streams, but evidence streams themselves remain independent.
 
+The implementation is an explicit stage object:
+
 ```python
-class InsightsGenerator(Protocol):
-    def generate(
-        self,
-        snapshot: TraceSnapshot,
-        evidence: Sequence[EvidenceStreamResult],
-        context: AgentContext | None = None,
-    ) -> Sequence[Insight]: ...
+generation = InsightsGeneration.from_evidence(
+    snapshot=snapshot,
+    evidence=stream_results,
+    agent=agent_name,
+    corpus=corpus_description,
+)
+result = generation.generate()
+insights = result.insights
 ```
 
 Concrete example: the existing Analyst receives IA2's digest and IA3's recurrence-qualified
 tool-issue cards, fetches the cited canonical traces, and produces Insights through a versioned
-LLM prompt.
+LLM prompt. The implementation and its prompt live together under `insights_generation/`.
 
 Historical reconciliation, lifecycle management, and comprehensive trace categorization can
 be implemented inside this concrete capability as they are added. They do not require generic

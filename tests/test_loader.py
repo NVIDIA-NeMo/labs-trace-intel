@@ -7,7 +7,8 @@ import json
 
 import pytest
 
-from insight_agent.ia3_tid import MISSING, detect
+from insight_agent.evidence_streams.anomaly_and_patterns import to_ia2_trace
+from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
 from insight_agent.loader import (
     CorpusError,
     LoadOptions,
@@ -15,7 +16,6 @@ from insight_agent.loader import (
     load_records,
     to_trace,
 )
-from insight_agent.streams import to_ia2_trace, to_ia3_trace
 from insight_agent.validate import CANONICAL_VERSION
 from insight_agent.venue import DEFAULT_PROFILE
 
@@ -149,7 +149,7 @@ def test_calls_are_ordered_by_call_index_regardless_of_input_order():
 
 
 def test_with_steps_ia2_tokens_follow_the_trajectory():
-    from insight_agent.ia2_pipeline import extract_trace_features
+    from insight_agent.evidence_streams.anomaly_and_patterns import extract_trace_features
 
     rec = record(
         steps=[
@@ -168,7 +168,7 @@ def test_with_steps_ia2_tokens_follow_the_trajectory():
 
 
 def test_without_steps_ia2_falls_back_to_one_token_per_call():
-    from insight_agent.ia2_pipeline import extract_trace_features
+    from insight_agent.evidence_streams.anomaly_and_patterns import extract_trace_features
 
     rec = record(
         calls=[
@@ -251,7 +251,7 @@ def test_logical_case_id_defaults_to_none_so_the_engine_can_fall_back():
 
 
 def test_returned_data_is_injected_into_a_mapping_result():
-    from insight_agent.ia2_pipeline import extract_trace_features
+    from insight_agent.evidence_streams.anomaly_and_patterns import extract_trace_features
 
     rec = one_call(result={"content": "none"}, returned_data=False)
     trace = ia2_trace(rec)

@@ -15,15 +15,15 @@ from pathlib import Path
 
 import pytest
 
-from insight_agent.ia3_tid import (
+from insight_agent.evidence_streams.tool_issues import (
     FINDING_TYPES,
     MISSING,
     build_cards,
     catalog_coverage,
     detect,
+    to_ia3_trace,
 )
 from insight_agent.loader import LoadOptions, load_corpus
-from insight_agent.streams import to_ia3_trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
@@ -90,8 +90,7 @@ def test_issue_ids_are_stable_across_processes():
     script = (
         "import json;"
         "from insight_agent.loader import load_corpus;"
-        "from insight_agent.ia3_tid import detect;"
-        "from insight_agent.streams import to_ia3_trace;"
+        "from insight_agent.evidence_streams.tool_issues import detect,to_ia3_trace;"
         f"c=load_corpus({str(CORPUS)!r});"
         "print(json.dumps(sorted(f['issue_id'] for f in "
         "detect(to_ia3_trace(t) for t in c.snapshot().scan()))))"

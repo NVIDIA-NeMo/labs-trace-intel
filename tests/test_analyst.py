@@ -16,21 +16,28 @@ from pathlib import Path
 
 import pytest
 
-from insight_agent.analyst import (
+from insight_agent.cli import EXIT_ERROR, EXIT_OK, main
+from insight_agent.insights_generation import (
     DEFAULT_MODEL,
     AnalystError,
     AnalystRequest,
+    InsightsGeneration,
     ResponseParseError,
-    author_insights,
     build_prompt,
+    fetch_traces,
     parse_insights,
     prompt_template,
     select_cards,
 )
-from insight_agent.cli import EXIT_ERROR, EXIT_OK, main
+from insight_agent.traces import Span, SpanKind, ToolCall, Trace, TraceSnapshot
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
+EMPTY_SNAPSHOT = TraceSnapshot.from_traces(())
+
+
+def generate(request: AnalystRequest, *, snapshot: TraceSnapshot = EMPTY_SNAPSHOT, **kwargs):
+    return InsightsGeneration(snapshot=snapshot, request=request).generate(**kwargs)
 
 
 def card(card_id: str, *, eligible: bool = True, trace: str = "t1") -> dict:
@@ -43,8 +50,13 @@ def card(card_id: str, *, eligible: bool = True, trace: str = "t1") -> dict:
         "independent_case_count": 3 if eligible else 1,
         "eligible_for_analyst": eligible,
         "representative_evidence": [
-            {"trace_id": trace, "call_id": f"{trace}#0", "call_index": 0,
-             "tool_name": "GhostTool", "observation": "Tool is absent from the active catalog."}
+            {
+                "trace_id": trace,
+                "call_id": f"{trace}#0",
+                "call_index": 0,
+                "tool_name": "GhostTool",
+                "observation": "Tool is absent from the active catalog.",
+            }
         ],
         "impact_status": "not_established",
         "impact_boundary": "No impact is claimed beyond the directly observed tool-use issue.",
@@ -140,23 +152,23 @@ def test_output_contract_is_not_duplicated(request_obj):
 
 def test_output_contract_is_supplied_when_the_template_omits_it(tmp_path, monkeypatch):
     """A hand-written prompt should still produce a parseable shape."""
-    from insight_agent import analyst
+    from insight_agent.insights_generation import llm
 
     monkeypatch.setattr(
-        analyst, "prompt_template", lambda v=None: "Find problems in {agent}.\n\n{evidence}"
+        llm, "prompt_template", lambda v=None: "Find problems in {agent}.\n\n{evidence}"
     )
-    system, user = analyst.build_prompt(analyst.AnalystRequest(agent="A", digest="d"))
+    system, user = llm.build_prompt(llm.AnalystRequest(agent="A", digest="d"))
     assert '"trace_ids"' in user
 
 
 def test_a_template_without_the_evidence_marker_is_an_error(monkeypatch):
     """Silently appending the evidence would hide a typo in a custom prompt and
     send a paid request whose evidence landed somewhere the prompt never refers to."""
-    from insight_agent import analyst
+    from insight_agent.insights_generation import llm
 
-    monkeypatch.setattr(analyst, "prompt_template", lambda v=None: "Analyse {agent}.")
+    monkeypatch.setattr(llm, "prompt_template", lambda v=None: "Analyse {agent}.")
     with pytest.raises(AnalystError, match="{evidence}"):
-        analyst.build_prompt(analyst.AnalystRequest(agent="A", digest="d"))
+        llm.build_prompt(llm.AnalystRequest(agent="A", digest="d"))
 
 
 def test_prompt_explains_a_missing_card_stream():
@@ -210,7 +222,9 @@ def test_parse_accepts_an_empty_array():
 
 
 def test_parse_coerces_a_bare_string_trace_id():
-    assert parse_insights('[{"name":"N","description":"D","trace_ids":"t1"}]')[0]["trace_ids"] == ["t1"]
+    assert parse_insights('[{"name":"N","description":"D","trace_ids":"t1"}]')[0]["trace_ids"] == [
+        "t1"
+    ]
 
 
 def test_parse_drops_entries_without_a_name():
@@ -242,7 +256,7 @@ def test_no_sampling_parameters_are_ever_sent(mock_litellm, request_obj):
     against a real API.
     """
     calls = mock_litellm()
-    author_insights(request_obj)
+    generate(request_obj)
 
     assert len(calls) == 1
     for forbidden in ("temperature", "top_p", "top_k"):
@@ -251,7 +265,7 @@ def test_no_sampling_parameters_are_ever_sent(mock_litellm, request_obj):
 
 def test_call_uses_the_documented_defaults(mock_litellm, request_obj):
     calls = mock_litellm()
-    result = author_insights(request_obj)
+    result = generate(request_obj)
 
     assert calls[0]["model"] == DEFAULT_MODEL == "anthropic/claude-opus-5"
     assert calls[0]["max_tokens"] >= 4096
@@ -261,13 +275,13 @@ def test_call_uses_the_documented_defaults(mock_litellm, request_obj):
 
 def test_result_exposes_the_trace_ids_it_cited(mock_litellm, request_obj):
     mock_litellm('[{"name":"N","description":"D","trace_ids":["t1","t2"]}]')
-    assert author_insights(request_obj).cited_trace_ids == {"t1", "t2"}
+    assert generate(request_obj).cited_trace_ids == {"t1", "t2"}
 
 
 def test_api_base_and_key_are_forwarded_when_given(mock_litellm, request_obj):
     """This is how any OpenAI-compatible gateway is reached."""
     calls = mock_litellm()
-    author_insights(
+    generate(
         request_obj,
         model="openai/openai/gpt-5.2",
         api_base="https://gateway.example.com/v1",
@@ -281,7 +295,7 @@ def test_api_base_and_key_are_forwarded_when_given(mock_litellm, request_obj):
 def test_unset_api_base_is_not_forwarded(mock_litellm, request_obj):
     """Passing api_base=None would stop litellm resolving the provider default."""
     calls = mock_litellm()
-    author_insights(request_obj)
+    generate(request_obj)
     assert "api_base" not in calls[0]
     assert "api_key" not in calls[0]
 
@@ -291,7 +305,9 @@ def test_missing_litellm_names_the_extra_to_install(monkeypatch, request_obj):
     monkeypatch.setitem(sys.modules, "litellm", None)
     monkeypatch.delitem(sys.modules, "litellm")
 
-    real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+    real_import = (
+        __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+    )
 
     def blocked(name, *args, **kwargs):
         if name == "litellm":
@@ -299,66 +315,74 @@ def test_missing_litellm_names_the_extra_to_install(monkeypatch, request_obj):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", blocked)
-    with pytest.raises(AnalystError, match=r'\[analyst\]'):
-        author_insights(request_obj)
+    with pytest.raises(AnalystError, match=r"\[analyst\]"):
+        generate(request_obj)
 
 
 # -- trace lookup ----------------------------------------------------------
 
 
-RECORDS = {
-    "t1": {
-        "trace_id": "t1",
-        "logical_case_id": "case-a",
-        "task_text": "do the thing",
-        "calls": [
-            {"call_index": 0, "call_id": "c0", "tool_name": "Search",
-             "arguments": {"q": "x"}, "result": {"content": "y" * 5000}},
-            {"call_index": 1, "call_id": "c1", "tool_name": "Read", "arguments": {}},
-        ],
-    },
-    "t2": {"trace_id": "t2", "calls": []},
-}
+SNAPSHOT = TraceSnapshot.from_traces(
+    (
+        Trace(
+            id="t1",
+            logical_case_id="case-a",
+            input="do the thing",
+            spans=(
+                Span(
+                    span_id="c0",
+                    kind=SpanKind.TOOL,
+                    tool_name="Search",
+                    input={"q": "x"},
+                    output={"content": "y" * 5000},
+                    tool_call=ToolCall(call_id="c0", index=0),
+                ),
+                Span(
+                    span_id="c1",
+                    kind=SpanKind.TOOL,
+                    tool_name="Read",
+                    input={},
+                    tool_call=ToolCall(call_id="c1", index=1),
+                ),
+            ),
+        ),
+        Trace(id="t2", spans=()),
+    )
+)
 
 
 def test_fetch_returns_the_requested_traces():
-    from insight_agent.analyst import fetch_traces
-
-    out = fetch_traces(RECORDS, ["t1", "t2"])
-    assert [t["trace_id"] for t in out["traces"]] == ["t1", "t2"]
+    out = fetch_traces(SNAPSHOT, ["t1", "t2"])
+    assert [trace["id"] for trace in out["traces"]] == ["t1", "t2"]
     assert "not_found" not in out
 
 
 def test_fetch_truncates_large_results_but_says_so():
     """The traces worth opening are the ones flagged for huge outputs."""
-    from insight_agent.analyst import fetch_traces
-
-    result = fetch_traces(RECORDS, ["t1"], max_chars_per_result=100)["traces"][0]["calls"][0]["result"]
+    result = fetch_traces(SNAPSHOT, ["t1"], max_chars_per_result=100)["traces"][0]["spans"][0][
+        "output"
+    ]
     assert "truncated" in result
     assert "5,0" in result  # reports the true size
 
 
 def test_fetch_honours_a_raised_cap():
-    from insight_agent.analyst import fetch_traces
-
-    result = fetch_traces(RECORDS, ["t1"], max_chars_per_result=50_000)["traces"][0]["calls"][0]["result"]
+    result = fetch_traces(SNAPSHOT, ["t1"], max_chars_per_result=50_000)["traces"][0]["spans"][0][
+        "output"
+    ]
     assert result == {"content": "y" * 5000}
 
 
 def test_fetch_preserves_the_missing_result_distinction():
     """`result` absent must stay absent — it is what missing_tool_result means."""
-    from insight_agent.analyst import fetch_traces
-
-    calls = fetch_traces(RECORDS, ["t1"])["traces"][0]["calls"]
-    assert "result" in calls[0]
-    assert "result" not in calls[1]
+    spans = fetch_traces(SNAPSHOT, ["t1"])["traces"][0]["spans"]
+    assert "output" in spans[0]
+    assert "output" not in spans[1]
 
 
 def test_fetch_reports_unknown_ids_rather_than_dropping_them():
     """An empty result would read as 'this trace has no calls'."""
-    from insight_agent.analyst import fetch_traces
-
-    out = fetch_traces(RECORDS, ["t1", "nope"])
+    out = fetch_traces(SNAPSHOT, ["t1", "nope"])
     assert out["not_found"] == ["nope"]
     assert "do not reconstruct" in out["note"]
 
@@ -367,8 +391,7 @@ def tool_call(call_id, ids, **extra):
     return {
         "id": call_id,
         "type": "function",
-        "function": {"name": "fetch_traces",
-                     "arguments": json.dumps({"trace_ids": ids, **extra})},
+        "function": {"name": "fetch_traces", "arguments": json.dumps({"trace_ids": ids, **extra})},
     }
 
 
@@ -385,8 +408,10 @@ def scripted_litellm(monkeypatch):
             calls.append(kwargs)
             payload = queue.pop(0)
             message = payload if isinstance(payload, dict) else {"content": payload}
-            return {"choices": [{"message": {"role": "assistant", **message}}],
-                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
+            return {
+                "choices": [{"message": {"role": "assistant", **message}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            }
 
         module.completion = completion
         monkeypatch.setitem(sys.modules, "litellm", module)
@@ -404,24 +429,20 @@ ANSWER = '[{"name":"N","description":"D","trace_ids":["t1"]}]'
 
 @pytest.fixture
 def tool_prompt(monkeypatch):
-    from insight_agent import analyst
+    from insight_agent.insights_generation import llm
 
     monkeypatch.setattr(
-        analyst, "prompt_template",
+        llm,
+        "prompt_template",
         lambda v=None: "Analyse {agent}. Use fetch_traces to read raw traces.\n\n{evidence}",
     )
 
 
-def test_tools_are_offered_only_when_the_prompt_asks_and_records_exist(
-    scripted_litellm, tool_prompt, request_obj
-):
-    calls = scripted_litellm(ANSWER, ANSWER)
+def test_tools_are_offered_when_the_prompt_asks(scripted_litellm, tool_prompt, request_obj):
+    calls = scripted_litellm(ANSWER)
 
-    author_insights(request_obj, trace_records=RECORDS)
-    assert "tools" in calls[0], "prompt names fetch_traces and records were supplied"
-
-    author_insights(request_obj, trace_records=None)
-    assert "tools" not in calls[1], "no records -> no tool offered"
+    generate(request_obj, snapshot=SNAPSHOT)
+    assert "tools" in calls[0]
 
 
 def test_a_prompt_that_never_names_the_tool_gets_no_tools(
@@ -429,21 +450,17 @@ def test_a_prompt_that_never_names_the_tool_gets_no_tools(
 ):
     """A hand-written prompt that never mentions the tool would have no way to
     explain it to the model, so offering it anyway just invites confusion."""
-    from insight_agent import analyst
+    from insight_agent.insights_generation import llm
 
-    monkeypatch.setattr(
-        analyst, "prompt_template", lambda v=None: "Analyse {agent}.\n\n{evidence}"
-    )
+    monkeypatch.setattr(llm, "prompt_template", lambda v=None: "Analyse {agent}.\n\n{evidence}")
     calls = scripted_litellm(ANSWER)
-    author_insights(request_obj, trace_records=RECORDS)
+    generate(request_obj, snapshot=SNAPSHOT)
     assert "tools" not in calls[0]
 
 
-def test_tool_loop_executes_the_fetch_and_feeds_it_back(
-    scripted_litellm, tool_prompt, request_obj
-):
+def test_tool_loop_executes_the_fetch_and_feeds_it_back(scripted_litellm, tool_prompt, request_obj):
     calls = scripted_litellm(tool_request("t1", "t2"), ANSWER)
-    result = author_insights(request_obj, trace_records=RECORDS)
+    result = generate(request_obj, snapshot=SNAPSHOT)
 
     assert result.tool_calls == 1
     assert result.traces_fetched == ("t1", "t2")
@@ -453,12 +470,12 @@ def test_tool_loop_executes_the_fetch_and_feeds_it_back(
     roles = [m["role"] for m in calls[1]["messages"]]
     assert roles == ["system", "user", "assistant", "tool"]
     payload = json.loads(calls[1]["messages"][-1]["content"])
-    assert [t["trace_id"] for t in payload["traces"]] == ["t1", "t2"]
+    assert [trace["id"] for trace in payload["traces"]] == ["t1", "t2"]
 
 
 def test_usage_accumulates_across_tool_rounds(scripted_litellm, tool_prompt, request_obj):
     scripted_litellm(tool_request("t1"), tool_request("t2"), ANSWER)
-    result = author_insights(request_obj, trace_records=RECORDS)
+    result = generate(request_obj, snapshot=SNAPSHOT)
 
     assert result.tool_calls == 2
     assert result.usage["total_tokens"] == 45  # three round trips
@@ -469,7 +486,7 @@ def test_exhausting_the_round_budget_still_produces_an_answer(
 ):
     """A model that keeps fetching must not end the turn with no Insights."""
     scripted_litellm(tool_request("t1"), tool_request("t1"), ANSWER)
-    result = author_insights(request_obj, trace_records=RECORDS, max_tool_rounds=2)
+    result = generate(request_obj, snapshot=SNAPSHOT, max_tool_rounds=2)
 
     assert result.insights[0]["name"] == "N"
     assert result.tool_calls == 2
@@ -477,7 +494,7 @@ def test_exhausting_the_round_budget_still_produces_an_answer(
 
 def test_final_retry_withdraws_the_tools(scripted_litellm, tool_prompt, request_obj):
     calls = scripted_litellm(tool_request("t1"), tool_request("t1"), ANSWER)
-    author_insights(request_obj, trace_records=RECORDS, max_tool_rounds=2)
+    generate(request_obj, snapshot=SNAPSHOT, max_tool_rounds=2)
 
     assert "tools" in calls[0]
     assert "tools" not in calls[-1], "final call must not offer tools again"
@@ -493,13 +510,14 @@ def test_evidence_is_inlined_when_the_template_asks_for_it(tool_prompt, request_
 
 def test_a_self_contained_template_gets_only_a_kickoff(monkeypatch, request_obj):
     """A template with its own contract owns the whole prompt."""
-    from insight_agent import analyst
+    from insight_agent.insights_generation import llm
 
     monkeypatch.setattr(
-        analyst, "prompt_template",
+        llm,
+        "prompt_template",
         lambda v=None: 'Analyse {agent}. Emit "trace_ids". Use fetch_traces.\n\n{evidence}',
     )
-    system, user = analyst.build_prompt(request_obj)
+    system, user = llm.build_prompt(request_obj)
     assert user.strip() == "Author Insights for this corpus."
 
 
@@ -510,7 +528,10 @@ def test_dry_run_writes_the_prompt_and_makes_no_call(tmp_path, capsys, monkeypat
     monkeypatch.setitem(sys.modules, "litellm", None)  # any use would explode
     out = tmp_path / "out"
 
-    assert main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(out), "--dry-run"]) == EXIT_OK
+    assert (
+        main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(out), "--dry-run"])
+        == EXIT_OK
+    )
 
     prompt = (out / "analyst" / "prompt.md").read_text(encoding="utf-8")
     assert "DocOps" in prompt
@@ -519,10 +540,15 @@ def test_dry_run_writes_the_prompt_and_makes_no_call(tmp_path, capsys, monkeypat
 
 
 def test_full_run_writes_insights_and_provenance(tmp_path, mock_litellm):
-    mock_litellm('[{"name":"Invented tools","description":"D","trace_ids":["docops-search-alpha"]}]')
+    mock_litellm(
+        '[{"name":"Invented tools","description":"D","trace_ids":["docops-search-alpha"]}]'
+    )
     out = tmp_path / "out"
 
-    assert main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(out), "--quiet"]) == EXIT_OK
+    assert (
+        main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(out), "--quiet"])
+        == EXIT_OK
+    )
 
     insights = json.loads((out / "analyst" / "insights.json").read_text(encoding="utf-8"))
     assert [i["name"] for i in insights] == ["Invented tools"]
@@ -540,7 +566,9 @@ def test_unparseable_response_is_saved_not_lost(tmp_path, mock_litellm, capsys):
     out = tmp_path / "out"
 
     assert main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(out)]) == EXIT_ERROR
-    assert (out / "analyst" / "analyst_raw.txt").read_text(encoding="utf-8").startswith("I'm afraid")
+    assert (
+        (out / "analyst" / "analyst_raw.txt").read_text(encoding="utf-8").startswith("I'm afraid")
+    )
     assert "analyst_raw.txt" in capsys.readouterr().err
 
 
@@ -587,10 +615,19 @@ def test_cli_reads_model_and_endpoint_from_a_dotenv(tmp_path, mock_litellm, monk
     )
     calls = mock_litellm()
 
-    code = main([
-        "run-analyst", str(CORPUS), "--agent", "DocOps",
-        "-o", str(tmp_path / "out"), "--env-file", str(env_file), "--quiet",
-    ])
+    code = main(
+        [
+            "run-analyst",
+            str(CORPUS),
+            "--agent",
+            "DocOps",
+            "-o",
+            str(tmp_path / "out"),
+            "--env-file",
+            str(env_file),
+            "--quiet",
+        ]
+    )
 
     assert code == EXIT_OK
     assert calls[0]["model"] == "openai/openai/gpt-5.2"
@@ -604,10 +641,21 @@ def test_cli_flags_beat_the_dotenv(tmp_path, mock_litellm, monkeypatch):
     env_file.write_text("INSIGHT_AGENT_MODEL=from-file\n", encoding="utf-8")
     calls = mock_litellm()
 
-    main([
-        "run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(tmp_path / "out"),
-        "--env-file", str(env_file), "--model", "from-flag", "--quiet",
-    ])
+    main(
+        [
+            "run-analyst",
+            str(CORPUS),
+            "--agent",
+            "DocOps",
+            "-o",
+            str(tmp_path / "out"),
+            "--env-file",
+            str(env_file),
+            "--model",
+            "from-flag",
+            "--quiet",
+        ]
+    )
     assert calls[0]["model"] == "from-flag"
 
 
@@ -619,10 +667,19 @@ def test_temperature_is_only_sent_when_asked_for(tmp_path, mock_litellm):
     main(["run-analyst", str(CORPUS), "--agent", "A", "-o", str(out), "--quiet"])
     assert "temperature" not in calls[0]
 
-    main([
-        "run-analyst", str(CORPUS), "--agent", "A", "-o", str(out),
-        "--temperature", "0.7", "--quiet",
-    ])
+    main(
+        [
+            "run-analyst",
+            str(CORPUS),
+            "--agent",
+            "A",
+            "-o",
+            str(out),
+            "--temperature",
+            "0.7",
+            "--quiet",
+        ]
+    )
     assert calls[1]["temperature"] == 0.7
 
 
@@ -632,10 +689,19 @@ def test_dry_run_reports_whether_credentials_were_found(tmp_path, capsys, monkey
     empty = tmp_path / ".env"
     empty.write_text("INSIGHT_AGENT_API_KEY=\n", encoding="utf-8")
 
-    main([
-        "run-analyst", str(CORPUS), "--agent", "A", "-o", str(tmp_path / "out"),
-        "--env-file", str(empty), "--dry-run",
-    ])
+    main(
+        [
+            "run-analyst",
+            str(CORPUS),
+            "--agent",
+            "A",
+            "-o",
+            str(tmp_path / "out"),
+            "--env-file",
+            str(empty),
+            "--dry-run",
+        ]
+    )
     assert "credentials           : NOT FOUND" in capsys.readouterr().out
 
 
@@ -652,9 +718,7 @@ def test_no_analyst_keeps_run_all_free_of_any_api_dependency(tmp_path, monkeypat
     monkeypatch.setitem(sys.modules, "litellm", None)  # any use would explode
     out = tmp_path / "out"
 
-    assert main(
-        ["run-all", str(CORPUS), "-o", str(out), "--quiet", "--no-analyst"]
-    ) == EXIT_OK
+    assert main(["run-all", str(CORPUS), "-o", str(out), "--quiet", "--no-analyst"]) == EXIT_OK
     assert not (out / "analyst").exists()
     # The index still *mentions* the Analyst as the digest's reader; what must
     # be absent is the section linking to authored output.
@@ -713,7 +777,7 @@ def test_run_all_fails_loudly_when_litellm_is_absent(tmp_path, monkeypatch, caps
 
 def test_digest_reports_the_true_flag_count_above_the_render_cap():
     """The inventory used to report the truncated row count as the total."""
-    from insight_agent.ia2_pipeline import (
+    from insight_agent.evidence_streams.anomaly_and_patterns import (
         NormalizedTrace,
         PreparedTrace,
         TraceFeatures,

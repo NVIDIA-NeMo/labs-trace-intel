@@ -1,18 +1,9 @@
-"""Complete reusable Insight Agent 2 (IA2) evidence-preprocessing pipeline.
+"""Anomaly and recurring-pattern evidence stream.
 
-The module covers IA2's developer-facing algorithm path without embedding any
-dataset loader, experiment runner, report, prompt, or outcome-evaluation code:
-
-0. normalized trace/call/step contracts;
-1. optional head+tail capping, duplicate-line removal, and error templating;
-3. ordered event construction, strict failure decoding, and numeric features;
-4. Isolation Forest anomaly selection with interpretable robust-MAD reasons;
-5. trajectory, observed-verdict, and recurring strict-failure grouping;
-6. a compact, cited evidence digest for the separate Analyst LLM.
-
-Stage 1 was proposed but never measured during the original research. It is
-therefore an explicit opt-in utility here. IA2 never authors an Insight: it selects and
-compresses inspectable evidence while preserving exact source pointers.
+This module owns the stream entry point and its feature extraction, anomaly
+selection, clustering, recurring-failure analysis, and evidence rendering.
+It surfaces inspectable evidence with exact source pointers; it does not author
+Insights.
 """
 
 from __future__ import annotations
@@ -35,7 +26,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
-from .venue import DEFAULT_PROFILE, VenueProfile
+from ..traces import UNSET, Span, SpanKind, Trace, TraceSnapshot
+from ..venue import DEFAULT_PROFILE, VenueProfile
+from .contracts import EvidenceCoverage, EvidenceStreamResult
 
 N_ESTIMATORS = 300
 CONTAMINATION = 0.02
@@ -899,3 +892,155 @@ def run_ia2(
         "cross_tool_failure_groups": cross_tool_groups,
         "digest": digest,
     }
+
+
+@dataclass(frozen=True)
+class AnomalyAndPatternsArtifacts:
+    result: Mapping[str, Any]
+    parameters: Mapping[str, Any]
+
+
+def _duration_ms(span: Span) -> float | None:
+    if span.duration_ms is not None:
+        return span.duration_ms
+    if span.started_at is None or span.ended_at is None:
+        return None
+    return (span.ended_at - span.started_at).total_seconds() * 1_000
+
+
+def _span_content(span: Span) -> str:
+    value = span.output
+    if value is UNSET or value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Mapping):
+        content = value.get("content")
+        if isinstance(content, str):
+            return content
+        messages = value.get("messages")
+        if isinstance(messages, Sequence) and not isinstance(messages, (str, bytes)):
+            for message in reversed(messages):
+                if isinstance(message, Mapping) and isinstance(message.get("content"), str):
+                    return str(message["content"])
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _native_step_type(span: Span) -> str:
+    return {
+        SpanKind.TOOL: "tool",
+        SpanKind.AGENT: "agent",
+        SpanKind.EVALUATOR: "evaluation",
+    }.get(span.kind, span.kind.value.lower())
+
+
+def to_ia2_trace(
+    trace: Trace, *, profile: VenueProfile = DEFAULT_PROFILE
+) -> NormalizedTrace:
+    """Project one normalized trace into the anomaly-and-pattern analysis model."""
+
+    calls: list[NormalizedCall] = []
+    tool_spans = [span for span in trace.spans if span.kind is SpanKind.TOOL]
+
+    for call_index, span in enumerate(tool_spans):
+        details = span.tool_call
+        result = None if span.output is UNSET else span.output
+        returned_data = details.returned_data if details is not None else UNSET
+        if returned_data is not UNSET:
+            if isinstance(result, Mapping):
+                if profile.returned_data_key not in result:
+                    result = {**result, profile.returned_data_key: returned_data}
+            else:
+                warnings.warn(
+                    f"call {(details.call_id if details else span.span_id)!r} in trace "
+                    f"{trace.id!r} sets 'returned_data' but its result is not a JSON object, "
+                    "so anomaly-and-pattern analysis cannot read it; "
+                    "returned_data_false_rate will stay 0 for this call. Wrap the result "
+                    'as {"content": ...} to make it count.',
+                    UserWarning,
+                    stacklevel=2,
+                )
+        arguments = span.input if isinstance(span.input, Mapping) else {}
+        calls.append(
+            NormalizedCall(
+                call_id=str(details.call_id if details and details.call_id else span.span_id),
+                call_index=(
+                    details.index if details is not None and details.index is not None else call_index
+                ),
+                tool_name=str(span.tool_name or span.name or ""),
+                arguments=arguments,
+                result=result,
+                duration_ms=_duration_ms(span),
+                source_pointer=dict(span.source_pointer),
+            )
+        )
+
+    steps = tuple(
+        NormalizedStep(
+            step_index=index,
+            step_type=span.subtype or _native_step_type(span),
+            name=str(span.name or span.tool_name or ""),
+            content=span.summary if span.summary is not None else _span_content(span),
+            source_pointer=dict(span.source_pointer),
+        )
+        for index, span in enumerate(trace.spans)
+    )
+    return NormalizedTrace(
+        trace_id=trace.id,
+        calls=tuple(calls),
+        steps=steps,
+        source_pointer=dict(trace.source_pointer),
+        observed_verdict=trace.observed_verdict,
+        cost=trace.cost_usd,
+        metrics=dict(trace.metrics),
+    )
+
+
+@dataclass(frozen=True)
+class AnomalyAndPatternsEvidenceStream:
+    name = "anomaly-and-patterns"
+    version = "1"
+
+    contamination: float = CONTAMINATION
+    input_scaling: Literal["none", "robust"] = "none"
+    cluster_candidates: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8)
+    minimum_independent_traces: int = RECURRENCE_THRESHOLD
+    feature_names: tuple[str, ...] | None = None
+    profile: VenueProfile = DEFAULT_PROFILE
+
+    def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        parameters: dict[str, Any] = {
+            "contamination": self.contamination,
+            "cluster_candidates": self.cluster_candidates,
+            "minimum_independent_traces": self.minimum_independent_traces,
+            "input_scaling": self.input_scaling,
+            "profile": self.profile,
+        }
+        if self.feature_names:
+            parameters["feature_names"] = self.feature_names
+        traces = [to_ia2_trace(trace, profile=self.profile) for trace in snapshot.scan()]
+        result = run_ia2(traces, **parameters)
+        return EvidenceStreamResult(
+            stream_name=self.name,
+            stream_version=self.version,
+            status="completed",
+            coverage=EvidenceCoverage(
+                traces_available=snapshot.trace_count,
+                traces_examined=len(traces),
+                traces_evaluable=len(traces),
+            ),
+            payload=AnomalyAndPatternsArtifacts(
+                result=result,
+                parameters=parameters
+                | {
+                    "feature_names": (
+                        list(self.feature_names) if self.feature_names else "default"
+                    )
+                },
+            ),
+            metrics={
+                "anomaly_count": sum(
+                    1 for row in result["anomalies"] if row["is_anomaly"]
+                ),
+            },
+        )

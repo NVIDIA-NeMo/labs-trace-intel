@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from insight_agent.evidence_streams.anomaly_and_patterns import (
+    AnomalyAndPatternsArtifacts,
+    AnomalyAndPatternsEvidenceStream,
+    to_ia2_trace,
+)
 from insight_agent.loader import LoadOptions, load_corpus, to_trace
-from insight_agent.streams import IA2EvidenceArtifacts, IA2EvidenceStream, to_ia2_trace
 from insight_agent.traces import Span, SpanKind, Trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
@@ -107,13 +111,13 @@ def test_native_projection_uses_canonical_spans_for_steps_and_tool_calls():
 
 def test_ia2_stream_runs_the_engine_from_a_snapshot():
     corpus = load_corpus(CORPUS, LoadOptions())
-    stream = IA2EvidenceStream(profile=corpus.options.profile)
+    stream = AnomalyAndPatternsEvidenceStream(profile=corpus.options.profile)
     snapshot = corpus.snapshot()
     actual = stream.analyze(snapshot)
 
     assert actual.status == "completed"
     assert actual.coverage.traces_examined == len(corpus)
-    assert isinstance(actual.payload, IA2EvidenceArtifacts)
+    assert isinstance(actual.payload, AnomalyAndPatternsArtifacts)
     assert "## Unusual traces" in actual.payload.result["digest"]
     assert "docops-outlier" in actual.payload.result["digest"]
     assert [trace.id for trace in snapshot.scan()] == [

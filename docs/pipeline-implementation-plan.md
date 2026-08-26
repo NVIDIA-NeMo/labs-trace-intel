@@ -27,7 +27,7 @@ The detailed target contracts are specified in
   contracts modeled after NeMo Platform Intake's trace/span structure.
 - Preserve structured JSON input and output, including complete LLM messages.
 - Represent span topology with a flat, canonically ordered array and `parent_span_id`.
-- Define `TraceSnapshot` as an immutable in-memory corpus with a re-iterable `scan()`.
+- Define `TraceSnapshot` as a frozen in-memory corpus with a re-iterable `scan()`.
 - Define the minimal `EvidenceStream` and evidence-result handoffs needed by the current
   Analyst.
 - Adapt IA2 to project the new normalized traces into its existing `NormalizedTrace`
@@ -153,11 +153,13 @@ This phase does not create a generic postprocessor API. The existing Analyst rem
 concrete Insights generator:
 
 ```python
-insights = generate_insights(
+generation = InsightsGeneration.from_evidence(
     snapshot=snapshot,
     evidence=stream_results,
-    agent_context=agent_context,
+    agent=agent_name,
+    corpus=corpus_description,
 )
+insights = generation.generate().insights
 ```
 
 It continues to consume IA2's digest and IA3's recurrence-qualified cards and may scan the
@@ -170,11 +172,16 @@ Keep the implementation small:
 
 ```text
 src/insight_agent/
-├── traces.py       # Trace, Span, enums, UNSET, TraceSnapshot, validation
-├── streams.py      # EvidenceStream contract and IA2/IA3 wrappers
-├── ia2_pipeline.py # Existing IA2 engine, behavior unchanged
-├── ia3_tid.py      # Existing IA3 engine, behavior unchanged
-└── analyst.py      # Existing Insights generation
+├── traces.py
+├── evidence_streams/
+│   ├── contracts.py
+│   ├── anomaly_and_patterns.py
+│   └── tool_issues.py
+└── insights_generation/
+    ├── __init__.py
+    ├── llm.py
+    └── prompts/
+        └── analyst_v3.md
 ```
 
 Do not build a second framework around these files. Direct orchestration is sufficient:
@@ -182,7 +189,13 @@ Do not build a second framework around these files. Direct orchestration is suff
 ```python
 snapshot = TraceSnapshot.from_traces(traces, source=source)
 stream_results = tuple(stream.analyze(snapshot) for stream in streams)
-insights = generate_insights(snapshot, stream_results, agent_context)
+generation = InsightsGeneration.from_evidence(
+    snapshot=snapshot,
+    evidence=stream_results,
+    agent=agent_name,
+    corpus=corpus_description,
+)
+insights = generation.generate().insights
 ```
 
 The collection of stream results is ordinary orchestration, not an `EvidenceBundle` phase
@@ -230,7 +243,8 @@ Current IA2 code treats an unobserved result and JSON `null` identically; the pr
 may preserve that behavior even though the richer normalized model retains the distinction
 for other consumers.
 
-`IA2EvidenceStream` scans the snapshot, projects traces, and invokes `run_ia2()`. Do not
+`AnomalyAndPatternsEvidenceStream` scans the snapshot, projects traces, and invokes the
+anomaly-and-pattern algorithms. Do not
 split IA2's anomaly, clustering, failure, or verdict analysis into separate streams in this
 phase.
 
@@ -305,11 +319,11 @@ git diff --check
 - Add the local Trace/Span models and enums.
 - Add `UNSET` semantics.
 - Add validation for unique IDs, root/parent references, cycles, canonical order, timestamps,
-  and immutable attributes.
+  and frozen model fields.
 - Add the concrete in-memory `TraceSnapshot.scan()`.
 - Normalize the current fixture format once at the loader boundary.
 - Add `to_ia2_trace()`.
-- Route `IA2EvidenceStream` through `TraceSnapshot.scan()`.
+- Route `AnomalyAndPatternsEvidenceStream` through `TraceSnapshot.scan()`.
 - Preserve the focused IA2 command and artifacts.
 - Add `to_ia3_trace()`.
 - Route `ToolIssueEvidenceStream` through `TraceSnapshot.scan()`.
@@ -357,7 +371,7 @@ Test:
 - Structured LLM messages remain structured.
 - Span order is deterministic and parents precede descendants.
 - Deep nesting is reconstructable from `parent_span_id`.
-- Trace and span attributes cannot be mutated through frozen models.
+- Trace and span model fields cannot be reassigned.
 - `UNSET`, JSON null, empty objects, empty arrays, and empty strings remain distinct.
 - Repeated snapshot scans are complete, stable, and independent.
 

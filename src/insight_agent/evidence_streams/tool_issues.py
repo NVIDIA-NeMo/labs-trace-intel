@@ -1,4 +1,4 @@
-"""IA3 Tool Issue Detection (TID v1).
+"""Tool-issue evidence stream.
 
 The implementation follows the current seven-category, nineteen-finding
 catalog. It is deterministic, capability-gated, and independent of dataset
@@ -18,7 +18,9 @@ from typing import Any
 
 from jsonschema import validators
 
-from .venue import DEFAULT_PROFILE, VenueProfile
+from ..traces import UNSET, SpanKind, SpanStatus, Trace, TraceSnapshot
+from ..venue import DEFAULT_PROFILE, VenueProfile
+from .contracts import EvidenceCoverage, EvidenceStreamResult
 
 DETECTOR_VERSION = "tid-v1"
 CARD_MINIMUM_CASES = 3
@@ -84,9 +86,7 @@ PLACEHOLDER = re.compile(
 )
 IDENTIFIER_FIELD = re.compile(r"(?i)(?:^|_)(?:id|refid|reference|handle|key)$")
 IDENTIFIER_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/\-]{2,127}$")
-# Retained as a module constant for backwards compatibility. The regex sources
-# now live in `venue.DEFAULT_STATE_PATTERNS` so a venue can override them
-# without editing this file; the compiled defaults below are identical.
+# Venue profiles can override these state patterns without changing the stream.
 STATE_PATTERNS = DEFAULT_PROFILE.compiled_state_patterns()
 
 
@@ -527,3 +527,144 @@ def catalog_coverage(findings: Iterable[Mapping[str, Any]]) -> dict[str, int]:
 
     counts = Counter(str(finding["issue_type"]) for finding in findings)
     return {name: counts[name] for name in sorted(FINDING_TYPES)}
+
+
+@dataclass(frozen=True)
+class ToolIssueEvidenceArtifacts:
+    findings: tuple[Mapping[str, Any], ...]
+    cards: tuple[Mapping[str, Any], ...]
+    catalog_coverage: Mapping[str, int]
+
+
+def _trace_input_text(trace: Trace) -> str:
+    if isinstance(trace.input, str):
+        return trace.input
+
+    values: Sequence[Any]
+    if isinstance(trace.input, Mapping):
+        messages = trace.input.get("messages")
+        values = messages if isinstance(messages, Sequence) else ()
+    elif isinstance(trace.input, Sequence) and trace.input is not UNSET:
+        values = trace.input
+    else:
+        values = ()
+    for message in reversed(values):
+        if not isinstance(message, Mapping) or message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+    return ""
+
+
+def to_ia3_trace(trace: Trace) -> TraceRecord:
+    """Project one normalized trace into the tool-issue analysis model."""
+
+    task_text = _trace_input_text(trace)
+    tool_spans = [span for span in trace.spans if span.kind is SpanKind.TOOL]
+    calls: list[CallRecord] = []
+    for index, span in enumerate(tool_spans):
+        details = span.tool_call
+        result_count = details.result_count if details is not None else 1
+        if result_count < 1:
+            result_count = 1
+        explicit_error = (
+            True
+            if span.status is SpanStatus.ERROR
+            else False
+            if span.status is SpanStatus.SUCCESS
+            else None
+        )
+        prior_user_text = details.prior_user_text if details is not None else None
+        calls.append(
+            CallRecord(
+                trace_id=trace.id,
+                call_index=(
+                    details.index if details is not None and details.index is not None else index
+                ),
+                call_id=str(details.call_id if details and details.call_id else span.span_id),
+                tool_name=str(span.tool_name or span.name or ""),
+                arguments=None if span.input is UNSET else span.input,
+                result=MISSING if span.output is UNSET else span.output,
+                source_pointer=dict(span.source_pointer),
+                result_id=details.result_id if details is not None else None,
+                result_count=result_count,
+                explicit_error=explicit_error,
+                outcome_marker=span.error_type,
+                instrumentation_alias_of=(
+                    details.instrumentation_alias_of if details is not None else None
+                ),
+                prior_user_text=str(prior_user_text or task_text),
+            )
+        )
+
+    return TraceRecord(
+        trace_id=trace.id,
+        calls=tuple(calls),
+        logical_case_id=trace.logical_case_id,
+        tool_catalog=trace.tool_catalog,
+        orphan_results=tuple(dict(item) for item in trace.orphan_results),
+        complete_provenance_context=trace.complete_provenance_context,
+    )
+
+
+def _tool_issue_abstentions(traces: Sequence[TraceRecord]) -> tuple[str, ...]:
+    calls = [call for trace in traces for call in trace.calls]
+    checks = (
+        (any(trace.tool_catalog is not None for trace in traces), "no tool catalog is available"),
+        (any(call.result is MISSING for call in calls), "no call has an unobserved result"),
+        (any(call.result_id is not None for call in calls), "no call records a result id"),
+        (any(call.result_count > 1 for call in calls), "no call records multiple results"),
+        (any(trace.orphan_results for trace in traces), "no trace records orphan results"),
+        (
+            any(call.instrumentation_alias_of for call in calls),
+            "no call records an instrumentation alias",
+        ),
+        (
+            any(trace.complete_provenance_context for trace in traces),
+            "no trace asserts complete provenance context",
+        ),
+    )
+    return tuple(reason for evaluable, reason in checks if not evaluable)
+
+
+@dataclass(frozen=True)
+class ToolIssueEvidenceStream:
+    name = "tool-issues"
+    version = "1"
+
+    minimum_independent_cases: int = CARD_MINIMUM_CASES
+    retry_threshold: int = RETRY_THRESHOLD
+    profile: VenueProfile = DEFAULT_PROFILE
+
+    def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        traces = tuple(to_ia3_trace(trace) for trace in snapshot.scan())
+        findings = detect(
+            traces,
+            profile=self.profile,
+            retry_threshold=self.retry_threshold,
+        )
+        cards = build_cards(
+            findings,
+            minimum_independent_cases=self.minimum_independent_cases,
+        )
+        return EvidenceStreamResult(
+            stream_name=self.name,
+            stream_version=self.version,
+            status="completed",
+            coverage=EvidenceCoverage(
+                traces_available=snapshot.trace_count,
+                traces_examined=len(traces),
+                traces_evaluable=len(traces),
+                abstention_reasons=_tool_issue_abstentions(traces),
+            ),
+            payload=ToolIssueEvidenceArtifacts(
+                findings=tuple(findings),
+                cards=tuple(cards),
+                catalog_coverage=catalog_coverage(findings),
+            ),
+            metrics={
+                "finding_count": len(findings),
+                "card_count": len(cards),
+            },
+        )

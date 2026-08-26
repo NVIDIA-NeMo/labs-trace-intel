@@ -143,7 +143,7 @@ def test_non_object_line_is_reported_clearly():
 
 def test_builtin_feature_name_list_matches_the_engine():
     """validate.py duplicates the feature list to stay import-light."""
-    from insight_agent.ia2_pipeline import DEFAULT_FEATURES
+    from insight_agent.evidence_streams.anomaly_and_patterns import DEFAULT_FEATURES
 
     assert BUILTIN_FEATURE_NAMES == set(DEFAULT_FEATURES)
 

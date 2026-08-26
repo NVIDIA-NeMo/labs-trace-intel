@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .ia3_tid import MISSING
+from .evidence_streams.tool_issues import MISSING
 
 __all__ = ["dump_json", "jsonable", "prepared_features", "write_json"]
 

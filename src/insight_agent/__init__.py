@@ -14,14 +14,13 @@ __version__ = "0.1.0"
 CANONICAL_SCHEMA_VERSION = "insight-trace/v1"
 
 _LAZY = {
-    "ia2_pipeline",
-    "ia3_tid",
+    "evidence_streams",
+    "insights_generation",
     "loader",
     "validate",
     "venue",
     "coverage",
     "serialize",
-    "streams",
     "traces",
 }
 
@@ -30,11 +29,10 @@ __all__ = ["__version__", "CANONICAL_SCHEMA_VERSION", *sorted(_LAZY)]
 if TYPE_CHECKING:  # pragma: no cover - import-time typing only
     from . import (
         coverage,
-        ia2_pipeline,
-        ia3_tid,
+        evidence_streams,
+        insights_generation,
         loader,
         serialize,
-        streams,
         traces,
         validate,
         venue,

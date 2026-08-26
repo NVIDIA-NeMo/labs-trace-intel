@@ -14,8 +14,8 @@ import pathlib
 import baseline_corpus
 import pytest
 
-from insight_agent.ia2_pipeline import run_ia2
-from insight_agent.ia3_tid import detect
+from insight_agent.evidence_streams.anomaly_and_patterns import run_ia2
+from insight_agent.evidence_streams.tool_issues import detect
 from insight_agent.venue import DEFAULT_PROFILE, VenueProfile, load_profile
 
 DATA = pathlib.Path(__file__).parent / "data"
@@ -67,7 +67,7 @@ def test_renaming_the_code_execution_tool_disables_traceback_decoding_in_ia3():
 
 
 def test_ia2_traceback_gate_follows_the_profile_symmetrically():
-    from insight_agent.ia2_pipeline import decode_explicit_failure
+    from insight_agent.evidence_streams.anomaly_and_patterns import decode_explicit_failure
 
     text = {"content": "Traceback (most recent call last):\nValueError: boom"}
 
@@ -93,7 +93,7 @@ def test_custom_state_patterns_replace_the_venue_specific_defaults():
 
 
 def test_code_execution_share_counts_every_configured_tool():
-    from insight_agent.ia2_pipeline import extract_trace_features
+    from insight_agent.evidence_streams.anomaly_and_patterns import extract_trace_features
 
     traces = {t.trace_id: t for t in baseline_corpus.ia2_traces()}
     trace = traces["base-code-0"]  # 2 calls, both CodeExecutionTool
@@ -105,7 +105,11 @@ def test_code_execution_share_counts_every_configured_tool():
 
 
 def test_returned_data_key_is_configurable():
-    from insight_agent.ia2_pipeline import NormalizedCall, NormalizedTrace, extract_trace_features
+    from insight_agent.evidence_streams.anomaly_and_patterns import (
+        NormalizedCall,
+        NormalizedTrace,
+        extract_trace_features,
+    )
 
     trace = NormalizedTrace(
         trace_id="t",
@@ -128,7 +132,7 @@ def test_returned_data_key_is_configurable():
 
 def test_retry_threshold_is_a_parameter_not_a_module_global():
     """`repeated_identical_failed_call` fired at a hardcoded 3 before Phase 1."""
-    from insight_agent.ia3_tid import CallRecord, TraceRecord
+    from insight_agent.evidence_streams.tool_issues import CallRecord, TraceRecord
 
     calls = tuple(
         CallRecord(
@@ -191,7 +195,11 @@ def test_profile_rejects_unknown_fields_and_bad_regexes():
 
 
 def test_metric_shadowing_a_builtin_feature_warns():
-    from insight_agent.ia2_pipeline import NormalizedCall, NormalizedTrace, extract_trace_features
+    from insight_agent.evidence_streams.anomaly_and_patterns import (
+        NormalizedCall,
+        NormalizedTrace,
+        extract_trace_features,
+    )
 
     trace = NormalizedTrace(
         trace_id="t",
@@ -205,7 +213,10 @@ def test_metric_shadowing_a_builtin_feature_warns():
 
 
 def test_group_trajectories_can_abstain_instead_of_raising():
-    from insight_agent.ia2_pipeline import group_trajectories, prepare_traces
+    from insight_agent.evidence_streams.anomaly_and_patterns import (
+        group_trajectories,
+        prepare_traces,
+    )
 
     prepared, _ = prepare_traces(baseline_corpus.ia2_traces()[:2])
     records = [item.features for item in prepared]
@@ -221,7 +232,7 @@ def test_group_trajectories_can_abstain_instead_of_raising():
 
 def test_digest_trace_citation_guard_survives_python_O():
     """The guard was a bare `assert`, which vanishes under `python -O`."""
-    from insight_agent.ia2_pipeline import (
+    from insight_agent.evidence_streams.anomaly_and_patterns import (
         DEFAULT_FEATURES,
         build_evidence_digest,
         prepare_traces,
@@ -239,7 +250,10 @@ def test_digest_trace_citation_guard_survives_python_O():
 
 
 def test_missing_feature_error_names_the_offending_traces():
-    from insight_agent.ia2_pipeline import prepare_traces, select_anomalies
+    from insight_agent.evidence_streams.anomaly_and_patterns import (
+        prepare_traces,
+        select_anomalies,
+    )
 
     prepared, _ = prepare_traces(baseline_corpus.ia2_traces())
     with pytest.raises(ValueError, match="no_such_feature") as excinfo:

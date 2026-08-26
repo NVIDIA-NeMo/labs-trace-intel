@@ -13,8 +13,8 @@ as a failure in one engine can read as a success in the other.
 
 | | Function | File |
 |---|---|---|
-| IA2 | `decode_explicit_failure` | `src/insight_agent/ia2_pipeline.py` |
-| IA3 | `strict_failure` | `src/insight_agent/ia3_tid.py` |
+| IA2 | `decode_explicit_failure` | `src/insight_agent/evidence_streams/anomaly_and_patterns.py` |
+| IA3 | `strict_failure` | `src/insight_agent/evidence_streams/tool_issues.py` |
 
 ## What each one accepts
 

@@ -1,4 +1,4 @@
-"""The Analyst stage: turn IA2 and IA3 evidence into authored Insights.
+"""Concrete InsightsGeneration stage backed by an LLM Analyst.
 
 Everything upstream of this module is deterministic and deliberately stops short
 of a conclusion. IA2 says what is unusual and what recurs; IA3 says what
@@ -42,6 +42,9 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
+from ..evidence_streams.contracts import EvidenceStreamResult
+from ..traces import TraceSnapshot
+
 __all__ = [
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_MODEL",
@@ -49,11 +52,13 @@ __all__ = [
     "AnalystError",
     "AnalystRequest",
     "AnalystResult",
+    "InsightsGeneration",
     "ResponseParseError",
-    "author_insights",
     "available_prompt_versions",
     "build_prompt",
+    "fetch_traces",
     "parse_insights",
+    "prompt_template",
 ]
 
 #: litellm takes ``provider/model``. Claude Opus 5 is the default; any litellm
@@ -111,9 +116,7 @@ class ResponseParseError(AnalystError):
 def _prompts_dir():
     from importlib.resources import files
 
-    # Resolved through the parent package because `prompts/` has no
-    # __init__.py and is therefore a namespace package.
-    return files("insight_agent").joinpath("prompts")
+    return files("insight_agent.insights_generation").joinpath("prompts")
 
 
 @lru_cache(maxsize=8)
@@ -130,9 +133,7 @@ def prompt_template(version: str = DEFAULT_PROMPT_VERSION) -> str:
 def available_prompt_versions() -> list[str]:
     """Every prompt shipped with the package, oldest name first."""
 
-    return sorted(
-        p.name[: -len(".md")] for p in _prompts_dir().iterdir() if p.name.endswith(".md")
-    )
+    return sorted(p.name[: -len(".md")] for p in _prompts_dir().iterdir() if p.name.endswith(".md"))
 
 
 @dataclass(frozen=True)
@@ -187,6 +188,125 @@ class AnalystResult:
     @property
     def cited_trace_ids(self) -> set[str]:
         return {t for insight in self.insights for t in insight.get("trace_ids", [])}
+
+
+@dataclass(frozen=True)
+class InsightsGeneration:
+    """Generate Insights from a normalized snapshot and evidence-stream results."""
+
+    snapshot: TraceSnapshot
+    request: AnalystRequest
+    evidence: tuple[EvidenceStreamResult, ...] = ()
+    cards_shown: int = 0
+    cards_withheld: int = 0
+
+    @classmethod
+    def from_evidence(
+        cls,
+        *,
+        snapshot: TraceSnapshot,
+        evidence: Sequence[EvidenceStreamResult],
+        agent: str,
+        corpus: Mapping[str, Any],
+        prompt_version: str = DEFAULT_PROMPT_VERSION,
+        all_cards: bool = False,
+    ) -> InsightsGeneration:
+        """Construct the concrete stage from the outputs of IA2 and IA3."""
+
+        from ..evidence_streams.anomaly_and_patterns import AnomalyAndPatternsArtifacts
+        from ..evidence_streams.tool_issues import ToolIssueEvidenceArtifacts
+
+        anomaly_payloads = [
+            result.payload
+            for result in evidence
+            if isinstance(result.payload, AnomalyAndPatternsArtifacts)
+        ]
+        tool_issue_payloads = [
+            result.payload
+            for result in evidence
+            if isinstance(result.payload, ToolIssueEvidenceArtifacts)
+        ]
+        if len(anomaly_payloads) != 1:
+            raise AnalystError(
+                "InsightsGeneration requires exactly one anomaly-and-patterns result"
+            )
+        if len(tool_issue_payloads) != 1:
+            raise AnalystError("InsightsGeneration requires exactly one tool-issues result")
+
+        anomaly_result = anomaly_payloads[0].result
+        all_tool_cards = list(tool_issue_payloads[0].cards)
+        cards, withheld = select_cards(all_tool_cards, all_cards=all_cards)
+        request = AnalystRequest(
+            agent=agent,
+            digest=str(anomaly_result["digest"]),
+            cards=cards,
+            withheld_card_count=withheld,
+            corpus=corpus,
+            prompt_version=prompt_version,
+            uncovered_anomalies=_uncovered_anomalies(
+                anomaly_result.get("anomalies", ()),
+                tool_issue_payloads[0].findings,
+            ),
+        )
+        return cls(
+            snapshot=snapshot,
+            request=request,
+            evidence=tuple(evidence),
+            cards_shown=len(cards),
+            cards_withheld=withheld,
+        )
+
+    def build_prompt(self) -> tuple[str, str]:
+        return build_prompt(self.request)
+
+    @property
+    def known_trace_ids(self) -> set[str]:
+        """Trace IDs included in the evidence presented to the Analyst."""
+
+        known = {
+            str(item.get("trace_id"))
+            for card in self.request.cards
+            for item in card.get("representative_evidence", ())
+            if item.get("trace_id")
+        }
+        known |= set(re.findall(r"`([^`\s|]+)`", self.request.digest))
+        return known
+
+    def generate(
+        self,
+        *,
+        model: str = DEFAULT_MODEL,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        api_base: str | None = None,
+        api_key: str | None = None,
+        max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
+        **litellm_kwargs: Any,
+    ) -> AnalystResult:
+        return _author_insights(
+            self.request,
+            model=model,
+            max_tokens=max_tokens,
+            api_base=api_base,
+            api_key=api_key,
+            snapshot=self.snapshot,
+            max_tool_rounds=max_tool_rounds,
+            **litellm_kwargs,
+        )
+
+
+def _uncovered_anomalies(
+    anomalies: Sequence[Mapping[str, Any]], findings: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    covered = {str(finding["trace_id"]) for finding in findings}
+    return [
+        {
+            "trace_id": row["trace_id"],
+            "anomaly_score": row["anomaly_score"],
+            "anomaly_reasons": list(row.get("anomaly_reasons") or []),
+        }
+        for row in anomalies
+        if row.get("is_anomaly") and row["trace_id"] not in covered
+    ]
 
 
 def select_cards(
@@ -316,7 +436,9 @@ def build_prompt(request: AnalystRequest) -> tuple[str, str]:
         ]
         for row in request.uncovered_anomalies:
             reasons = "; ".join(row.get("anomaly_reasons") or [])
-            sections.append(f"| `{row['trace_id']}` | {float(row['anomaly_score']):.5f} | {reasons} |")
+            sections.append(
+                f"| `{row['trace_id']}` | {float(row['anomaly_score']):.5f} | {reasons} |"
+            )
     else:
         sections.append(
             "Every anomaly-flagged trace also has at least one IA3 finding, so there is "
@@ -338,10 +460,10 @@ TRACE_LOOKUP_SCHEMA = {
     "function": {
         "name": TRACE_LOOKUP_TOOL,
         "description": (
-            "Fetch one or more raw canonical traces by trace_id, so you can read the "
-            "actual tool calls, arguments and results rather than relying on the "
+            "Fetch one or more normalized traces by id, so you can read the actual "
+            "span tree, LLM messages, tool inputs and tool outputs rather than relying on the "
             "preprocessed evidence alone. Pass several ids in one call when you want to "
-            "compare traces. Tool results are truncated per call; raise "
+            "compare traces. Large span inputs and outputs are truncated; raise "
             "max_chars_per_result when you need to see a large payload in full."
         ),
         "parameters": {
@@ -350,7 +472,7 @@ TRACE_LOOKUP_SCHEMA = {
                 "trace_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Exact trace_id values, as they appear in the evidence.",
+                    "description": "Exact trace ids, as they appear in the evidence.",
                 },
                 "max_chars_per_result": {
                     "type": "integer",
@@ -374,48 +496,44 @@ def _trim(value: Any, limit: int) -> Any:
 
 
 def fetch_traces(
-    records: Mapping[str, Mapping[str, Any]],
+    snapshot: TraceSnapshot,
     trace_ids: Sequence[str],
     *,
     max_chars_per_result: int = DEFAULT_RESULT_CHARS,
 ) -> dict[str, Any]:
-    """Return raw traces for the model, trimmed to fit a context window.
+    """Return normalized traces for the model, trimmed to fit a context window.
 
     Unknown ids are reported rather than silently dropped: a model that
-    mistyped an id needs to see that it mistyped it, not an empty result it
-    might read as "this trace has no calls".
+        mistyped an id needs to see that it mistyped it, not an empty result it
+        might read as "this trace has no spans".
     """
 
-    limit = max(200, min(int(max_chars_per_result or DEFAULT_RESULT_CHARS), MAX_TOOL_RESPONSE_CHARS))
+    limit = max(
+        200, min(int(max_chars_per_result or DEFAULT_RESULT_CHARS), MAX_TOOL_RESPONSE_CHARS)
+    )
+    traces_by_id = {trace.id: trace for trace in snapshot.scan()}
     found, missing, budget = [], [], MAX_TOOL_RESPONSE_CHARS
 
     for trace_id in trace_ids:
-        record = records.get(trace_id)
-        if record is None:
+        normalized = traces_by_id.get(trace_id)
+        if normalized is None:
             missing.append(trace_id)
             continue
-        trace = {
-            "trace_id": record["trace_id"],
-            "call_count": len(record.get("calls", [])),
-            "logical_case_id": record.get("logical_case_id"),
-            "observed_verdict": record.get("observed_verdict"),
-            "task_text": _trim(record.get("task_text", ""), limit),
-            "calls": [
-                {
-                    "call_index": c.get("call_index"),
-                    "call_id": c.get("call_id"),
-                    "tool_name": c.get("tool_name"),
-                    "arguments": _trim(c.get("arguments"), limit),
-                    **({"result": _trim(c["result"], limit)} if "result" in c else {}),
-                }
-                for c in record.get("calls", [])
-            ],
-        }
+        trace = normalized.model_dump(mode="json")
+        if "input" in trace:
+            trace["input"] = _trim(trace["input"], limit)
+        if "output" in trace:
+            trace["output"] = _trim(trace["output"], limit)
+        for span in trace["spans"]:
+            if "input" in span:
+                span["input"] = _trim(span["input"], limit)
+            if "output" in span:
+                span["output"] = _trim(span["output"], limit)
         rendered = json.dumps(trace, ensure_ascii=False, default=str)
         if len(rendered) > budget:
             found.append(
                 {
-                    "trace_id": trace_id,
+                    "id": trace_id,
                     "error": (
                         "omitted: returning this trace would exceed the response budget. "
                         "Fetch it on its own, or lower max_chars_per_result."
@@ -438,7 +556,9 @@ def fetch_traces(
 
 def _tool_calls_of(message: Any) -> list[Any]:
     calls = (
-        message.get("tool_calls") if isinstance(message, Mapping) else getattr(message, "tool_calls", None)
+        message.get("tool_calls")
+        if isinstance(message, Mapping)
+        else getattr(message, "tool_calls", None)
     )
     return list(calls or [])
 
@@ -566,12 +686,18 @@ def _extract_text(response: Any) -> str:
     message = _extract_message(response)
     if message is None:
         return ""
-    content = message.get("content") if isinstance(message, Mapping) else getattr(message, "content", None)
+    content = (
+        message.get("content")
+        if isinstance(message, Mapping)
+        else getattr(message, "content", None)
+    )
     return str(content or "")
 
 
 def _extract_usage(response: Any) -> dict[str, Any]:
-    usage = response.get("usage") if isinstance(response, Mapping) else getattr(response, "usage", None)
+    usage = (
+        response.get("usage") if isinstance(response, Mapping) else getattr(response, "usage", None)
+    )
     if usage is None:
         return {}
     if isinstance(usage, Mapping):
@@ -579,18 +705,22 @@ def _extract_usage(response: Any) -> dict[str, Any]:
     elif hasattr(usage, "model_dump"):
         source = usage.model_dump()
     else:
-        source = {k: getattr(usage, k) for k in ("prompt_tokens", "completion_tokens", "total_tokens") if hasattr(usage, k)}
+        source = {
+            k: getattr(usage, k)
+            for k in ("prompt_tokens", "completion_tokens", "total_tokens")
+            if hasattr(usage, k)
+        }
     return {k: v for k, v in source.items() if isinstance(v, (int, float, str))}
 
 
-def author_insights(
+def _author_insights(
     request: AnalystRequest,
     *,
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     api_base: str | None = None,
     api_key: str | None = None,
-    trace_records: Mapping[str, Mapping[str, Any]] | None = None,
+    snapshot: TraceSnapshot,
     max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
     **litellm_kwargs: Any,
 ) -> AnalystResult:
@@ -626,7 +756,7 @@ def author_insights(
 
     # The prompt declares whether it wants trace lookup by naming the tool, so a
     # prompt promising tools can never be run without them.
-    wants_tools = TRACE_LOOKUP_TOOL in system and trace_records is not None
+    wants_tools = TRACE_LOOKUP_TOOL in system
     if wants_tools:
         litellm_kwargs["tools"] = [TRACE_LOOKUP_SCHEMA]
 
@@ -667,7 +797,7 @@ def author_insights(
                 ids = [str(t) for t in (arguments.get("trace_ids") or [])]
                 traces_fetched.extend(ids)
                 payload = fetch_traces(
-                    trace_records,
+                    snapshot,
                     ids,
                     max_chars_per_result=arguments.get(
                         "max_chars_per_result", DEFAULT_RESULT_CHARS

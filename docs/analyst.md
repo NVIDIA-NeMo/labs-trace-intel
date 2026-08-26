@@ -245,7 +245,7 @@ confidence; nothing upstream measured consequences.
 
 ## Prompt
 
-`src/insight_agent/prompts/analyst_v3.md`, packaged with the wheel. The spec
+`src/insight_agent/insights_generation/prompts/analyst_v3.md`, packaged with the wheel. The spec
 assumes a frozen prompt and output contract across matched comparisons, so the
 version is recorded in every `run.json` and the assembled text is echoed into
 every `prompt.md`.

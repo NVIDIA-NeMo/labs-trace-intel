@@ -15,8 +15,12 @@ thing we are comparing against.
 
 from __future__ import annotations
 
-from insight_agent.ia2_pipeline import NormalizedCall, NormalizedStep, NormalizedTrace
-from insight_agent.ia3_tid import CallRecord, TraceRecord
+from insight_agent.evidence_streams.anomaly_and_patterns import (
+    NormalizedCall,
+    NormalizedStep,
+    NormalizedTrace,
+)
+from insight_agent.evidence_streams.tool_issues import CallRecord, TraceRecord
 
 SEARCH_SCHEMA = {
     "type": "object",
@@ -163,7 +167,7 @@ def ia2_traces() -> list[NormalizedTrace]:
 def ia3_traces() -> list[TraceRecord]:
     """Exercises the traceback gate, the state patterns and the retry rules."""
 
-    from insight_agent.ia3_tid import MISSING
+    from insight_agent.evidence_streams.tool_issues import MISSING
 
     records = []
     for n in range(3):
