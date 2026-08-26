@@ -23,6 +23,7 @@ from insight_agent.ia3_tid import (
     detect,
 )
 from insight_agent.loader import LoadOptions, load_corpus
+from insight_agent.streams import to_ia3_trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
@@ -44,7 +45,7 @@ def corpus():
 
 @pytest.fixture(scope="module")
 def findings(corpus):
-    return detect(corpus.ia3())
+    return detect(to_ia3_trace(trace) for trace in corpus.snapshot().scan())
 
 
 def test_there_are_exactly_nineteen_finding_types():
@@ -75,7 +76,9 @@ def test_findings_are_fully_attributed(findings):
 
 
 def test_findings_are_deterministic_within_a_process(corpus):
-    assert detect(corpus.ia3()) == detect(corpus.ia3())
+    first = detect(to_ia3_trace(trace) for trace in corpus.snapshot().scan())
+    second = detect(to_ia3_trace(trace) for trace in corpus.snapshot().scan())
+    assert first == second
 
 
 def test_issue_ids_are_stable_across_processes():
@@ -88,7 +91,10 @@ def test_issue_ids_are_stable_across_processes():
         "import json;"
         "from insight_agent.loader import load_corpus;"
         "from insight_agent.ia3_tid import detect;"
-        f"print(json.dumps(sorted(f['issue_id'] for f in detect(load_corpus({str(CORPUS)!r}).ia3()))))"
+        "from insight_agent.streams import to_ia3_trace;"
+        f"c=load_corpus({str(CORPUS)!r});"
+        "print(json.dumps(sorted(f['issue_id'] for f in "
+        "detect(to_ia3_trace(t) for t in c.snapshot().scan()))))"
     )
     runs = [
         json.loads(subprocess.run([sys.executable, "-c", script], capture_output=True,
@@ -112,7 +118,8 @@ def test_dropping_the_catalog_silences_exactly_the_contract_rules(corpus, findin
     stripped = [{k: v for k, v in r.items() if k != "tool_catalog"} for r in corpus.records]
     from insight_agent.loader import load_records
 
-    without = detect(load_records(stripped, LoadOptions()).ia3())
+    snapshot = load_records(stripped, LoadOptions()).snapshot()
+    without = detect(to_ia3_trace(trace) for trace in snapshot.scan())
 
     before = {f["issue_type"] for f in findings}
     after = {f["issue_type"] for f in without}
@@ -124,7 +131,7 @@ def test_dropping_the_catalog_silences_exactly_the_contract_rules(corpus, findin
 
 
 def test_a_null_schema_enables_unknown_tool_but_not_argument_checks():
-    from insight_agent.loader import to_trace_record
+    from insight_agent.loader import to_trace
 
     record = {
         "schema_version": "insight-trace/v1",
@@ -136,7 +143,7 @@ def test_a_null_schema_enables_unknown_tool_but_not_argument_checks():
             {"call_id": "c1", "call_index": 1, "tool_name": "GhostTool", "arguments": {}},
         ],
     }
-    fired = {f["issue_type"] for f in detect([to_trace_record(record)])}
+    fired = {f["issue_type"] for f in detect([to_ia3_trace(to_trace(record))])}
     assert "unknown_tool" in fired
     assert not (fired & (CONTRACT_TYPES - {"unknown_tool"}))
 
@@ -175,7 +182,10 @@ def test_raising_the_threshold_disqualifies_everything(findings):
 def test_retry_threshold_changes_repeat_detection(corpus):
     def repeats(**kwargs):
         return [
-            f for f in detect(corpus.ia3(), **kwargs)
+            f
+            for f in detect(
+                (to_ia3_trace(trace) for trace in corpus.snapshot().scan()), **kwargs
+            )
             if f["issue_type"] == "repeated_identical_failed_call"
         ]
 

@@ -21,6 +21,8 @@ _LAZY = {
     "venue",
     "coverage",
     "serialize",
+    "streams",
+    "traces",
 }
 
 __all__ = ["__version__", "CANONICAL_SCHEMA_VERSION", *sorted(_LAZY)]
@@ -32,6 +34,8 @@ if TYPE_CHECKING:  # pragma: no cover - import-time typing only
         ia3_tid,
         loader,
         serialize,
+        streams,
+        traces,
         validate,
         venue,
     )

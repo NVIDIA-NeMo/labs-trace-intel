@@ -37,17 +37,17 @@ After each of the evidence streams run, their output is passed to the Analyst Ag
 The Analyst Agent ultimately produces a set of "insights" which are meant to describe a recurring and actionable problem observed from the trace corpus. 
 
 ## Running the Agent on Example Traces
-This repo includes some example traces from the [Tau benchmark](https://github.com/sierra-research/tau-bench) that can be used to demo the pipeline. 
+This repo includes example traces from the [Tau benchmark](https://github.com/sierra-research/tau-bench).
 
 First follow the .env.example to configure some keys for the LLM bits. 
 
-Then you can run the pipeline against the example traces.
+Then run the Analyst:
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+uv venv
+uv pip install -r requirements.txt -e ".[dev]"
 
-insight-agent run-all examples/tau_bench_traces.jsonl -o out
+uv run --no-sync insight-agent run-all examples/tau_bench_traces.jsonl -o out
 open out/index.md
 ```
 
@@ -57,8 +57,17 @@ To see the
 deterministic stages alone, with no key and no cost:
 
 ```bash
-insight-agent run-all examples/tau_bench_traces.jsonl -o out --no-analyst
+uv run --no-sync insight-agent run-all examples/tau_bench_traces.jsonl \
+  -o out --no-analyst
 ```
+
+The architecture is intentionally small:
+
+```text
+TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insights
+```
+
+`run-ia2` and `run-ia3` remain useful for focused development and ablation.
 
 ### Reading the outputs
 ./out/analyst contains the final output in insights.json. It also contains a prompt.md which is the full interpolated prompt sent to the Analyst Agent. 
@@ -72,7 +81,7 @@ Those artifacts are aggregated into cards.json which is injected into the system
 ## Running the agent on your own traces
 
 **Step 1: Convert Traces to a Common Format**
-Because the pipeline relies on deterministic parsing and checks, the traces must first be converted to a common format. 
+The evidence streams consume normalized traces, so source traces must first be converted to the input format.
 
 If your traces are already in OpenAI or Anthropic message format you can use the built in adapter
 
@@ -92,15 +101,21 @@ insight-agent validate traces.jsonl
 insight-agent coverage traces.jsonl
 ```
 
-Then you can run the full pipeline with 
+Then run the full analysis with:
 ```bash
-insight-agent run-all traces.jsonl -o out
+uv run --no-sync insight-agent run-all traces.jsonl -o out
 ```
 
 Results will be written to the /out directory. 
 
 If you want to do a dry run or a run without the LLM synthesis you can use
 ```bash
-insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
-insight-agent run-all traces.jsonl -o out --no-analyst 
+uv run --no-sync insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
+uv run --no-sync insight-agent run-all traces.jsonl -o out --no-analyst
+```
+
+## Validation
+
+```bash
+uv run --no-sync ruff check . && uv run --no-sync pytest
 ```

@@ -18,7 +18,8 @@ from insight_agent.adapters.messages import (
     detect_format,
 )
 from insight_agent.ia3_tid import MISSING, detect
-from insight_agent.loader import load_records, to_trace_record
+from insight_agent.loader import load_records, to_trace
+from insight_agent.streams import to_ia2_trace, to_ia3_trace
 from insight_agent.validate import validate_record
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
@@ -41,7 +42,7 @@ def openai_records():
 
 
 def issue_types(record):
-    return {f["issue_type"] for f in detect([to_trace_record(record)])}
+    return {f["issue_type"] for f in detect([to_ia3_trace(to_trace(record))])}
 
 
 # -- format detection ------------------------------------------------------
@@ -87,7 +88,7 @@ def test_an_unanswered_call_omits_the_result_key(request, fixture, trace_id):
     call = record["calls"][0]
 
     assert "result" not in call
-    assert to_trace_record(record).calls[0].result is MISSING
+    assert to_ia3_trace(to_trace(record)).calls[0].result is MISSING
     assert "missing_tool_result" in issue_types(record)
 
 
@@ -169,11 +170,10 @@ def test_the_two_engines_agree_on_every_adapted_call(anthropic_records, openai_r
     """The content-vs-output trap would show up here as a disagreement."""
     from insight_agent.ia2_pipeline import decode_explicit_failure
     from insight_agent.ia3_tid import strict_failure
-    from insight_agent.loader import to_normalized_trace
-
     for record in list(anthropic_records.values()) + list(openai_records.values()):
-        ia2 = {c.call_id: c for c in to_normalized_trace(record).calls}
-        for call in to_trace_record(record).calls:
+        trace = to_trace(record)
+        ia2 = {c.call_id: c for c in to_ia2_trace(trace).calls}
+        for call in to_ia3_trace(trace).calls:
             ia3_failed, _ = strict_failure(call)
             ia2_failed, _, _ = decode_explicit_failure(
                 ia2[call.call_id].tool_name, ia2[call.call_id].result

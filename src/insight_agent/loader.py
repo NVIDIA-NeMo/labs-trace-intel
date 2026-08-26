@@ -1,22 +1,4 @@
-"""Fan one canonical record out into the engine contracts.
-
-IA2 and IA3 were developed independently and each has its own input
-dataclass. Left alone, that means anyone onboarding a new trace source has to
-write two adapters against two contracts with different field names and
-different sentinels. This module is the unification layer: an adapter emits
-canonical JSONL in any language, and everything below is handled here.
-
-The most load-bearing detail in the whole package lives here. ``ia3_tid``
-distinguishes "the tool returned null" from "no result was ever recorded" using
-a module-level ``MISSING = object()`` compared **by identity**. So:
-
-* absent ``result`` key (or ``result_missing``/``result_count: 0``) -> ``MISSING``
-* ``"result": null`` -> Python ``None``, which is *not* ``MISSING``
-
-and ``MISSING`` must be imported from ``ia3_tid``, never re-created — a locally
-declared ``object()`` would compare unequal, silently suppressing
-``missing_tool_result`` and making every call look like it produced a result.
-"""
+"""Load validated input records into normalized traces."""
 
 from __future__ import annotations
 
@@ -27,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .ia3_tid import MISSING, CallRecord, TraceRecord
+from .traces import UNSET, Span, SpanKind, SpanStatus, ToolCall, Trace, TraceSnapshot
 from .validate import (
     CANONICAL_VERSION,
     Diagnostic,
@@ -45,8 +27,7 @@ __all__ = [
     "load_corpus",
     "load_records",
     "read_jsonl",
-    "to_normalized_trace",
-    "to_trace_record",
+    "to_trace",
 ]
 
 
@@ -119,131 +100,154 @@ def _sorted_steps(record: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return sorted(steps, key=lambda s: s.get("step_index", 0))
 
 
-# -- IA2 -------------------------------------------------------------------
+# -- normalized Trace ------------------------------------------------------
 
 
-def to_normalized_trace(
-    record: Mapping[str, Any], *, profile: VenueProfile = DEFAULT_PROFILE
-):
-    """Convert one canonical record into IA2's ``NormalizedTrace``."""
+def _span_id(source_id: str, used: set[str]) -> str:
+    """Return a unique span id while retaining source identity in ToolCall."""
 
-    from .ia2_pipeline import NormalizedCall, NormalizedStep, NormalizedTrace
+    if source_id not in used:
+        used.add(source_id)
+        return source_id
+    occurrence = 2
+    while f"{source_id}#{occurrence}" in used:
+        occurrence += 1
+    span_id = f"{source_id}#{occurrence}"
+    used.add(span_id)
+    return span_id
 
-    calls = []
-    for call in _sorted_calls(record):
-        # IA2 has no MISSING concept: an unrecorded result is simply None.
-        result = None if _result_is_missing(call) else call.get("result")
 
-        # `returned_data` is a call-level field in the canonical format, but
-        # IA2 reads it from inside the result mapping. Inject it only when that
-        # is lossless: wrapping a string result would change the output-size
-        # features and break the anchored error-prefix match.
-        if "returned_data" in call:
-            if isinstance(result, Mapping):
-                if profile.returned_data_key not in result:
-                    result = {**result, profile.returned_data_key: call["returned_data"]}
-            else:
-                warnings.warn(
-                    f"call {call.get('call_id')!r} in trace {record.get('trace_id')!r} sets "
-                    "'returned_data' but its result is not a JSON object, so IA2 cannot read "
-                    "it; returned_data_false_rate will stay 0 for this call. Wrap the result "
-                    'as {"content": ...} to make it count.',
-                    UserWarning,
-                    stacklevel=2,
-                )
-
-        calls.append(
-            NormalizedCall(
-                call_id=str(call["call_id"]),
-                call_index=int(call["call_index"]),
-                tool_name=str(call["tool_name"]),
-                arguments=call.get("arguments") if isinstance(call.get("arguments"), Mapping) else {},
-                result=result,
-                duration_ms=call.get("duration_ms"),
-                source_pointer=dict(call.get("source_pointer") or {}),
-            )
-        )
-
-    steps = tuple(
-        NormalizedStep(
-            step_index=int(step["step_index"]),
-            step_type=str(step["step_type"]),
-            name=str(step.get("name") or ""),
-            content=str(step.get("content") or ""),
-            source_pointer=dict(step.get("source_pointer") or {}),
-        )
-        for step in _sorted_steps(record)
+def _tool_span(
+    call: Mapping[str, Any],
+    *,
+    used_span_ids: set[str],
+    step: Mapping[str, Any] | None = None,
+) -> Span:
+    call_id = str(call["call_id"])
+    explicit_error = call.get("explicit_error")
+    status = (
+        SpanStatus.ERROR
+        if explicit_error is True
+        else SpanStatus.SUCCESS
+        if explicit_error is False
+        else SpanStatus.UNKNOWN
     )
-
-    metrics = {
-        str(k): float(v)
-        for k, v in (record.get("metrics") or {}).items()
-        if isinstance(v, (int, float)) and not isinstance(v, bool)
-    }
-
-    return NormalizedTrace(
-        trace_id=str(record["trace_id"]),
-        calls=tuple(calls),
-        steps=steps,
-        source_pointer=dict(record.get("source_pointer") or {}),
-        observed_verdict=record.get("observed_verdict"),
-        cost=record.get("cost"),
-        metrics=metrics,
+    output = UNSET if _result_is_missing(call) else call.get("result")
+    returned_data = call.get("returned_data", UNSET)
+    return Span(
+        span_id=_span_id(call_id, used_span_ids),
+        kind=SpanKind.TOOL,
+        status=status,
+        name=str(call["tool_name"]),
+        subtype=str(step["step_type"]) if step is not None else "tool",
+        summary=str(step.get("content") or "") if step is not None else None,
+        duration_ms=call.get("duration_ms"),
+        tool_name=str(call["tool_name"]),
+        input=call.get("arguments"),
+        output=output,
+        error_type=call.get("outcome_marker"),
+        tool_call=ToolCall(
+            call_id=call_id,
+            index=int(call["call_index"]),
+            result_id=call.get("result_id"),
+            result_count=int(call.get("result_count", 1)),
+            instrumentation_alias_of=call.get("instrumentation_alias_of"),
+            prior_user_text=call.get("prior_user_text"),
+            returned_data=returned_data,
+        ),
+        source_pointer=dict(call.get("source_pointer") or {}),
     )
 
 
-# -- IA3 -------------------------------------------------------------------
+def _step_span(
+    trace_id: str,
+    step: Mapping[str, Any],
+    *,
+    used_span_ids: set[str],
+) -> Span:
+    step_index = int(step["step_index"])
+    step_type = str(step["step_type"])
+    if step_type == "evaluation":
+        kind = SpanKind.EVALUATOR
+    elif step_type in {"agent", "agent_step", "planning", "user"}:
+        kind = SpanKind.AGENT
+    else:
+        kind = SpanKind.UNKNOWN
+    span_id = _span_id(f"{trace_id}#step-{step_index}", used_span_ids)
+    content = step.get("content")
+    return Span(
+        span_id=span_id,
+        kind=kind,
+        name=str(step.get("name") or "") or None,
+        subtype=step_type,
+        summary=str(content or ""),
+        output=content if content is not None else UNSET,
+        source_pointer=dict(step.get("source_pointer") or {}),
+    )
 
 
-def to_trace_record(
+def to_trace(
     record: Mapping[str, Any],
     *,
     tool_catalog: Mapping[str, Any] | None = None,
-    profile: VenueProfile = DEFAULT_PROFILE,
-) -> TraceRecord:
-    """Convert one canonical record into IA3's ``TraceRecord``."""
+) -> Trace:
+    """Normalize one validated input record."""
 
-    task_text = str(record.get("task_text") or "")
-    calls = []
-    for call in _sorted_calls(record):
-        result = MISSING if _result_is_missing(call) else call.get("result")
+    calls = _sorted_calls(record)
+    steps = _sorted_steps(record)
+    used_span_ids: set[str] = set()
+    used_calls: set[int] = set()
+    spans: list[Span] = []
+    next_call = 0
 
-        # result_count 0 already became MISSING above; normalise it back to 1
-        # so the `result_count > 1` duplicate check is unaffected.
-        result_count = call.get("result_count", 1)
-        result_count = 1 if not isinstance(result_count, int) or result_count < 1 else result_count
-
-        calls.append(
-            CallRecord(
-                trace_id=str(record["trace_id"]),
-                call_index=int(call["call_index"]),
-                call_id=str(call["call_id"]),
-                tool_name=str(call["tool_name"]),
-                arguments=call.get("arguments"),
-                result=result,
-                source_pointer=dict(call.get("source_pointer") or {}),
-                result_id=call.get("result_id"),
-                result_count=result_count,
-                explicit_error=call.get("explicit_error"),
-                outcome_marker=call.get("outcome_marker"),
-                instrumentation_alias_of=call.get("instrumentation_alias_of"),
-                prior_user_text=str(call.get("prior_user_text") or task_text),
+    for step in steps:
+        if step.get("step_type") == "tool" and next_call < len(calls):
+            call = calls[next_call]
+            used_calls.add(next_call)
+            next_call += 1
+            spans.append(
+                _tool_span(
+                    call,
+                    used_span_ids=used_span_ids,
+                    step=step,
+                )
             )
-        )
+        else:
+            spans.append(
+                _step_span(str(record["trace_id"]), step, used_span_ids=used_span_ids)
+            )
 
-    # Record-level catalog wins over the corpus-wide fallback; absent both, the
-    # six catalog-gated rules abstain rather than guess.
+    for index, call in enumerate(calls):
+        if index not in used_calls:
+            spans.append(
+                _tool_span(
+                    call,
+                    used_span_ids=used_span_ids,
+                )
+            )
+
     catalog = record.get("tool_catalog")
     if catalog is None:
         catalog = tool_catalog
 
-    return TraceRecord(
-        trace_id=str(record["trace_id"]),
-        calls=tuple(calls),
+    return Trace(
+        id=str(record["trace_id"]),
+        spans=tuple(spans),
+        input=record["task_text"] if "task_text" in record else UNSET,
+        cost_usd=record.get("cost"),
+        tool_catalog=dict(catalog) if isinstance(catalog, Mapping) else None,
         logical_case_id=record.get("logical_case_id"),
-        tool_catalog=catalog,
-        orphan_results=tuple(dict(o) for o in record.get("orphan_results", []) if isinstance(o, Mapping)),
-        complete_provenance_context=bool(record.get("complete_provenance_context", False)),
+        observed_verdict=record.get("observed_verdict"),
+        metrics=dict(record.get("metrics") or {}),
+        complete_provenance_context=bool(
+            record.get("complete_provenance_context", False)
+        ),
+        orphan_results=tuple(
+            dict(item)
+            for item in record.get("orphan_results", ())
+            if isinstance(item, Mapping)
+        ),
+        source_pointer=dict(record.get("source_pointer") or {}),
     )
 
 
@@ -252,7 +256,7 @@ def to_trace_record(
 
 @dataclass(frozen=True)
 class Corpus:
-    """A validated set of canonical records, convertible to any engine input."""
+    """A validated set of input records."""
 
     records: tuple[Mapping[str, Any], ...]
     options: LoadOptions = field(default_factory=LoadOptions)
@@ -262,16 +266,19 @@ class Corpus:
     def __len__(self) -> int:
         return len(self.records)
 
-    def ia2(self) -> list[Any]:
-        return [to_normalized_trace(r, profile=self.options.profile) for r in self.records]
+    def snapshot(self) -> TraceSnapshot:
+        """Normalize the records into a reiterable snapshot."""
 
-    def ia3(self) -> list[TraceRecord]:
-        return [
-            to_trace_record(
-                r, tool_catalog=self.options.tool_catalog, profile=self.options.profile
-            )
-            for r in self.records
-        ]
+        return TraceSnapshot.from_traces(
+            (
+                to_trace(
+                    record,
+                    tool_catalog=self.options.tool_catalog,
+                )
+                for record in self.records
+            ),
+            source=self.source,
+        )
 
     # -- provenance helpers used by `run.json` and `coverage` --------------
 

@@ -25,6 +25,7 @@ dependencies = [
     "numpy>=1.26,<3",
     "scikit-learn>=1.4,<2",
     "jsonschema>=4.18,<5",
+    "pydantic>=2.12,<3",
     # The Analyst runs by default in `run-all` and `demo`, so its client is a
     # base dependency rather than an extra. `--no-analyst` skips the stage but
     # does not change what gets installed.
@@ -42,11 +43,6 @@ insight-agent = "insight_agent.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/insight_agent"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/insight_agent/schemas" = "insight_agent/schemas"
-"src/insight_agent/data" = "insight_agent/data"
-"src/insight_agent/prompts" = "insight_agent/prompts"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

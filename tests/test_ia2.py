@@ -13,6 +13,7 @@ from insight_agent.ia2_pipeline import (
     run_ia2,
 )
 from insight_agent.loader import LoadOptions, load_corpus
+from insight_agent.streams import to_ia2_trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
@@ -30,7 +31,11 @@ DIGEST_SECTIONS = (
 
 @pytest.fixture(scope="module")
 def traces():
-    return load_corpus(CORPUS, LoadOptions()).ia2()
+    corpus = load_corpus(CORPUS, LoadOptions())
+    return [
+        to_ia2_trace(trace, profile=corpus.options.profile)
+        for trace in corpus.snapshot().scan()
+    ]
 
 
 @pytest.fixture(scope="module")
