@@ -128,17 +128,12 @@ def test_tool_issue_stream_retains_all_findings_and_cards():
     snapshot = loader.load()
     evidence = ToolIssueEvidenceStream().analyze(snapshot)
 
-    assert evidence.status == "completed"
-    assert evidence.coverage.traces_examined == len(loader)
     assert isinstance(evidence.artifacts, ToolIssueEvidenceArtifacts)
     assert {finding["issue_type"] for finding in evidence.artifacts.findings} == set(FINDING_TYPES)
     assert any(card.eligible_for_analyst for card in evidence.artifacts.cards)
     assert set(evidence.artifacts.catalog_coverage) == set(FINDING_TYPES)
     assert len(evidence.problems) == sum(
         card.eligible_for_analyst for card in evidence.artifacts.cards
-    )
-    assert evidence.withheld_problem_count == len(evidence.artifacts.cards) - len(
-        evidence.problems
     )
     assert [trace.id for trace in snapshot.scan()] == [
         record["trace_id"] for record in loader.records
@@ -151,4 +146,3 @@ def test_tool_issue_stream_can_expose_audit_cards_as_problems():
 
     assert isinstance(evidence.artifacts, ToolIssueEvidenceArtifacts)
     assert len(evidence.problems) == len(evidence.artifacts.cards)
-    assert evidence.withheld_problem_count == 0

@@ -440,7 +440,7 @@ def _write_tool_issues(
     )
 
     if not args.quiet:
-        print(f"IA3 over {evidence.coverage.traces_examined} traces -> {target}")
+        print(f"IA3 over {snapshot.trace_count} traces -> {target}")
         print(f"  findings              : {len(findings)}")
         print(f"  distinct issue types  : {len({f['issue_type'] for f in findings})}/19")
         print(f"  cards                 : {len(cards)}")
@@ -650,7 +650,7 @@ def _insights_inputs(args):
             AnomalyAndPatternsArtifacts,
             problems_from_analysis,
         )
-        from .evidence_streams.contracts import EvidenceCoverage, EvidenceStreamResult
+        from .evidence_streams.contracts import EvidenceStreamResult
         from .evidence_streams.tool_issues import (
             ToolIssueCard,
             ToolIssueEvidenceArtifacts,
@@ -678,44 +678,23 @@ def _insights_inputs(args):
         )
         anomaly_problems = problems_from_analysis(anomaly_result)
         tool_problems = problems_from_cards(cards, include_audit=args.all_cards)
-        coverage = EvidenceCoverage(
-            traces_available=snapshot.trace_count,
-            traces_examined=snapshot.trace_count,
-            traces_evaluable=snapshot.trace_count,
-        )
         evidence = (
             EvidenceStreamResult(
                 stream_name="anomaly-and-patterns",
-                stream_version="1",
-                status="completed",
-                coverage=coverage,
                 problems=anomaly_problems,
                 artifacts=AnomalyAndPatternsArtifacts(
                     result=anomaly_result,
                     parameters={},
                 ),
-                metrics={"problem_count": len(anomaly_problems)},
             ),
             EvidenceStreamResult(
                 stream_name="tool-issues",
-                stream_version="1",
-                status="completed",
-                coverage=coverage,
                 problems=tool_problems,
                 artifacts=ToolIssueEvidenceArtifacts(
                     findings=tuple(finding_rows),
                     cards=cards,
                     catalog_coverage={},
                 ),
-                withheld_problem_count=(
-                    0
-                    if args.all_cards
-                    else sum(not card.eligible_for_analyst for card in cards)
-                ),
-                metrics={
-                    "card_count": len(cards),
-                    "problem_count": len(tool_problems),
-                },
             ),
         )
         return loader, snapshot, evidence
@@ -789,10 +768,7 @@ def _run_insights(
         print(f"  credentials           : {'found' if api_key else 'NOT FOUND'}")
         if loaded:
             print(f"  loaded from .env      : {', '.join(sorted(loaded))}")
-        print(
-            "  problems shown/withheld: "
-            f"{generation.problems_presented} / {generation.problems_withheld}"
-        )
+        print(f"  problems              : {generation.problems_presented}")
         print(f"  prompt                : {target / 'prompt.md'}")
         print(f"  approx input tokens   : {approx:,}")
         return EXIT_OK
@@ -833,7 +809,6 @@ def _run_insights(
             "tool_calls": result.tool_calls,
             "traces_fetched": list(result.traces_fetched),
             "problems_presented": generation.problems_presented,
-            "problems_withheld": generation.problems_withheld,
             "insight_count": len(result.insights),
             "corpus": loader.describe(),
         },
@@ -854,12 +829,6 @@ def _run_insights(
         print(f"  insights              : {len(result.insights)}")
         print(f"  insights              : {target / 'insights.json'}")
 
-        if generation.problems_withheld:
-            print(
-                f"  note: {generation.problems_withheld} candidate problem(s) were withheld "
-                "by their evidence streams. Pass --all-cards to include audit-only "
-                "tool issues."
-            )
         if not result.insights:
             print(
                 "  note: the Analyst filed zero Insights. That is a valid outcome — it means "

@@ -186,7 +186,6 @@ class InsightsGeneration:
         self.snapshot = snapshot
         self.evidence = tuple(evidence)
         self.problems_presented = sum(len(result.problems) for result in evidence)
-        self.problems_withheld = sum(result.withheld_problem_count for result in evidence)
 
     def build_prompt(self) -> tuple[str, str]:
         return _build_prompt(self._request)
@@ -292,14 +291,7 @@ def _build_prompt(request: _AnalystRequest) -> tuple[str, str]:
 
     for result in request.evidence:
         sections += [
-            f"## {result.stream_name} (version {result.stream_version})",
-            "",
-            (
-                f"Status: {result.status}. Coverage: examined "
-                f"{result.coverage.traces_examined:,} of "
-                f"{result.coverage.traces_available:,} available traces; "
-                f"{result.coverage.traces_evaluable:,} were evaluable."
-            ),
+            f"## {result.stream_name}",
             "",
         ]
         if result.problems:
@@ -319,18 +311,6 @@ def _build_prompt(request: _AnalystRequest) -> tuple[str, str]:
                 "This stream returned no candidate problems. Do not compensate by lowering "
                 "the bar or inferring a problem from the absence of evidence."
             )
-        if result.withheld_problem_count:
-            sections += [
-                "",
-                f"A further {result.withheld_problem_count} candidate problem(s) were "
-                "withheld by this stream's own evidence threshold. They are not shown and "
-                "must not be cited.",
-            ]
-        if result.coverage.abstention_reasons:
-            sections += [
-                "",
-                "Coverage limits: " + "; ".join(result.coverage.abstention_reasons) + ".",
-            ]
         sections += ["", "---", ""]
 
     kickoff = ["Author Insights for this corpus."]

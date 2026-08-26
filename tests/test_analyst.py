@@ -17,11 +17,7 @@ from pathlib import Path
 import pytest
 
 from insight_agent.cli import EXIT_ERROR, EXIT_OK, main
-from insight_agent.evidence_streams.contracts import (
-    EvidenceCoverage,
-    EvidenceStreamResult,
-    Problem,
-)
+from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
 from insight_agent.insights_generation import (
     DEFAULT_MODEL,
     InsightsGeneration,
@@ -51,19 +47,10 @@ def evidence_result(
     *,
     name: str = "test-stream",
     problems: tuple[Problem, ...] = (),
-    withheld: int = 0,
 ) -> EvidenceStreamResult:
     return EvidenceStreamResult(
         stream_name=name,
-        stream_version="1",
-        status="completed",
-        coverage=EvidenceCoverage(
-            traces_available=18,
-            traces_examined=18,
-            traces_evaluable=18,
-        ),
         problems=problems,
-        withheld_problem_count=withheld,
     )
 
 
@@ -80,7 +67,6 @@ def request_obj():
                         supporting_trace_ids=("docops-outlier", "t1"),
                     ),
                 ),
-                withheld=4,
             ),
         ),
         corpus={"trace_count": 18, "call_count": 79, "distinct_logical_cases": 16},
@@ -128,13 +114,6 @@ def test_prompt_includes_problem_description_and_supporting_traces(request_obj):
     assert "Recurring search failures affect document lookup." in system
     assert "docops-outlier" in system
     assert "supporting_trace_ids" in system
-
-
-def test_prompt_states_the_withheld_problem_count(request_obj):
-    """Silently filtering candidate problems would misrepresent the evidence set."""
-    system, _ = _build_prompt(request_obj)
-    assert "4 candidate problem(s) were withheld" in system
-    assert "must not be cited" in system
 
 
 def test_prompt_declares_the_lookup_tool(request_obj):
@@ -587,7 +566,6 @@ def test_full_run_writes_insights_and_provenance(tmp_path, mock_litellm):
     assert run["agent"] == "DocOps"
     assert run["prompt_version"] == "analyst_v4"
     assert run["insight_count"] == 1
-    assert run["problems_withheld"] > 0
     assert run["problems_presented"] > 0
 
 

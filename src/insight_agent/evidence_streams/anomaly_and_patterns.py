@@ -29,7 +29,7 @@ from sklearn.preprocessing import StandardScaler
 
 from ..traces import UNSET, ContractModel, Span, SpanKind, Trace, TraceSnapshot
 from ..venue import DEFAULT_PROFILE, VenueProfile
-from .contracts import EvidenceCoverage, EvidenceStreamResult, Problem
+from .contracts import EvidenceStreamResult, Problem
 
 N_ESTIMATORS = 300
 CONTAMINATION = 0.02
@@ -1104,7 +1104,6 @@ def to_ia2_trace(
 @dataclass(frozen=True)
 class AnomalyAndPatternsEvidenceStream:
     name = "anomaly-and-patterns"
-    version = "1"
 
     contamination: float = CONTAMINATION
     input_scaling: Literal["none", "robust"] = "none"
@@ -1128,13 +1127,6 @@ class AnomalyAndPatternsEvidenceStream:
         problems = problems_from_analysis(result)
         return EvidenceStreamResult(
             stream_name=self.name,
-            stream_version=self.version,
-            status="completed",
-            coverage=EvidenceCoverage(
-                traces_available=snapshot.trace_count,
-                traces_examined=len(traces),
-                traces_evaluable=len(traces),
-            ),
             problems=problems,
             artifacts=AnomalyAndPatternsArtifacts(
                 result=result,
@@ -1145,10 +1137,4 @@ class AnomalyAndPatternsEvidenceStream:
                     )
                 },
             ),
-            metrics={
-                "anomaly_count": sum(
-                    1 for row in result.anomalies if row.is_anomaly
-                ),
-                "problem_count": len(problems),
-            },
         )

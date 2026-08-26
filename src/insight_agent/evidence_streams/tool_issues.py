@@ -21,7 +21,7 @@ from pydantic import Field
 
 from ..traces import UNSET, ContractModel, SpanKind, SpanStatus, Trace, TraceSnapshot
 from ..venue import DEFAULT_PROFILE, VenueProfile
-from .contracts import EvidenceCoverage, EvidenceStreamResult, Problem
+from .contracts import EvidenceStreamResult, Problem
 
 DETECTOR_VERSION = "tid-v1"
 CARD_MINIMUM_CASES = 3
@@ -671,30 +671,9 @@ def to_ia3_trace(trace: Trace) -> TraceRecord:
     )
 
 
-def _tool_issue_abstentions(traces: Sequence[TraceRecord]) -> tuple[str, ...]:
-    calls = [call for trace in traces for call in trace.calls]
-    checks = (
-        (any(trace.tool_catalog is not None for trace in traces), "no tool catalog is available"),
-        (any(call.result is MISSING for call in calls), "no call has an unobserved result"),
-        (any(call.result_id is not None for call in calls), "no call records a result id"),
-        (any(call.result_count > 1 for call in calls), "no call records multiple results"),
-        (any(trace.orphan_results for trace in traces), "no trace records orphan results"),
-        (
-            any(call.instrumentation_alias_of for call in calls),
-            "no call records an instrumentation alias",
-        ),
-        (
-            any(trace.complete_provenance_context for trace in traces),
-            "no trace asserts complete provenance context",
-        ),
-    )
-    return tuple(reason for evaluable, reason in checks if not evaluable)
-
-
 @dataclass(frozen=True)
 class ToolIssueEvidenceStream:
     name = "tool-issues"
-    version = "1"
 
     minimum_independent_cases: int = CARD_MINIMUM_CASES
     retry_threshold: int = RETRY_THRESHOLD
@@ -713,32 +692,12 @@ class ToolIssueEvidenceStream:
             minimum_independent_cases=self.minimum_independent_cases,
         )
         problems = problems_from_cards(cards, include_audit=self.include_audit_problems)
-        selected_card_count = (
-            len(cards)
-            if self.include_audit_problems
-            else sum(card.eligible_for_analyst for card in cards)
-        )
-        withheld = len(cards) - selected_card_count
         return EvidenceStreamResult(
             stream_name=self.name,
-            stream_version=self.version,
-            status="completed",
-            coverage=EvidenceCoverage(
-                traces_available=snapshot.trace_count,
-                traces_examined=len(traces),
-                traces_evaluable=len(traces),
-                abstention_reasons=_tool_issue_abstentions(traces),
-            ),
             problems=problems,
             artifacts=ToolIssueEvidenceArtifacts(
                 findings=tuple(findings),
                 cards=tuple(cards),
                 catalog_coverage=catalog_coverage(findings),
             ),
-            metrics={
-                "finding_count": len(findings),
-                "card_count": len(cards),
-                "problem_count": len(problems),
-            },
-            withheld_problem_count=withheld,
         )

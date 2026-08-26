@@ -319,8 +319,7 @@ Evidence streams independently surface evidence that may support an Insight. Eve
 - reads the same `TraceSnapshot`;
 - can be enabled, disabled, and evaluated independently;
 - does not read prior Insights or another stream's result;
-- distinguishes a completed empty result, an explicit abstention, and an execution failure;
-- reports its coverage and returns candidate `Problem` values with supporting trace IDs;
+- returns candidate `Problem` values with supporting trace IDs;
 - may retain native artifacts for focused inspection and evaluation.
 
 A stream may contain complex internal steps. IA2, for example, performs feature extraction,
@@ -330,7 +329,6 @@ they do not become top-level Analyst stages.
 ```python
 class EvidenceStream(Protocol):
     name: str
-    version: str
 
     def analyze(
         self,
@@ -345,13 +343,8 @@ class Problem(ContractModel):
 
 class EvidenceStreamResult(ContractModel):
     stream_name: str
-    stream_version: str
-    status: Literal["completed", "abstained"]
-    coverage: EvidenceCoverage
     problems: tuple[Problem, ...]
     artifacts: Any = None
-    withheld_problem_count: int = 0
-    metrics: Mapping[str, JsonValue] = field(default_factory=dict)
 ```
 
 `Problem` is the common handoff to Insights generation. It says what may be wrong and which
@@ -362,6 +355,12 @@ Native stream outputs remain available in `artifacts`, such as IA2's feature and
 results or IA3's findings and cards. They support diagnostics and evaluation but are not part
 of the synthesis interface. Each stream owns the projection from its native analysis into
 Problems, including its own evidence threshold.
+
+The result does not carry generic coverage, status, version, or metrics fields. A stream that
+cannot run raises an error; an empty `problems` tuple means it found nothing worth surfacing.
+Stream-specific diagnostics remain in its typed artifacts. Input capability diagnostics, such
+as IA3's per-rule coverage report, remain separate because they do not share a useful generic
+shape across evidence streams.
 
 Stable algorithm outputs are typed at the stream boundary as well. IA2 returns an
 `AnomalyAndPatternsAnalysis` with typed anomalies and recurring-failure groups; IA3 returns

@@ -48,8 +48,8 @@ Each Insight has exactly three fields:
 ## What the Analyst sees
 
 The Analyst receives every `EvidenceStreamResult`, grouped by stream, but only
-its generic fields: status, coverage, Problems, and the count of Problems the
-stream withheld. It does not import or interpret IA2 or IA3 artifact types.
+its stream name and Problems. It does not import or interpret IA2 or IA3
+artifact types.
 
 IA2 creates Problems for statistical outliers, recurring strict failures, and
 failures whose normalized message crosses tool boundaries. Its digest,
@@ -235,7 +235,7 @@ To try your own, drop a `<name>.md` beside it and pass `--prompt-version <name>`
 Two requirements:
 
 - It must contain the marker `{evidence}`, which is where evidence-stream
-  coverage, Problems, and withheld counts are substituted. A template without it is an
+  Problems are substituted. A template without it is an
   error rather than an append, so a typo cannot send a paid request whose
   evidence landed somewhere the prompt never refers to. `{agent}` is also
   substituted if present.
