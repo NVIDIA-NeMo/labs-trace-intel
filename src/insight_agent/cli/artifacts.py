@@ -1,4 +1,4 @@
-"""Turn engine results into JSON-safe structures.
+"""Write CLI artifacts as JSON-safe structures.
 
 Two things in the engine outputs are not natively serialisable:
 
@@ -19,7 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .evidence_streams.tool_issues import MISSING
+from ..evidence_streams.tool_issues import MISSING
 
 __all__ = ["dump_json", "jsonable", "prepared_features", "write_json"]
 

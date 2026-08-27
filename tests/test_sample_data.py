@@ -39,7 +39,7 @@ def test_committed_sample_data_matches_the_generator(tmp_path, filename):
 
 
 def test_sample_corpus_validates_in_strict_mode():
-    from insight_agent.validate import validate_corpus
+    from insight_agent.trace_loaders import validate_corpus
 
     report = validate_corpus(DATA_DIR / "sample_corpus.jsonl")
     assert report.ok, [d.format() for d in report.errors]
@@ -47,7 +47,7 @@ def test_sample_corpus_validates_in_strict_mode():
 
 def test_sample_corpus_warnings_are_deliberate():
     """The sample plants exactly one lintable defect, to demonstrate the lint."""
-    from insight_agent.validate import validate_corpus
+    from insight_agent.trace_loaders import validate_corpus
 
     report = validate_corpus(DATA_DIR / "sample_corpus.jsonl")
     assert [d.code for d in report.warnings] == ["duplicate_call_id"]
@@ -70,7 +70,7 @@ def test_sample_corpus_shape():
 
 
 def test_venue_profile_example_loads():
-    from insight_agent.venue import load_profile
+    from insight_agent.evidence_streams.venue import load_profile
 
     profile = load_profile(DATA_DIR / "venue_profile_example.json")
     assert profile.name == "docops-renamed"

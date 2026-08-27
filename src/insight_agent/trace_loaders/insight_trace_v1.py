@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..traces import UNSET, Span, SpanKind, SpanStatus, ToolCall, Trace, TraceSnapshot
-from ..validate import (
+from .validation import (
     Diagnostic,
     ValidationReport,
     iter_jsonl,

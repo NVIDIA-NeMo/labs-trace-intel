@@ -1,4 +1,4 @@
-"""Report what a corpus can actually support.
+"""Report which tool-issue rules a corpus can support.
 
 This is the feedback loop for anyone writing an adapter. Validation answers
 "is my JSON well formed"; coverage answers the far more useful question "given
@@ -16,8 +16,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .evidence_streams.tool_issues import FINDING_TYPES
-from .trace_loaders import InsightTraceV1Loader
+from ..trace_loaders import InsightTraceV1Loader
+from .tool_issues import FINDING_TYPES
 
 __all__ = ["RULE_REQUIREMENTS", "corpus_coverage", "format_coverage"]
 

@@ -28,8 +28,8 @@ from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
 from ..traces import UNSET, ContractModel, Span, SpanKind, Trace, TraceSnapshot
-from ..venue import DEFAULT_PROFILE, VenueProfile
 from .contracts import EvidenceStreamResult, Problem
+from .venue import DEFAULT_PROFILE, VenueProfile
 
 N_ESTIMATORS = 300
 CONTAMINATION = 0.02

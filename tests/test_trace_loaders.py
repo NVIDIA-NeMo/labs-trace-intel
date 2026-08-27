@@ -9,13 +9,13 @@ import pytest
 
 from insight_agent.evidence_streams.anomaly_and_patterns import to_ia2_trace
 from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
+from insight_agent.evidence_streams.venue import DEFAULT_PROFILE
 from insight_agent.trace_loaders import (
+    CANONICAL_VERSION,
     InsightTraceV1Loader,
     InsightTraceV1Options,
     TraceLoadError,
 )
-from insight_agent.validate import CANONICAL_VERSION
-from insight_agent.venue import DEFAULT_PROFILE
 
 BASE = {
     "schema_version": CANONICAL_VERSION,

@@ -20,8 +20,8 @@ from jsonschema import validators
 from pydantic import Field
 
 from ..traces import UNSET, ContractModel, SpanKind, SpanStatus, Trace, TraceSnapshot
-from ..venue import DEFAULT_PROFILE, VenueProfile
 from .contracts import EvidenceStreamResult, Problem
+from .venue import DEFAULT_PROFILE, VenueProfile
 
 DETECTOR_VERSION = "tid-v1"
 CARD_MINIMUM_CASES = 3

@@ -213,7 +213,7 @@ def test_findings_serialise_without_a_default_encoder(findings):
 
 
 def test_serialize_renders_the_sentinel_rather_than_crashing():
-    from insight_agent.serialize import jsonable
+    from insight_agent.cli.artifacts import jsonable
 
     assert jsonable({"result": MISSING}) == {"result": "<missing>"}
     json.dumps(jsonable({"result": MISSING}))

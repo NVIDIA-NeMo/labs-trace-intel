@@ -67,6 +67,21 @@ TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insig
 
 `run-ia2` and `run-ia3` remain useful for focused development and ablation.
 
+### Code layout
+
+```text
+src/insight_agent/
+├── adapters/             # source-specific conversion helpers
+├── trace_loaders/        # validation and normalization into TraceSnapshot
+├── traces.py             # normalized Trace, Span, and TraceSnapshot contracts
+├── evidence_streams/     # IA2, IA3, their contracts, and shared configuration
+├── insights_generation/  # LLM-backed synthesis and its configuration
+└── cli/                  # command orchestration and artifact writing
+```
+
+`traces.py` is intentionally the only shared domain module at package top level. The other
+implementation modules live with the stage or interface that owns them.
+
 ### Reading the outputs
 ./out/analyst contains the final output in insights.json. It also contains a prompt.md which is the full interpolated prompt sent to the Analyst Agent. 
 

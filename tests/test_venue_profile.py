@@ -16,7 +16,7 @@ import pytest
 
 from insight_agent.evidence_streams.anomaly_and_patterns import run_ia2
 from insight_agent.evidence_streams.tool_issues import detect
-from insight_agent.venue import DEFAULT_PROFILE, VenueProfile, load_profile
+from insight_agent.evidence_streams.venue import DEFAULT_PROFILE, VenueProfile, load_profile
 
 DATA = pathlib.Path(__file__).parent / "data"
 

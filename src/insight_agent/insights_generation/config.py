@@ -1,4 +1,4 @@
-"""Environment configuration for the Analyst stage.
+"""Environment configuration for Insights Generation.
 
 The Analyst is the only component that needs credentials, so this is the only
 place that reads them. Values are resolved in one order, most explicit first:

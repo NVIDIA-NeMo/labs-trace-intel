@@ -60,7 +60,7 @@ partway through a run.
 In Python:
 
 ```python
-from insight_agent.venue import DEFAULT_PROFILE, load_profile
+from insight_agent.evidence_streams.venue import DEFAULT_PROFILE, load_profile
 
 profile = load_profile("my_venue.json")
 profile = DEFAULT_PROFILE.with_overrides(code_execution_tools=frozenset({"PythonSandbox"}))

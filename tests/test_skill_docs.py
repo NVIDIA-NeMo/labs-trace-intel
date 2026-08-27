@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from insight_agent.coverage import RULE_REQUIREMENTS
+from insight_agent.evidence_streams.tool_issue_coverage import RULE_REQUIREMENTS
 from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
-from insight_agent.validate import trace_schema
-from insight_agent.venue import VenueProfile
+from insight_agent.evidence_streams.venue import VenueProfile
+from insight_agent.trace_loaders import trace_schema
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "insight-trace-adapter"
@@ -89,7 +89,7 @@ def test_the_tool_catalog_uplift_claim_is_the_measured_number():
     import json
     import warnings
 
-    from insight_agent.coverage import corpus_coverage
+    from insight_agent.evidence_streams.tool_issue_coverage import corpus_coverage
     from insight_agent.trace_loaders import InsightTraceV1Loader
 
     corpus_path = REPO_ROOT / "src" / "insight_agent" / "data" / "sample_corpus.jsonl"

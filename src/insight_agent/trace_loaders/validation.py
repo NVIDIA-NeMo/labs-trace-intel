@@ -1,4 +1,4 @@
-"""Validation for the canonical trace format.
+"""Validation for the ``insight-trace/v1`` source format.
 
 Two layers, deliberately separated:
 

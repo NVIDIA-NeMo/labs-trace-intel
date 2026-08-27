@@ -1,4 +1,4 @@
-"""Venue-specific configuration for the IA2/IA3 engines.
+"""Venue-specific configuration shared by evidence streams.
 
 A "venue" is one source of traces. The research code was measured against a
 handful of internal venues, and a few of their local conventions ended up as

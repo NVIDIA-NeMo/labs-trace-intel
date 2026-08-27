@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from insight_agent.config import (
+from insight_agent.insights_generation.config import (
     ENV_API_BASE,
     ENV_API_KEY,
     ENV_MODEL,
