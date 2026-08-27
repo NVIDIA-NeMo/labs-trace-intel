@@ -85,13 +85,31 @@ def ia2_traces() -> list[NormalizedTrace]:
             NormalizedTrace(
                 trace_id=trace,
                 calls=(
-                    _call(0, "FileSearchTool", {"query": "alpha"},
-                          {"content": "2 matches", "returned_data": True}, trace=trace),
-                    _call(1, "FileSearchTool", {"query": "beta"},
-                          {"content": "Error: connection timed out after 30s",
-                           "returned_data": False}, duration=4200.0, trace=trace),
-                    _call(2, "SessionTool", {"document_id": "DOC-1"},
-                          {"content": "[NO_ACTIVE_SESSION] open a session first"}, trace=trace),
+                    _call(
+                        0,
+                        "FileSearchTool",
+                        {"query": "alpha"},
+                        {"content": "2 matches", "returned_data": True},
+                        trace=trace,
+                    ),
+                    _call(
+                        1,
+                        "FileSearchTool",
+                        {"query": "beta"},
+                        {
+                            "content": "Error: connection timed out after 30s",
+                            "returned_data": False,
+                        },
+                        duration=4200.0,
+                        trace=trace,
+                    ),
+                    _call(
+                        2,
+                        "SessionTool",
+                        {"document_id": "DOC-1"},
+                        {"content": "[NO_ACTIVE_SESSION] open a session first"},
+                        trace=trace,
+                    ),
                 ),
                 steps=_steps(
                     [
@@ -115,12 +133,24 @@ def ia2_traces() -> list[NormalizedTrace]:
         NormalizedTrace(
             trace_id=trace,
             calls=(
-                _call(0, "CodeExecutionTool", {"code": "import mesh", "mode": "python"},
-                      {"content": 'Traceback (most recent call last):\n  File "<stdin>", '
-                                  "line 1\nModuleNotFoundError: No module named 'mesh'"},
-                      duration=2210.0, trace=trace),
-                _call(1, "CodeExecutionTool", {"code": "print(1)", "mode": "python"},
-                      {"content": "1", "returned_data": True}, trace=trace),
+                _call(
+                    0,
+                    "CodeExecutionTool",
+                    {"code": "import mesh", "mode": "python"},
+                    {
+                        "content": 'Traceback (most recent call last):\n  File "<stdin>", '
+                        "line 1\nModuleNotFoundError: No module named 'mesh'"
+                    },
+                    duration=2210.0,
+                    trace=trace,
+                ),
+                _call(
+                    1,
+                    "CodeExecutionTool",
+                    {"code": "print(1)", "mode": "python"},
+                    {"content": "1", "returned_data": True},
+                    trace=trace,
+                ),
             ),
             steps=_steps(
                 [
@@ -145,9 +175,14 @@ def ia2_traces() -> list[NormalizedTrace]:
         NormalizedTrace(
             trace_id=trace,
             calls=tuple(
-                _call(i, "FileSearchTool", {"query": "same"},
-                      {"content": "x" * 40_000, "returned_data": False},
-                      duration=9000.0, trace=trace)
+                _call(
+                    i,
+                    "FileSearchTool",
+                    {"query": "same"},
+                    {"content": "x" * 40_000, "returned_data": False},
+                    duration=9000.0,
+                    trace=trace,
+                )
                 for i in range(24)
             ),
             steps=_steps(
@@ -195,8 +230,10 @@ def ia3_traces() -> list[TraceRecord]:
                         call_id=f"{trace}-c1",
                         tool_name="CodeExecutionTool",
                         arguments={"code": "import mesh", "mode": "python"},
-                        result={"content": "Traceback (most recent call last):\n"
-                                           "ModuleNotFoundError: No module named 'mesh'"},
+                        result={
+                            "content": "Traceback (most recent call last):\n"
+                            "ModuleNotFoundError: No module named 'mesh'"
+                        },
                         source_pointer={"trace_id": trace, "call_index": 1},
                         prior_user_text="find alpha and run the check",
                     ),
@@ -206,8 +243,9 @@ def ia3_traces() -> list[TraceRecord]:
                         call_id=f"{trace}-c2",
                         tool_name="SessionTool",
                         arguments={"document_id": "DOC-99213"},
-                        result={"content": "[NO_ACTIVE_SESSION] invalid document "
-                                           "DOC-99213: not found"},
+                        result={
+                            "content": "[NO_ACTIVE_SESSION] invalid document DOC-99213: not found"
+                        },
                         source_pointer={"trace_id": trace, "call_index": 2},
                         prior_user_text="find alpha and run the check",
                     ),

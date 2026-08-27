@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from insight_agent.evidence_streams.tool_issues import (
     FINDING_TYPES,
     MISSING,
@@ -16,6 +18,7 @@ from insight_agent.traces import Span, SpanKind, Trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
+DUPLICATE_CALL_ID_WARNING = r"WARNING\[duplicate_call_id\].*docops-instrumentation"
 
 
 def test_input_normalization_preserves_every_field_ia3_uses():
@@ -45,7 +48,8 @@ def test_input_normalization_preserves_every_field_ia3_uses():
         ],
     }
 
-    trace = next(InsightTraceV1Loader.from_records([record]).load().scan())
+    with pytest.warns(UserWarning, match=r"WARNING\[result_id_mostly_mismatched\]"):
+        trace = next(InsightTraceV1Loader.from_records([record]).load().scan())
     projected = to_ia3_trace(trace)
     call = projected.calls[0]
     assert projected.trace_id == "trace-1"
@@ -124,7 +128,8 @@ def test_full_trace_input_supplies_prior_user_context():
 
 
 def test_tool_issue_stream_retains_all_findings_and_cards():
-    loader = InsightTraceV1Loader.from_path(CORPUS)
+    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
+        loader = InsightTraceV1Loader.from_path(CORPUS)
     snapshot = loader.load()
     evidence = ToolIssueEvidenceStream().analyze(snapshot)
 
@@ -141,7 +146,8 @@ def test_tool_issue_stream_retains_all_findings_and_cards():
 
 
 def test_tool_issue_stream_can_expose_audit_cards_as_problems():
-    snapshot = InsightTraceV1Loader.from_path(CORPUS).load()
+    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
+        snapshot = InsightTraceV1Loader.from_path(CORPUS).load()
     evidence = ToolIssueEvidenceStream(include_audit_problems=True).analyze(snapshot)
 
     assert isinstance(evidence.artifacts, ToolIssueEvidenceArtifacts)

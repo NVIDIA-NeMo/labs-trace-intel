@@ -115,7 +115,9 @@ class VenueProfile:
             try:
                 re.compile(source)
             except re.error as exc:
-                raise ValueError(f"venue profile state pattern {name!r} is not a valid regex: {exc}") from exc
+                raise ValueError(
+                    f"venue profile state pattern {name!r} is not a valid regex: {exc}"
+                ) from exc
 
     def compiled_state_patterns(self) -> tuple[tuple[str, re.Pattern[str]], ...]:
         """Compiled ``state_patterns``, cached across calls."""

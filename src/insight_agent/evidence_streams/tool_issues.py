@@ -154,16 +154,26 @@ def schema_errors(
     """Apply the active catalog/JSON Schema without coercing evidence."""
 
     if not isinstance(arguments, Mapping):
-        return [{"type": "malformed_tool_call", "path": "$", "message": "Arguments are not an object."}]
+        return [
+            {"type": "malformed_tool_call", "path": "$", "message": "Arguments are not an object."}
+        ]
     if tool_name not in catalog:
-        return [{"type": "unknown_tool", "path": "tool_name", "message": "Tool is absent from the active catalog."}]
+        return [
+            {
+                "type": "unknown_tool",
+                "path": "tool_name",
+                "message": "Tool is absent from the active catalog.",
+            }
+        ]
     schema = catalog[tool_name]
     if schema is None:
         return []
     validator_cls = validators.validator_for(schema)
     validator_cls.check_schema(schema)
     output: list[dict[str, Any]] = []
-    for error in sorted(validator_cls(schema).iter_errors(arguments), key=lambda item: list(item.path)):
+    for error in sorted(
+        validator_cls(schema).iter_errors(arguments), key=lambda item: list(item.path)
+    ):
         kind = {
             "required": "missing_required_argument",
             "additionalProperties": "unknown_argument",
@@ -194,7 +204,11 @@ def strict_failure(
         return False, None
     parsed = parse_json(call.result)
     if isinstance(parsed, Mapping):
-        if parsed.get("isError") is True or parsed.get("success") is False or parsed.get("called") is False:
+        if (
+            parsed.get("isError") is True
+            or parsed.get("success") is False
+            or parsed.get("called") is False
+        ):
             return True, "structured_error_flag"
         if parsed.get("error") not in (None, False, "", []):
             return True, "structured_error_value"
@@ -288,23 +302,45 @@ def detect_trace(
                         str(error["type"]),
                         str(error["message"]),
                         attribution="agent_call",
-                        evidence={key: value for key, value in error.items() if key not in {"type", "message"}},
+                        evidence={
+                            key: value
+                            for key, value in error.items()
+                            if key not in {"type", "message"}
+                        },
                     )
                 )
         elif not isinstance(call.arguments, Mapping):
             contract_root = True
             findings.append(
-                _finding(trace, call, "malformed_tool_call", "Arguments are not an object.", attribution="agent_call")
+                _finding(
+                    trace,
+                    call,
+                    "malformed_tool_call",
+                    "Arguments are not an object.",
+                    attribution="agent_call",
+                )
             )
 
         if call.call_id in seen_ids:
             findings.append(
-                _finding(trace, call, "duplicate_call_id", "The trace reuses a call ID.", attribution="instrumentation")
+                _finding(
+                    trace,
+                    call,
+                    "duplicate_call_id",
+                    "The trace reuses a call ID.",
+                    attribution="instrumentation",
+                )
             )
         seen_ids.add(call.call_id)
         if call.result is MISSING:
             findings.append(
-                _finding(trace, call, "missing_tool_result", "The call has no linked result.", attribution="instrumentation")
+                _finding(
+                    trace,
+                    call,
+                    "missing_tool_result",
+                    "The call has no linked result.",
+                    attribution="instrumentation",
+                )
             )
         if call.result_count > 1:
             findings.append(
@@ -364,7 +400,9 @@ def detect_trace(
         leaves = list(_flatten_strings(arguments))
         output = result_text(call.result) if call.result is not MISSING else ""
         rejected = bool(REJECTION.search(output))
-        placeholders = [(path, value) for path, _, value in leaves if PLACEHOLDER.fullmatch(value.strip())]
+        placeholders = [
+            (path, value) for path, _, value in leaves if PLACEHOLDER.fullmatch(value.strip())
+        ]
         if placeholders and (failed or rejected):
             findings.append(
                 _finding(
@@ -373,7 +411,10 @@ def detect_trace(
                     "unresolved_placeholder_argument",
                     "A failed call contains unresolved placeholder arguments.",
                     attribution="agent_call",
-                    evidence={"argument_paths_and_values": placeholders[:20], "result_excerpt": compact(output)},
+                    evidence={
+                        "argument_paths_and_values": placeholders[:20],
+                        "result_excerpt": compact(output),
+                    },
                 )
             )
         if trace.complete_provenance_context and rejected:
@@ -394,7 +435,10 @@ def detect_trace(
                         "explicitly_rejected_ungrounded_identifier",
                         "The tool rejected an identifier with no observable prior provenance.",
                         attribution="agent_call",
-                        evidence={"argument_paths_and_values": ungrounded[:20], "result_excerpt": compact(output)},
+                        evidence={
+                            "argument_paths_and_values": ungrounded[:20],
+                            "result_excerpt": compact(output),
+                        },
                     )
                 )
         state_matches = [
@@ -425,7 +469,13 @@ def detect_trace(
             source_pointer=orphan,
         )
         findings.append(
-            _finding(trace, synthetic, "orphan_tool_result", "A result has no matching call.", attribution="instrumentation")
+            _finding(
+                trace,
+                synthetic,
+                "orphan_tool_result",
+                "A result has no matching call.",
+                attribution="instrumentation",
+            )
         )
 
     for (tool_name, _), calls in failed_by_exact_call.items():
@@ -437,7 +487,10 @@ def detect_trace(
                     "repeated_identical_failed_call",
                     f"The same failed {tool_name!r} call was repeated {len(calls)} times.",
                     attribution="agent_recovery",
-                    evidence={"repeat_count": len(calls), "call_indices": [call.call_index for call in calls]},
+                    evidence={
+                        "repeat_count": len(calls),
+                        "call_indices": [call.call_index for call in calls],
+                    },
                 )
             )
     for (tool_name, failure_class), attempts in modified_retries.items():
@@ -476,7 +529,12 @@ def detect(
     ]
     return sorted(
         findings,
-        key=lambda item: (item["trace_id"], item["call_index"], item["issue_type"], item["issue_id"]),
+        key=lambda item: (
+            item["trace_id"],
+            item["call_index"],
+            item["issue_type"],
+            item["issue_id"],
+        ),
     )
 
 
@@ -512,7 +570,9 @@ def build_cards(
 
     groups: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
     for finding in findings:
-        groups[(str(finding["issue_type"]), str(finding.get("mechanism_key") or ""))].append(finding)
+        groups[(str(finding["issue_type"]), str(finding.get("mechanism_key") or ""))].append(
+            finding
+        )
     cards: list[ToolIssueCard] = []
     for (issue_type, mechanism), members in sorted(groups.items()):
         logical_cases = sorted({str(member["logical_case_id"]) for member in members})
@@ -572,17 +632,13 @@ def problems_from_cards(
         if not include_audit and not card.eligible_for_analyst:
             continue
         representatives = card.representative_evidence
-        trace_ids = tuple(
-            dict.fromkeys(item.trace_id for item in representatives if item.trace_id)
-        )
+        trace_ids = tuple(dict.fromkeys(item.trace_id for item in representatives if item.trace_id))
         if not trace_ids:
             continue
         observation_parts = []
         for item in representatives:
             observation = (item.observation or "issue observed").rstrip(". ")
-            observation_parts.append(
-                f"{item.tool_name or 'unknown tool'}: {observation}"
-            )
+            observation_parts.append(f"{item.tool_name or 'unknown tool'}: {observation}")
         observations = "; ".join(observation_parts)
         problems.append(
             Problem(

@@ -231,8 +231,12 @@ def _adapt_anthropic(conversation: Mapping[str, Any], trace_id: str) -> dict[str
                 pending_user_text = text
                 task_text = task_text or text
                 steps.append(
-                    {"step_index": len(steps), "step_type": "user", "name": "message",
-                     "content": text}
+                    {
+                        "step_index": len(steps),
+                        "step_type": "user",
+                        "name": "message",
+                        "content": text,
+                    }
                 )
             continue
 
@@ -242,8 +246,12 @@ def _adapt_anthropic(conversation: Mapping[str, Any], trace_id: str) -> dict[str
         reasoning = _text_of(content)
         if reasoning:
             steps.append(
-                {"step_index": len(steps), "step_type": "agent", "name": "message",
-                 "content": reasoning}
+                {
+                    "step_index": len(steps),
+                    "step_type": "agent",
+                    "name": "message",
+                    "content": reasoning,
+                }
             )
 
         if not isinstance(content, list):
@@ -282,8 +290,7 @@ def _adapt_anthropic(conversation: Mapping[str, Any], trace_id: str) -> dict[str
 
             calls.append(call)
             steps.append(
-                {"step_index": len(steps), "step_type": "tool",
-                 "name": str(block.get("name", ""))}
+                {"step_index": len(steps), "step_type": "tool", "name": str(block.get("name", ""))}
             )
 
     orphans = [
@@ -296,8 +303,9 @@ def _adapt_anthropic(conversation: Mapping[str, Any], trace_id: str) -> dict[str
         if use_id not in matched
     ]
 
-    return _finish(conversation, trace_id, calls, steps, orphans,
-                   conversation.get("task") or task_text)
+    return _finish(
+        conversation, trace_id, calls, steps, orphans, conversation.get("task") or task_text
+    )
 
 
 # -- OpenAI ----------------------------------------------------------------
@@ -336,8 +344,12 @@ def _adapt_openai(conversation: Mapping[str, Any], trace_id: str) -> dict[str, A
                 pending_user_text = text
                 task_text = task_text or text
                 steps.append(
-                    {"step_index": len(steps), "step_type": "user", "name": "message",
-                     "content": text}
+                    {
+                        "step_index": len(steps),
+                        "step_type": "user",
+                        "name": "message",
+                        "content": text,
+                    }
                 )
             continue
 
@@ -347,8 +359,12 @@ def _adapt_openai(conversation: Mapping[str, Any], trace_id: str) -> dict[str, A
         reasoning = _text_of(message.get("content"))
         if reasoning:
             steps.append(
-                {"step_index": len(steps), "step_type": "agent", "name": "message",
-                 "content": reasoning}
+                {
+                    "step_index": len(steps),
+                    "step_type": "agent",
+                    "name": "message",
+                    "content": reasoning,
+                }
             )
 
         for position, tool_call in enumerate(message.get("tool_calls") or []):
@@ -393,8 +409,11 @@ def _adapt_openai(conversation: Mapping[str, Any], trace_id: str) -> dict[str, A
 
             calls.append(call)
             steps.append(
-                {"step_index": len(steps), "step_type": "tool",
-                 "name": str(function.get("name", ""))}
+                {
+                    "step_index": len(steps),
+                    "step_type": "tool",
+                    "name": str(function.get("name", "")),
+                }
             )
 
     orphans = [
@@ -407,8 +426,9 @@ def _adapt_openai(conversation: Mapping[str, Any], trace_id: str) -> dict[str, A
         if call_id not in matched
     ]
 
-    return _finish(conversation, trace_id, calls, steps, orphans,
-                   conversation.get("task") or task_text)
+    return _finish(
+        conversation, trace_id, calls, steps, orphans, conversation.get("task") or task_text
+    )
 
 
 # -- public API ------------------------------------------------------------

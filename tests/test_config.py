@@ -26,8 +26,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    for name in (ENV_MODEL, ENV_API_BASE, ENV_API_KEY, "OPENAI_API_KEY",
-                 "OPENAI_API_BASE", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY"):
+    for name in (
+        ENV_MODEL,
+        ENV_API_BASE,
+        ENV_API_KEY,
+        "OPENAI_API_KEY",
+        "OPENAI_API_BASE",
+        "OPENAI_BASE_URL",
+        "ANTHROPIC_API_KEY",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 

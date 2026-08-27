@@ -12,6 +12,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     Anomaly,
     AnomalyAndPatternsAnalysis,
     FailureGroup,
+    _rank_top_terms,
     normalize_error_template,
     run_ia2,
     to_ia2_trace,
@@ -20,6 +21,7 @@ from insight_agent.trace_loaders import InsightTraceV1Loader
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
+DUPLICATE_CALL_ID_WARNING = r"WARNING\[duplicate_call_id\].*docops-instrumentation"
 
 DIGEST_SECTIONS = (
     "## Reader contract",
@@ -34,7 +36,8 @@ DIGEST_SECTIONS = (
 
 @pytest.fixture(scope="module")
 def traces():
-    loader = InsightTraceV1Loader.from_path(CORPUS)
+    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
+        loader = InsightTraceV1Loader.from_path(CORPUS)
     return [to_ia2_trace(trace) for trace in loader.load().scan()]
 
 
@@ -132,6 +135,15 @@ def test_trajectory_clustering_separates_shapes(result):
     # The search traces share a shape and should not be scattered one per cluster.
     search = {assigned[t] for t in assigned if t.startswith("docops-search-")}
     assert len(search) < 4
+
+
+def test_trajectory_term_ranking_is_stable_across_insignificant_float_differences():
+    terms = _rank_top_terms(
+        [0.5, 0.5 + 1e-14, 0.4],
+        ["alpha", "zeta", "middle"],
+    )
+
+    assert terms == ["zeta", "alpha", "middle"]
 
 
 def test_features_cover_the_documented_defaults(result):

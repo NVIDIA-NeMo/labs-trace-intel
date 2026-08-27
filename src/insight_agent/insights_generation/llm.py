@@ -137,6 +137,7 @@ class _AnalystRequest:
     #: `insights.json` can always be traced back to the text that produced it.
     prompt_version: str = DEFAULT_PROMPT_VERSION
 
+
 @dataclass(frozen=True)
 class InsightsGenerationResult:
     """One Analyst run."""

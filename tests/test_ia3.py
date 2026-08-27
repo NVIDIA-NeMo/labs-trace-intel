@@ -29,6 +29,7 @@ from insight_agent.trace_loaders import InsightTraceV1Loader
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
+DUPLICATE_CALL_ID_WARNING = r"WARNING\[duplicate_call_id\].*docops-instrumentation"
 
 CONTRACT_TYPES = {
     "unknown_tool",
@@ -42,7 +43,8 @@ CONTRACT_TYPES = {
 
 @pytest.fixture(scope="module")
 def loader():
-    return InsightTraceV1Loader.from_path(CORPUS)
+    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
+        return InsightTraceV1Loader.from_path(CORPUS)
 
 
 @pytest.fixture(scope="module")
@@ -121,7 +123,8 @@ def test_catalog_coverage_reports_all_nineteen_keys(findings):
 def test_dropping_the_catalog_silences_exactly_the_contract_rules(loader, findings):
     stripped = [{k: v for k, v in r.items() if k != "tool_catalog"} for r in loader.records]
 
-    snapshot = InsightTraceV1Loader.from_records(stripped).load()
+    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
+        snapshot = InsightTraceV1Loader.from_records(stripped).load()
     without = detect(to_ia3_trace(trace) for trace in snapshot.scan())
 
     before = {f["issue_type"] for f in findings}

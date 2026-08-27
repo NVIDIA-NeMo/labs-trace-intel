@@ -185,13 +185,25 @@ def search_trace(suffix: str, case: str) -> dict[str, Any]:
     task = f"Locate the {suffix} specification and remove the stale copy."
     b = TraceBuilder(f"docops-search-{suffix}", case, task)
     _plan(b, f"Search for the {suffix} spec, then delete the stale duplicate.")
-    b.call("FileSearchTool", {"query": f"{suffix} specification", "limit": 5},
-           result={"content": f"3 matches for {suffix}", "returned_data": True}, duration_ms=810.0)
-    b.call("FileSearchTool", {"query": f"{suffix} duplicate"},
-           result={"content": TIMEOUT}, duration_ms=30_000.0)
+    b.call(
+        "FileSearchTool",
+        {"query": f"{suffix} specification", "limit": 5},
+        result={"content": f"3 matches for {suffix}", "returned_data": True},
+        duration_ms=810.0,
+    )
+    b.call(
+        "FileSearchTool",
+        {"query": f"{suffix} duplicate"},
+        result={"content": TIMEOUT},
+        duration_ms=30_000.0,
+    )
     # Not in the catalog: fires unknown_tool.
-    b.call("FileDeleteTool", {"path": f"/docs/{suffix}-old.md"},
-           result={"content": "deleted"}, duration_ms=90.0)
+    b.call(
+        "FileDeleteTool",
+        {"path": f"/docs/{suffix}-old.md"},
+        result={"content": "deleted"},
+        duration_ms=90.0,
+    )
     _close(b, "The stale copy was removed successfully.")
     return b.build(verdict=VERDICT_DEAD_END, cost=0.42, metrics={"turn_count": 5.0})
 
@@ -204,18 +216,30 @@ def contract_trace() -> dict[str, Any]:
     # missing_required_argument: no 'query'
     b.call("FileSearchTool", {"limit": 3}, result={"content": "rejected: missing input query"})
     # unknown_argument: 'recursive' under additionalProperties:false
-    b.call("FileSearchTool", {"query": "archive", "recursive": True},
-           result={"content": "rejected: unknown argument"})
+    b.call(
+        "FileSearchTool",
+        {"query": "archive", "recursive": True},
+        result={"content": "rejected: unknown argument"},
+    )
     # argument_type_mismatch: limit is a string
-    b.call("FileSearchTool", {"query": "archive", "limit": "five"},
-           result={"content": "Error: limit must be an integer"})
+    b.call(
+        "FileSearchTool",
+        {"query": "archive", "limit": "five"},
+        result={"content": "Error: limit must be an integer"},
+    )
     # json_schema_violation: violates `minimum`, which is not one of the four
     # specially named validators
-    b.call("FileSearchTool", {"query": "archive", "limit": -3},
-           result={"content": "Error: limit must be positive"})
+    b.call(
+        "FileSearchTool",
+        {"query": "archive", "limit": -3},
+        result={"content": "Error: limit must be positive"},
+    )
     # argument_enum_violation: mode outside the enum
-    b.call("CodeExecutionTool", {"code": "check()", "mode": "turbo"},
-           result={"content": "Error: unsupported mode"})
+    b.call(
+        "CodeExecutionTool",
+        {"code": "check()", "mode": "turbo"},
+        result={"content": "Error: unsupported mode"},
+    )
     # malformed_tool_call: arguments are not an object at all
     b.call("DatabaseQueryTool", "sql=SELECT 1", result={"content": "Error: malformed request"})
     _close(b, "Unable to complete the verification.")
@@ -227,29 +251,45 @@ def instrumentation_trace() -> dict[str, Any]:
     task = "Read the changelog and summarise it."
     b = TraceBuilder("docops-instrumentation", "case-instrumentation", task)
     _plan(b, "Read the changelog, then summarise.")
-    b.call("FileReadTool", {"path": "/docs/CHANGELOG.md"},
-           result={"content": "v1.2 released"}, call_id="docops-instrumentation#dup")
+    b.call(
+        "FileReadTool",
+        {"path": "/docs/CHANGELOG.md"},
+        result={"content": "v1.2 released"},
+        call_id="docops-instrumentation#dup",
+    )
     # duplicate_call_id: the harness reused an id
-    b.call("FileReadTool", {"path": "/docs/CHANGELOG-2.md"},
-           result={"content": "v1.1 released"}, call_id="docops-instrumentation#dup")
+    b.call(
+        "FileReadTool",
+        {"path": "/docs/CHANGELOG-2.md"},
+        result={"content": "v1.1 released"},
+        call_id="docops-instrumentation#dup",
+    )
     # missing_tool_result: no result key at all
     b.call("FileReadTool", {"path": "/docs/NOTES.md"})
     # duplicate_tool_result
-    b.call("FileReadTool", {"path": "/docs/README.md"},
-           result={"content": "readme"}, result_count=2)
+    b.call(
+        "FileReadTool", {"path": "/docs/README.md"}, result={"content": "readme"}, result_count=2
+    )
     # call_result_id_mismatch: the result claims to answer a different call
-    b.call("FileReadTool", {"path": "/docs/LICENSE"},
-           result={"content": "license"}, result_id="res-88")
+    b.call(
+        "FileReadTool", {"path": "/docs/LICENSE"}, result={"content": "license"}, result_id="res-88"
+    )
     # mapped_instrumentation_alias
-    b.call("UnknownTool", {"code": "print(1)", "mode": "python"},
-           result={"content": "1"}, instrumentation_alias_of="CodeExecutionTool")
+    b.call(
+        "UnknownTool",
+        {"code": "print(1)", "mode": "python"},
+        result={"content": "1"},
+        instrumentation_alias_of="CodeExecutionTool",
+    )
     # orphan_tool_result
-    b.orphans.append({
-        "result_id": "docops-instrumentation#orphan",
-        "tool_name": "FileReadTool",
-        "content": "an unmatched result",
-        "source_pointer": {"trace_id": "docops-instrumentation", "message_index": 21},
-    })
+    b.orphans.append(
+        {
+            "result_id": "docops-instrumentation#orphan",
+            "tool_name": "FileReadTool",
+            "content": "an unmatched result",
+            "source_pointer": {"trace_id": "docops-instrumentation", "message_index": 21},
+        }
+    )
     _close(b, "Summary produced.")
     return b.build(verdict=VERDICT_COMPLETED, cost=0.55, metrics={"turn_count": 9.0})
 
@@ -260,8 +300,12 @@ def repeated_retry_trace() -> dict[str, Any]:
     b = TraceBuilder("docops-retry-identical", "case-retry-identical", task)
     _plan(b, "Query the release table.")
     for _ in range(3):
-        b.call("DatabaseQueryTool", {"sql": "SELECT * FROM releases"},
-               result={"content": TIMEOUT}, duration_ms=30_000.0)
+        b.call(
+            "DatabaseQueryTool",
+            {"sql": "SELECT * FROM releases"},
+            result={"content": TIMEOUT},
+            duration_ms=30_000.0,
+        )
     _close(b, "Could not reach the database.")
     return b.build(verdict=VERDICT_DEAD_END, cost=0.90, metrics={"turn_count": 6.0})
 
@@ -272,8 +316,9 @@ def modified_retry_trace() -> dict[str, Any]:
     b = TraceBuilder("docops-retry-modified", "case-retry-modified", task)
     _plan(b, "Try the likely paths for the design document.")
     for path in ("/docs/design.md", "/docs/design/index.md", "/design.md"):
-        b.call("FileReadTool", {"path": path},
-               result={"content": "Error: no such file or directory"})
+        b.call(
+            "FileReadTool", {"path": path}, result={"content": "Error: no such file or directory"}
+        )
     _close(b, "The design document could not be located.")
     return b.build(verdict=VERDICT_DEAD_END, cost=0.22, metrics={"turn_count": 5.0})
 
@@ -285,10 +330,12 @@ def placeholder_trace() -> dict[str, Any]:
     _plan(b, "Write the report to the output directory.")
     # PLACEHOLDER matches the *whole* stripped value, so the argument must be
     # exactly the unsubstituted token.
-    b.call("FileReadTool", {"path": "<output_dir>"},
-           result={"content": "Error: no such file or directory"})
-    b.call("FileReadTool", {"path": "{{REPORT_PATH}}"},
-           result={"content": "Error: invalid path"})
+    b.call(
+        "FileReadTool",
+        {"path": "<output_dir>"},
+        result={"content": "Error: no such file or directory"},
+    )
+    b.call("FileReadTool", {"path": "{{REPORT_PATH}}"}, result={"content": "Error: invalid path"})
     _close(b, "The export failed.")
     return b.build(verdict=VERDICT_DEAD_END, cost=0.18, metrics={"turn_count": 4.0})
 
@@ -303,12 +350,23 @@ def provenance_trace() -> dict[str, Any]:
     task = "Open the current session document and append the release note."
     b = TraceBuilder("docops-provenance", "case-provenance", task)
     _plan(b, "Open the session document, then append.")
-    b.call("FileSearchTool", {"query": "session document"},
-           result={"content": "1 match: /docs/session.md", "returned_data": True})
-    b.call("SessionTool", {"document_id": "DOC-99213"},
-           result={"content": "Error: invalid document DOC-99213: not found"})
+    b.call(
+        "FileSearchTool",
+        {"query": "session document"},
+        result={"content": "1 match: /docs/session.md", "returned_data": True},
+    )
+    b.call(
+        "SessionTool",
+        {"document_id": "DOC-99213"},
+        result={"content": "Error: invalid document DOC-99213: not found"},
+    )
     _close(b, "Could not open the document.")
-    return b.build(verdict=VERDICT_DEAD_END, cost=0.27, metrics={"turn_count": 5.0}, complete_provenance_context=True)
+    return b.build(
+        verdict=VERDICT_DEAD_END,
+        cost=0.27,
+        metrics={"turn_count": 5.0},
+        complete_provenance_context=True,
+    )
 
 
 def state_trace(suffix: str, case: str) -> dict[str, Any]:
@@ -316,10 +374,16 @@ def state_trace(suffix: str, case: str) -> dict[str, Any]:
     task = f"Append the {suffix} note to the active document."
     b = TraceBuilder(f"docops-state-{suffix}", case, task)
     _plan(b, "Append the note to the active document.")
-    b.call("SessionTool", {"action": "append", "text": f"{suffix} note"},
-           result={"content": "[NO_ACTIVE_SESSION] open a session before calling append"})
-    b.call("SessionTool", {"action": "open"},
-           result={"content": "Error: you must open a workspace first"})
+    b.call(
+        "SessionTool",
+        {"action": "append", "text": f"{suffix} note"},
+        result={"content": "[NO_ACTIVE_SESSION] open a session before calling append"},
+    )
+    b.call(
+        "SessionTool",
+        {"action": "open"},
+        result={"content": "Error: you must open a workspace first"},
+    )
     _close(b, "The note was appended successfully.")
     return b.build(verdict=VERDICT_DEAD_END, cost=0.14, metrics={"turn_count": 4.0})
 
@@ -329,13 +393,21 @@ def code_trace() -> dict[str, Any]:
     task = "Run the mesh verification script."
     b = TraceBuilder("docops-code", "case-code", task)
     _plan(b, "Run the verification script.")
-    b.call("CodeExecutionTool", {"code": "import mesh; mesh.check()", "mode": "python"},
-           result={"content": 'Traceback (most recent call last):\n'
-                              '  File "<stdin>", line 1, in <module>\n'
-                              "ModuleNotFoundError: No module named 'mesh'"},
-           duration_ms=2210.0)
-    b.call("CodeExecutionTool", {"code": "print('ok')", "mode": "python"},
-           result={"content": "ok", "returned_data": True})
+    b.call(
+        "CodeExecutionTool",
+        {"code": "import mesh; mesh.check()", "mode": "python"},
+        result={
+            "content": "Traceback (most recent call last):\n"
+            '  File "<stdin>", line 1, in <module>\n'
+            "ModuleNotFoundError: No module named 'mesh'"
+        },
+        duration_ms=2210.0,
+    )
+    b.call(
+        "CodeExecutionTool",
+        {"code": "print('ok')", "mode": "python"},
+        result={"content": "ok", "returned_data": True},
+    )
     b.step("agent", "reflect", content="The mesh module is not installed in this environment.")
     _close(b, "Verification completed successfully.")
     return b.build(verdict=VERDICT_COMPLETED, cost=1.10, metrics={"turn_count": 6.0})
@@ -350,11 +422,17 @@ def stagnation_trace(suffix: str, case: str) -> dict[str, Any]:
     task = f"Find the {suffix} owner in the directory."
     b = TraceBuilder(f"docops-stagnation-{suffix}", case, task)
     b.step("planning", "plan", content="Search the directory repeatedly.")
-    b.call("FileSearchTool", {"query": f"{suffix} owner"},
-           result={"content": "no matches", "returned_data": False})
+    b.call(
+        "FileSearchTool",
+        {"query": f"{suffix} owner"},
+        result={"content": "no matches", "returned_data": False},
+    )
     for _ in range(4):
-        b.call("FileSearchTool", {"query": f"{suffix} owner"},
-               result={"content": "no matches", "returned_data": False})
+        b.call(
+            "FileSearchTool",
+            {"query": f"{suffix} owner"},
+            result={"content": "no matches", "returned_data": False},
+        )
     b.step("evaluation", "boundary", content="The owner was identified successfully.")
     return b.build(verdict=VERDICT_DEAD_END, cost=0.35, metrics={"turn_count": 7.0})
 
@@ -369,8 +447,12 @@ def outlier_trace() -> dict[str, Any]:
     b = TraceBuilder("docops-outlier", "case-outlier", task)
     _plan(b, "Walk the whole tree and reindex.")
     for _ in range(28):
-        b.call("FileSearchTool", {"query": "*"},
-               result={"content": "x" * 40_000, "returned_data": False}, duration_ms=9_000.0)
+        b.call(
+            "FileSearchTool",
+            {"query": "*"},
+            result={"content": "x" * 40_000, "returned_data": False},
+            duration_ms=9_000.0,
+        )
     _close(b, "Reindex incomplete.")
     return b.build(verdict=VERDICT_DEAD_END, cost=9.90, metrics={"turn_count": 30.0})
 
@@ -380,11 +462,18 @@ def clean_trace(suffix: str, case: str) -> dict[str, Any]:
     task = f"Summarise the {suffix} guide."
     b = TraceBuilder(f"docops-clean-{suffix}", case, task)
     _plan(b, "Find the guide, read it, summarise.")
-    b.call("FileSearchTool", {"query": f"{suffix} guide", "limit": 3},
-           result={"content": f"1 match: /docs/{suffix}.md", "returned_data": True}, duration_ms=340.0)
-    b.call("FileReadTool", {"path": f"/docs/{suffix}.md"},
-           result={"content": f"The {suffix} guide explains the workflow.", "returned_data": True},
-           duration_ms=210.0)
+    b.call(
+        "FileSearchTool",
+        {"query": f"{suffix} guide", "limit": 3},
+        result={"content": f"1 match: /docs/{suffix}.md", "returned_data": True},
+        duration_ms=340.0,
+    )
+    b.call(
+        "FileReadTool",
+        {"path": f"/docs/{suffix}.md"},
+        result={"content": f"The {suffix} guide explains the workflow.", "returned_data": True},
+        duration_ms=210.0,
+    )
     b.step("agent", "reflect", content="The guide covers the workflow end to end.")
     _close(b, "Summary produced successfully.")
     return b.build(verdict=VERDICT_COMPLETED, cost=0.20, metrics={"turn_count": 4.0})
@@ -430,9 +519,9 @@ VENUE_PROFILE_EXAMPLE = {
     ],
     "notes": {
         "why": "Demonstrates renaming the code-execution tool and replacing the "
-               "venue-specific state patterns. Running the sample corpus with this "
-               "profile moves python_traceback findings off CodeExecutionTool and "
-               "changes which state failures are detected.",
+        "venue-specific state patterns. Running the sample corpus with this "
+        "profile moves python_traceback findings off CodeExecutionTool and "
+        "changes which state failures are detected.",
     },
 }
 
@@ -475,7 +564,9 @@ def main() -> int:
     print(f"calls            : {sum(len(t['calls']) for t in corpus)}")
     print(f"logical cases    : {len({t['logical_case_id'] for t in corpus})}")
     for name, path in written.items():
-        print(f"{name:17}: {path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path}")
+        print(
+            f"{name:17}: {path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path}"
+        )
     return 0
 
 

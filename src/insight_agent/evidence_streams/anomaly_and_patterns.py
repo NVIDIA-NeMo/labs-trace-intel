@@ -131,9 +131,7 @@ class PreparedTrace:
 
 
 def _stable_json(value: Any) -> str:
-    return json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
-    )
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _result_text(result: Any) -> str:
@@ -272,10 +270,7 @@ def extract_trace_features(
     calls = sorted(trace.calls, key=lambda item: item.call_index)
     tool_names = [call.tool_name for call in calls]
     counts = Counter(tool_names)
-    fingerprints = {
-        _stable_json([call.tool_name, call.arguments])
-        for call in calls
-    }
+    fingerprints = {_stable_json([call.tool_name, call.arguments]) for call in calls}
     output_sizes: list[int] = []
     durations: list[float] = []
     failures: list[dict[str, Any]] = []
@@ -285,10 +280,7 @@ def extract_trace_features(
         output_sizes.append(len(text.encode("utf-8", "ignore")))
         if call.duration_ms is not None and math.isfinite(float(call.duration_ms)):
             durations.append(max(0.0, float(call.duration_ms)))
-        if (
-            isinstance(call.result, Mapping)
-            and call.result.get(profile.returned_data_key) is False
-        ):
+        if isinstance(call.result, Mapping) and call.result.get(profile.returned_data_key) is False:
             returned_false += 1
         if failed and marker:
             signature = normalized_failure_signature(call.tool_name, text, marker)
@@ -301,7 +293,9 @@ def extract_trace_features(
                     "marker": marker,
                     "signature": signature,
                     "message_signature": signature.split(": ", 1)[-1],
-                    "output_excerpt": cap_head_tail(WHITESPACE.sub(" ", text).strip(), max_chars=300)
+                    "output_excerpt": cap_head_tail(
+                        WHITESPACE.sub(" ", text).strip(), max_chars=300
+                    )
                     if len(text) > 300
                     else WHITESPACE.sub(" ", text).strip(),
                     "source_pointer": dict(call.source_pointer),
@@ -402,7 +396,9 @@ def _robust_coordinates(matrix: np.ndarray) -> np.ndarray:
 def _robust_reasons(
     records: Sequence[TraceFeatures], feature_names: Sequence[str]
 ) -> dict[str, list[str]]:
-    centers = {name: median(float(record.numeric[name]) for record in records) for name in feature_names}
+    centers = {
+        name: median(float(record.numeric[name]) for record in records) for name in feature_names
+    }
     mads = {
         name: median(abs(float(record.numeric[name]) - centers[name]) for record in records) or 1e-9
         for name in feature_names
@@ -459,8 +455,11 @@ def select_anomalies(
     anomaly_scores = -detector.decision_function(model_input)
     flags = detector.predict(model_input) == -1
     if len(records) >= 2 and len(feature_names) >= 2:
-        projection = PCA(n_components=2, random_state=random_state).fit_transform(
-            StandardScaler().fit_transform(matrix)
+        scaled = StandardScaler().fit_transform(matrix)
+        projection = (
+            PCA(n_components=2, random_state=random_state).fit_transform(scaled)
+            if np.any(np.var(scaled, axis=0) > 0.0)
+            else np.zeros((len(records), 2), dtype=float)
         )
     else:
         projection = np.zeros((len(records), 2), dtype=float)
@@ -500,6 +499,25 @@ def _choose_cluster_count(
         scored.append({"k": float(k), "silhouette_cosine": score})
     best = max(scored, key=lambda item: item["silhouette_cosine"])
     return int(best["k"]), scored
+
+
+def _rank_top_terms(
+    center: Sequence[float], vocabulary: Sequence[Any], *, limit: int = 6
+) -> list[str]:
+    """Rank display terms consistently across numerical backends.
+
+    BLAS implementations can differ below the precision relevant to this
+    diagnostic output. Round weights before using the term as a deterministic
+    tie-breaker so equivalent clusters render byte-identically across hosts.
+    """
+
+    weighted_terms = [
+        (round(float(weight), 12), str(vocabulary[index]))
+        for index, weight in enumerate(center)
+        if weight > 0
+    ]
+    weighted_terms.sort(reverse=True)
+    return [term for _, term in weighted_terms[:limit]]
 
 
 def group_trajectories(
@@ -559,7 +577,7 @@ def group_trajectories(
         indexes = np.flatnonzero(labels == cluster_id)
         center = model.cluster_centers_[cluster_id]
         representative = int(indexes[np.argmin(distances[indexes, cluster_id])])
-        terms = [str(vocabulary[index]) for index in np.argsort(center)[::-1] if center[index] > 0][:6]
+        terms = _rank_top_terms(center, vocabulary)
         trace_ids = [records[int(index)].trace_id for index in indexes]
         assignments.update({trace_id: cluster_id for trace_id in trace_ids})
         clusters.append(
@@ -950,14 +968,11 @@ def problems_from_analysis(result: AnomalyAndPatternsAnalysis) -> tuple[Problem,
             anomalies,
             key=lambda row: (-row.anomaly_score, row.trace_id),
         )
-        reason_counts = Counter(
-            str(reason)
-            for row in anomalies
-            for reason in row.anomaly_reasons
+        reason_counts = Counter(str(reason) for row in anomalies for reason in row.anomaly_reasons)
+        common_reasons = (
+            ", ".join(f"{reason} ({count})" for reason, count in reason_counts.most_common(5))
+            or "no single dominant feature"
         )
-        common_reasons = ", ".join(
-            f"{reason} ({count})" for reason, count in reason_counts.most_common(5)
-        ) or "no single dominant feature"
         trace_subject = "trace was" if len(anomalies) == 1 else "traces were"
         description = (
             f"{len(anomalies)} {trace_subject} statistical outliers in the corpus. "
@@ -1039,9 +1054,7 @@ def _native_step_type(span: Span) -> str:
     }.get(span.kind, span.kind.value.lower())
 
 
-def to_ia2_trace(
-    trace: Trace, *, profile: VenueProfile = DEFAULT_PROFILE
-) -> NormalizedTrace:
+def to_ia2_trace(trace: Trace, *, profile: VenueProfile = DEFAULT_PROFILE) -> NormalizedTrace:
     """Project one normalized trace into the anomaly-and-pattern analysis model."""
 
     calls: list[NormalizedCall] = []
@@ -1070,7 +1083,9 @@ def to_ia2_trace(
             NormalizedCall(
                 call_id=str(details.call_id if details and details.call_id else span.span_id),
                 call_index=(
-                    details.index if details is not None and details.index is not None else call_index
+                    details.index
+                    if details is not None and details.index is not None
+                    else call_index
                 ),
                 tool_name=str(span.tool_name or span.name or ""),
                 arguments=arguments,
@@ -1132,9 +1147,7 @@ class AnomalyAndPatternsEvidenceStream:
                 result=result,
                 parameters=parameters
                 | {
-                    "feature_names": (
-                        list(self.feature_names) if self.feature_names else "default"
-                    )
+                    "feature_names": (list(self.feature_names) if self.feature_names else "default")
                 },
             ),
         )

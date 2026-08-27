@@ -166,7 +166,8 @@ def test_all_cards_widens_the_rendering_but_not_the_json(tmp_path):
 
     def sections(path):
         return [
-            line for line in (path / "ia3" / "cards.md").read_text(encoding="utf-8").splitlines()
+            line
+            for line in (path / "ia3" / "cards.md").read_text(encoding="utf-8").splitlines()
             if line.startswith("## ")
         ]
 

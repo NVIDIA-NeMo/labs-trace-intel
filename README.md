@@ -131,5 +131,8 @@ uv run --no-sync insight-agent run-all traces.jsonl -o out --no-analyst
 ## Validation
 
 ```bash
-uv run --no-sync ruff check . && uv run --no-sync pytest
+uv sync --locked --extra dev
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+uv run --no-sync pytest
 ```

@@ -259,7 +259,9 @@ def _lint_tool_catalog(record: Mapping, line, trace_id) -> Iterator[Diagnostic]:
             )
 
 
-def _lint_metrics(record: Mapping, line, trace_id, *, allow_shadowing: bool) -> Iterator[Diagnostic]:
+def _lint_metrics(
+    record: Mapping, line, trace_id, *, allow_shadowing: bool
+) -> Iterator[Diagnostic]:
     metrics = record.get("metrics")
     if not isinstance(metrics, Mapping):
         return
@@ -483,7 +485,9 @@ def validate_records(
             structurally_valid.append((line, record))
 
     if run_lints:
-        report.extend(lint_records(structurally_valid, allow_metric_shadowing=allow_metric_shadowing))
+        report.extend(
+            lint_records(structurally_valid, allow_metric_shadowing=allow_metric_shadowing)
+        )
     return report
 
 

@@ -186,39 +186,44 @@ def test_timestamp_must_be_timezone_aware():
 
 
 def test_input_normalization_preserves_missing_null_and_duplicate_source_ids():
-    trace = next(
-        InsightTraceV1Loader.from_records(
-            [
-                {
-                    "schema_version": "insight-trace/v1",
-                    "trace_id": "duplicate-source-ids",
-                    "calls": [
-                        {
-                            "call_id": "duplicate",
-                            "call_index": 0,
-                            "tool_name": "search",
-                            "arguments": {"query": "first"},
-                        },
-                        {
-                            "call_id": "duplicate",
-                            "call_index": 1,
-                            "tool_name": "search",
-                            "arguments": {"query": "second"},
-                            "result": None,
-                        },
-                    ],
-                    "steps": [
-                        {"step_index": 0, "step_type": "planning", "content": "search twice"},
-                        {"step_index": 1, "step_type": "tool", "name": "search"},
-                        {"step_index": 2, "step_type": "tool", "name": "search"},
-                    ],
-                    "tool_catalog": {"search": {"type": "object"}},
-                }
-            ]
+    with pytest.warns(UserWarning, match=r"WARNING\[duplicate_call_id\].*duplicate-source-ids"):
+        trace = next(
+            InsightTraceV1Loader.from_records(
+                [
+                    {
+                        "schema_version": "insight-trace/v1",
+                        "trace_id": "duplicate-source-ids",
+                        "calls": [
+                            {
+                                "call_id": "duplicate",
+                                "call_index": 0,
+                                "tool_name": "search",
+                                "arguments": {"query": "first"},
+                            },
+                            {
+                                "call_id": "duplicate",
+                                "call_index": 1,
+                                "tool_name": "search",
+                                "arguments": {"query": "second"},
+                                "result": None,
+                            },
+                        ],
+                        "steps": [
+                            {
+                                "step_index": 0,
+                                "step_type": "planning",
+                                "content": "search twice",
+                            },
+                            {"step_index": 1, "step_type": "tool", "name": "search"},
+                            {"step_index": 2, "step_type": "tool", "name": "search"},
+                        ],
+                        "tool_catalog": {"search": {"type": "object"}},
+                    }
+                ]
+            )
+            .load()
+            .scan()
         )
-        .load()
-        .scan()
-    )
 
     tool_spans = [span for span in trace.spans if span.kind is SpanKind.TOOL]
     assert [span.span_id for span in tool_spans] == ["duplicate", "duplicate#2"]

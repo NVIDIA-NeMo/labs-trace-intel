@@ -101,7 +101,10 @@ def test_code_execution_share_counts_every_configured_tool():
     assert extract_trace_features(trace).features.numeric["code_execution_share"] == 1.0
 
     renamed = DEFAULT_PROFILE.with_overrides(code_execution_tools=frozenset({"OtherTool"}))
-    assert extract_trace_features(trace, profile=renamed).features.numeric["code_execution_share"] == 0.0
+    assert (
+        extract_trace_features(trace, profile=renamed).features.numeric["code_execution_share"]
+        == 0.0
+    )
 
 
 def test_returned_data_key_is_configurable():

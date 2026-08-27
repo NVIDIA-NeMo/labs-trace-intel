@@ -82,6 +82,7 @@ def test_build_cards_at_a_higher_threshold_disqualifies_everything():
     assert not any(card.eligible_for_analyst for card in cards)
 
 
+@pytest.mark.filterwarnings("error")
 @pytest.mark.parametrize("n_traces", [1, 2])
 def test_run_ia2_abstains_from_grouping_corpora_too_small_to_cluster(n_traces):
     """Below three traces ``run_ia2`` must abstain, not crash.

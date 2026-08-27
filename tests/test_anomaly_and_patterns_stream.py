@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsArtifacts,
     AnomalyAndPatternsEvidenceStream,
@@ -14,10 +16,12 @@ from insight_agent.traces import Span, SpanKind, Trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
+DUPLICATE_CALL_ID_WARNING = r"WARNING\[duplicate_call_id\].*docops-instrumentation"
 
 
 def test_input_normalization_preserves_every_field_ia2_uses():
-    loader = InsightTraceV1Loader.from_path(CORPUS)
+    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
+        loader = InsightTraceV1Loader.from_path(CORPUS)
     record = loader.records[0]
     trace = next(loader.load().scan())
     projected = to_ia2_trace(trace)
@@ -110,7 +114,8 @@ def test_native_projection_uses_canonical_spans_for_steps_and_tool_calls():
 
 
 def test_ia2_stream_runs_the_engine_from_a_snapshot():
-    loader = InsightTraceV1Loader.from_path(CORPUS)
+    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
+        loader = InsightTraceV1Loader.from_path(CORPUS)
     stream = AnomalyAndPatternsEvidenceStream()
     snapshot = loader.load()
     actual = stream.analyze(snapshot)

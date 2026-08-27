@@ -55,7 +55,7 @@ def to_canonical(source: Any, index: int, context: dict[str, Any]) -> dict[str, 
             "call_id": str(raw.get("id") or f"{trace_id}#{position}"),
             "call_index": position,
             "tool_name": str(raw["name"]),
-            "arguments": raw.get("arguments"),   # emit RAW, do not re-parse
+            "arguments": raw.get("arguments"),  # emit RAW, do not re-parse
         }
         # Omit "result" entirely when no result was recorded: absence is what
         # fires missing_tool_result. "result": None means the tool returned null.
