@@ -307,7 +307,7 @@ def test_unset_api_base_is_not_forwarded(mock_litellm, request_obj):
     assert "api_key" not in calls[0]
 
 
-def test_missing_litellm_names_the_extra_to_install(monkeypatch, request_obj):
+def test_missing_litellm_names_the_uv_sync_command(monkeypatch, request_obj):
     """The package must import and run without litellm; only this call needs it."""
     monkeypatch.setitem(sys.modules, "litellm", None)
     monkeypatch.delitem(sys.modules, "litellm")
@@ -322,7 +322,7 @@ def test_missing_litellm_names_the_extra_to_install(monkeypatch, request_obj):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", blocked)
-    with pytest.raises(InsightsGenerationError, match=r"\[analyst\]"):
+    with pytest.raises(InsightsGenerationError, match=r"uv sync"):
         generate(request_obj)
 
 

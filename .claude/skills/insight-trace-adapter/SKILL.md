@@ -29,16 +29,16 @@ That validates. Everything else is optional and unlocks specific capability.
 Run this every iteration. Do not batch several changes and validate once — the
 whole reason this loop exists is that adapter defects are silent downstream.
 
-1. **`insight-agent schema`** — read the contract. Field descriptions state what
+1. **`uv run insight-agent schema`** — read the contract. Field descriptions state what
    omitting each field costs.
 2. **Inspect 2–3 raw source records first**, and solve the join (below) before
    writing anything.
 3. **Write the adapter for required fields only.** Resist adding more yet.
-4. **`insight-agent validate out.jsonl`** — iterate until it exits 0.
-5. **`insight-agent coverage out.jsonl`** — read which rules abstain and why.
+4. **`uv run insight-agent validate out.jsonl`** — iterate until it exits 0.
+5. **`uv run insight-agent coverage out.jsonl`** — read which rules abstain and why.
 6. **Add exactly one optional field**, then repeat 4–5. One at a time, so you
    can attribute any change in output to the field you just added.
-7. **`insight-agent run-ia3 out.jsonl -o out` and `run-ia2 out.jsonl -o out`**,
+7. **`uv run insight-agent run-ia3 out.jsonl -o out` and `uv run insight-agent run-ia2 out.jsonl -o out`**,
    then open `out/ia3/findings.json` (per-call findings; the field you want is
    `issue_type`), `out/ia3/cards.json` (recurrence-qualified) and
    `out/ia2/digest.md`, and **manually check three findings against the raw
@@ -157,7 +157,7 @@ reflexively.
 **3. Textual results go under `content`, never `output`.**
 IA3 unwraps `content` and nothing else; IA2 unwraps five keys.
 *Symptom:* IA2 reports failures IA3 never saw. *Check:*
-`insight-agent explain-failures out.jsonl --only-disagreements`.
+`uv run insight-agent explain-failures out.jsonl --only-disagreements`.
 
 **4. Do not populate `result_id` from the wrong id namespace.**
 It should only carry a genuinely independent result→call reference.
@@ -239,15 +239,15 @@ names a decision and what breaks otherwise.
 Calibrate your expectations for real data: production exports routinely carry
 no tool catalog, never set `logical_case_id`, and assert `explicit_error:
 false` corpus-wide because the source had no error channel to read. Partial
-coverage is the norm, not a sign you did it wrong — `insight-agent coverage`
+coverage is the norm, not a sign you did it wrong — `uv run insight-agent coverage`
 names each gap, and the honest move is to report it rather than to synthesise
 the missing field.
 
 To scaffold your own:
 
 ```bash
-insight-agent init-adapter mysource            # -> ./adapters/mysource.py
-insight-agent init-adapter mysource --dir src/myproj/adapters
+uv run insight-agent init-adapter mysource            # -> ./adapters/mysource.py
+uv run insight-agent init-adapter mysource --dir src/myproj/adapters
 ```
 
 It writes one standalone script relative to your current directory, refuses to
@@ -256,9 +256,9 @@ need to live inside any package — it is run directly and writes JSONL to stdou
 
 ## Acceptance checklist
 
-- [ ] `insight-agent validate out.jsonl` exits 0
-- [ ] `insight-agent coverage out.jsonl` lists the rules you intended to support
-- [ ] `insight-agent explain-failures out.jsonl --only-disagreements` is empty
+- [ ] `uv run insight-agent validate out.jsonl` exits 0
+- [ ] `uv run insight-agent coverage out.jsonl` lists the rules you intended to support
+- [ ] `uv run insight-agent explain-failures out.jsonl --only-disagreements` is empty
 - [ ] No rule fires on ~100% of calls
 - [ ] ≥ 3 traces for clustering to run at all — but IA2's anomaly stage is
       degenerate at that size (`contamination=0.02` expects 0.06 flags on 3
@@ -291,8 +291,8 @@ many evaluable rules that never fire. Only worry about the gap when a rule you
 expected to fire is listed as abstaining.
 
 Put adapter tests next to the adapter. If the repo's `pyproject.toml` sets
-`testpaths`, a bare `pytest` will not collect them — run
-`pytest path/to/your/tests` explicitly, or add your directory to `testpaths`.
+`testpaths`, a bare `uv run pytest` will not collect them — run
+`uv run pytest path/to/your/tests` explicitly, or add your directory to `testpaths`.
 When a test shells out to the CLI, resolve it from the running interpreter
 (`Path(sys.executable).parent / "insight-agent"`) rather than assuming `PATH`.
 

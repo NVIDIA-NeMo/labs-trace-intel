@@ -1,11 +1,12 @@
+#!/usr/bin/env -S uv run
 """Adapter: <your source> -> Insight Agent canonical JSONL (insight-trace/v1).
 
 Verify loop — run these after every change, never batch them:
 
-    python adapters/<your source>.py > traces.jsonl
-    insight-agent validate traces.jsonl     # must exit 0
-    insight-agent coverage traces.jsonl     # what can actually fire?
-    insight-agent run-ia3 traces.jsonl -o out
+    ./adapters/<your source>.py > traces.jsonl
+    uv run insight-agent validate traces.jsonl     # must exit 0
+    uv run insight-agent coverage traces.jsonl     # what can actually fire?
+    uv run insight-agent run-ia3 traces.jsonl -o out
 
 Then open out/ia3/cards.json and check three findings against the raw source by
 hand. A rule that fires on 100% of calls is an adapter bug, not a discovery.
@@ -82,7 +83,7 @@ def to_canonical(source: Any, index: int, context: dict[str, Any]) -> dict[str, 
 
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
-        print(f"usage: python {argv[0]} SOURCE", file=sys.stderr)
+        print(f"usage: {argv[0]} SOURCE", file=sys.stderr)
         return 2
     context = load_corpus_context(argv[1])
     for index, source in enumerate(iter_source_records(argv[1])):

@@ -13,7 +13,7 @@ Insights.
 ```bash
 cp .env.example .env      # then fill in INSIGHT_AGENT_API_KEY
 
-insight-agent run-all traces.jsonl -o out      # includes the Analyst
+uv run insight-agent run-all traces.jsonl -o out      # includes the Analyst
 cat out/analyst/insights.json
 ```
 
@@ -107,7 +107,7 @@ context. Budget for more than the opening-prompt figure above.
 and exits without calling anything:
 
 ```bash
-insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
+uv run insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
 ```
 
 Use it to inspect exactly what would be sent before spending anything.
@@ -149,8 +149,8 @@ INSIGHT_AGENT_API_KEY=sk-ant-...
 OpenAI, Bedrock and the rest follow the same pattern:
 
 ```bash
-insight-agent run-analyst traces.jsonl --agent A -o out --model openai/gpt-5.2
-insight-agent run-analyst traces.jsonl --agent A -o out --model bedrock/anthropic.claude-opus-5
+uv run insight-agent run-analyst traces.jsonl --agent A -o out --model openai/gpt-5.2
+uv run insight-agent run-analyst traces.jsonl --agent A -o out --model bedrock/anthropic.claude-opus-5
 ```
 
 ### OpenAI-compatible gateways
@@ -188,7 +188,7 @@ usually also the right choice.
 artifacts, so a prompt change can be re-issued against a frozen evidence set:
 
 ```bash
-insight-agent run-analyst traces.jsonl --agent A -o out \
+uv run insight-agent run-analyst traces.jsonl --agent A -o out \
   --digest out/ia2/digest.md --cards out/ia3/cards.json
 ```
 

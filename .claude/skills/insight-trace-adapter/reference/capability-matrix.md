@@ -4,7 +4,7 @@ Which canonical field each of the nineteen IA3 finding types depends on, and
 what happens without it. Generated from `insight_agent.coverage.RULE_REQUIREMENTS`;
 a test asserts every finding type appears here.
 
-Check your own corpus with `insight-agent coverage traces.jsonl`.
+Check your own corpus with `uv run insight-agent coverage traces.jsonl`.
 
 ## Requires `tool_catalog`
 
@@ -88,4 +88,3 @@ Total: 19 finding types.
 
 `tool_catalog` is the single highest-leverage field: it alone gates six rules,
 and it is usually already present in the source as a `tools` array.
-

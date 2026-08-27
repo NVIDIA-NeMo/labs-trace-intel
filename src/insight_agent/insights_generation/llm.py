@@ -610,7 +610,7 @@ def _author_insights(
     except ModuleNotFoundError as exc:  # pragma: no cover - exercised via monkeypatch
         raise InsightsGenerationError(
             "the Analyst stage needs litellm, which is not installed. "
-            'Install it with:  pip install -e ".[analyst]"'
+            "Run `uv sync` to install the project dependencies."
         ) from exc
 
     system, user = _build_prompt(request)

@@ -42,12 +42,14 @@ First follow the .env.example to configure some keys for the LLM bits.
 Then run the Analyst:
 
 ```bash
-uv venv
-uv pip install -r requirements.txt -e ".[dev]"
+uv sync --locked
 
-uv run --no-sync insight-agent run-all examples/tau_bench_traces.jsonl -o out
+uv run insight-agent run-all examples/tau_bench_traces.jsonl -o out
 open out/index.md
 ```
+
+`uv sync --locked` creates `.venv`, installs the package and development tools,
+and reproduces the dependency versions committed in `uv.lock`.
 
 This will write the outputs to an /out directory
 
@@ -55,8 +57,17 @@ To see the
 deterministic stages alone, with no key and no cost:
 
 ```bash
-uv run --no-sync insight-agent run-all examples/tau_bench_traces.jsonl \
+uv run insight-agent run-all examples/tau_bench_traces.jsonl \
   -o out --no-analyst
+```
+
+### Run directly from Git
+
+UV can build and run the CLI without cloning the repository:
+
+```bash
+uvx --from 'git+https://github.com/NVIDIA/nemo-platform-insights-preview.git' \
+  insight-agent demo --no-analyst
 ```
 
 The architecture is intentionally small:
@@ -100,7 +111,7 @@ Evidence streams consume a normalized `TraceSnapshot`. The current CLI uses
 If your traces are already in OpenAI or Anthropic message format you can use the built in adapter
 
 ```bash
-insight-agent adapt-messages my-conversations.json -o traces.jsonl
+uv run insight-agent adapt-messages my-conversations.json -o traces.jsonl
 ```
 
 If your traces are not in a compatible format, the repo ships with a skill for writing a custom adapter. Find it at .claude/skills/insight-trace-adapter/SKILL.md
@@ -109,30 +120,31 @@ After you've converted your traces you can validate the format with:
 
 ```bash
 # Check the format
-insight-agent validate traces.jsonl
+uv run insight-agent validate traces.jsonl
 
 # Check what your data actually supports
-insight-agent coverage traces.jsonl
+uv run insight-agent coverage traces.jsonl
 ```
 
 Then run the full analysis with:
 ```bash
-uv run --no-sync insight-agent run-all traces.jsonl -o out
+uv run insight-agent run-all traces.jsonl -o out
 ```
 
 Results will be written to the /out directory. 
 
 If you want to do a dry run or a run without the LLM synthesis you can use
 ```bash
-uv run --no-sync insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
-uv run --no-sync insight-agent run-all traces.jsonl -o out --no-analyst
+uv run insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
+uv run insight-agent run-all traces.jsonl -o out --no-analyst
 ```
 
 ## Validation
 
 ```bash
-uv sync --locked --extra dev
-uv run --no-sync ruff check .
-uv run --no-sync ruff format --check .
-uv run --no-sync pytest
+uv lock --check
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest
+uv build
 ```

@@ -278,12 +278,17 @@ def test_sample_copies_bundled_data(tmp_path, capsys):
 
 def test_init_adapter_scaffolds_a_runnable_template(tmp_path, capsys):
     assert main(["init-adapter", "mytool", "--dir", str(tmp_path)]) == EXIT_OK
-    source = (tmp_path / "mytool.py").read_text(encoding="utf-8")
+    adapter = tmp_path / "mytool.py"
+    source = adapter.read_text(encoding="utf-8")
 
     compile(source, "mytool.py", "exec")  # must be valid Python
+    assert source.startswith("#!/usr/bin/env -S uv run\n")
+    assert adapter.stat().st_mode & 0o111
     assert "insight-agent validate" in source
     assert "missing_tool_result" in source  # the result-absence trap is documented
-    assert "verify loop" in capsys.readouterr().out.lower()
+    output = capsys.readouterr().out
+    assert "verify loop" in output.lower()
+    assert f"3. {adapter} SOURCE" in output
 
 
 def test_init_adapter_refuses_to_clobber(tmp_path, capsys):

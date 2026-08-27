@@ -7,9 +7,9 @@ the public tool-agent benchmark, already converted to canonical
 `insight-trace/v1`. Nothing to adapt — point the CLI at it and run:
 
 ```bash
-insight-agent validate examples/tau_bench_traces.jsonl
-insight-agent coverage examples/tau_bench_traces.jsonl
-insight-agent run-all  examples/tau_bench_traces.jsonl -o out
+uv run insight-agent validate examples/tau_bench_traces.jsonl
+uv run insight-agent coverage examples/tau_bench_traces.jsonl
+uv run insight-agent run-all examples/tau_bench_traces.jsonl -o out
 open out/index.md
 ```
 
@@ -59,7 +59,7 @@ Not a defect. The τ-bench export genuinely lacks the evidence:
 | `explicitly_rejected_ungrounded_identifier` | `complete_provenance_context` is not asserted |
 
 Reading that list is the point of `coverage`. Compare it against the bundled
-sample corpus (`insight-agent demo`), which is synthesised specifically to make
+sample corpus (`uv run insight-agent demo`), which is synthesised specifically to make
 all nineteen rules fire.
 
 ### Known warnings

@@ -28,7 +28,7 @@ dropped results.
 **Escape hatch:** some emitters (ORMs, protobuf→JSON bridges, `jq` pipelines)
 cannot omit a key. Use `"result_missing": true` or `"result_count": 0` instead.
 
-**Check:** `insight-agent coverage` reports how many calls are missing a result.
+**Check:** `uv run insight-agent coverage` reports how many calls are missing a result.
 `0` on a corpus that should have some means this trap.
 
 ---
@@ -85,7 +85,7 @@ You may keep the original keys alongside `content`:
 **Symptom:** IA2 reports failures IA3 never saw; findings look mysteriously
 sparse relative to the digest.
 
-**Check:** `insight-agent explain-failures traces.jsonl --only-disagreements`
+**Check:** `uv run insight-agent explain-failures traces.jsonl --only-disagreements`
 should print `No disagreements.` See [docs/failure-decoders.md](../../../../docs/failure-decoders.md).
 
 ---
@@ -217,7 +217,7 @@ precision gate stops meaning anything.
 {"trace_id": "run-0003", "logical_case_id": "case-import-118"}
 ```
 
-**Check:** `insight-agent coverage` reports the distinct logical case count and
+**Check:** `uv run insight-agent coverage` reports the distinct logical case count and
 warns when no record sets the field at all.
 
 Note the display: with the field absent, coverage still prints a case count,

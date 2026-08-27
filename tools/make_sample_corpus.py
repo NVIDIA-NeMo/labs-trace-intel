@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run
 """Generate the bundled sample corpus.
 
 The corpus has to do a specific job: make every one of IA3's nineteen finding
@@ -10,7 +10,7 @@ tmpdir and asserts byte equality, so the data can never drift from this file.
 
 Fully deterministic: no RNG, no clock. Run it with::
 
-    python tools/make_sample_corpus.py
+    ./tools/make_sample_corpus.py
 
 The synthetic venue is a "DocOps agent" with five catalogued tools. It uses the
 literal name ``CodeExecutionTool`` so the shipped defaults are exercised; the

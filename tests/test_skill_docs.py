@@ -157,8 +157,11 @@ def test_skill_names_the_verify_loop_commands():
 
 
 def test_bundled_template_is_valid_python_and_teaches_the_loop():
-    source = (SKILL_DIR / "assets" / "adapter_template.py").read_text(encoding="utf-8")
+    template = SKILL_DIR / "assets" / "adapter_template.py"
+    source = template.read_text(encoding="utf-8")
     compile(source, "adapter_template.py", "exec")
+    assert source.startswith("#!/usr/bin/env -S uv run\n")
+    assert template.stat().st_mode & 0o111
     assert "insight-agent validate" in source
     assert "missing_tool_result" in source
 

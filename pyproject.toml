@@ -12,15 +12,10 @@ license = { text = "Proprietary" }
 authors = [{ name = "Insight Agent contributors" }]
 keywords = ["agent-traces", "evaluation", "anomaly-detection", "tool-use"]
 
-# Deliberately looser than requirements.txt. The recorded triple
-# (numpy 2.5.1 / scikit-learn 1.9.0) forces Python >= 3.11, which needlessly
-# excludes testers, and exact pins in a library's dependencies cause resolver
-# conflicts the moment it is installed next to anything else.
-#
-# Use `pip install -r requirements.txt` to reproduce the measured numbers:
-# scikit-learn minor versions can change IsolationForest / KMeans output, so
-# anomaly flags and cluster assignments are reproducible WITHIN a version, not
-# across versions.
+# Keep install requirements compatible with other Python packages. `uv.lock`
+# records the exact environment used by this repository: scikit-learn minor
+# versions can change IsolationForest and KMeans output, so contributors should
+# run through uv rather than resolving these ranges independently.
 dependencies = [
     "numpy>=1.26,<3",
     "scikit-learn>=1.4,<2",
@@ -32,11 +27,8 @@ dependencies = [
     "litellm>=1.55,<2",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6"]
-# Retained so `pip install "insight-agent[analyst]"` keeps working; litellm is
-# now a base dependency, so this extra adds nothing.
-analyst = []
 
 [project.scripts]
 insight-agent = "insight_agent.cli:main"

@@ -899,7 +899,7 @@ def cmd_adapt_messages(args) -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text, encoding="utf-8")
         print(f"wrote {len(records)} trace(s) to {args.out}")
-        print(f"next: insight-agent validate {args.out}")
+        print(f"next: uv run insight-agent validate {args.out}")
     return EXIT_OK
 
 
@@ -921,25 +921,26 @@ def cmd_sample(args) -> int:
         for name in available:
             print(f"  {name}")
         if not args.copy:
-            print("\nCopy it out with: insight-agent sample --copy ./sample")
+            print("\nCopy it out with: uv run insight-agent sample --copy ./sample")
         return EXIT_OK
 
     args.copy.mkdir(parents=True, exist_ok=True)
     for name in available:
         shutil.copy2(source / name, args.copy / name)
     print(f"copied {len(available)} file(s) to {args.copy}")
-    print(f"next: insight-agent run-all {args.copy / 'sample_corpus.jsonl'} -o out")
+    print(f"next: uv run insight-agent run-all {args.copy / 'sample_corpus.jsonl'} -o out")
     return EXIT_OK
 
 
-ADAPTER_TEMPLATE = '''"""Adapter: {name} -> Insight Agent canonical JSONL (insight-trace/v1).
+ADAPTER_TEMPLATE = '''#!/usr/bin/env -S uv run
+"""Adapter: {name} -> Insight Agent canonical JSONL (insight-trace/v1).
 
 Verify loop — run these after every change, never batch them:
 
-    python {path} > traces.jsonl
-    insight-agent validate traces.jsonl     # must exit 0
-    insight-agent coverage traces.jsonl     # what can actually fire?
-    insight-agent run-ia3 traces.jsonl -o out
+    {run_path} > traces.jsonl
+    uv run insight-agent validate traces.jsonl     # must exit 0
+    uv run insight-agent coverage traces.jsonl     # what can actually fire?
+    uv run insight-agent run-ia3 traces.jsonl -o out
 
 Then open out/ia3/cards.json and check three findings against the raw source by
 hand. A rule that fires on 100% of calls is an adapter bug, not a discovery.
@@ -1016,7 +1017,7 @@ def to_canonical(source: Any, index: int, context: dict[str, Any]) -> dict[str, 
 
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
-        print(f"usage: python {{argv[0]}} SOURCE", file=sys.stderr)
+        print(f"usage: {{argv[0]}} SOURCE", file=sys.stderr)
         return 2
     context = load_corpus_context(argv[1])
     for index, source in enumerate(iter_source_records(argv[1])):
@@ -1037,16 +1038,20 @@ def cmd_init_adapter(args) -> int:
         print(f"{path} already exists; pass --force to overwrite.")
         return EXIT_ERROR
 
-    path.write_text(ADAPTER_TEMPLATE.format(name=args.name, path=path), encoding="utf-8")
+    run_path = str(path) if path.is_absolute() else f"./{path}"
+    path.write_text(
+        ADAPTER_TEMPLATE.format(name=args.name, path=path, run_path=run_path), encoding="utf-8"
+    )
+    path.chmod(path.stat().st_mode | 0o111)
     print(f"wrote {path}\n")
     print("The verify loop — run every iteration, never batch it:")
-    print("  1. insight-agent schema                  # read the contract")
+    print("  1. uv run insight-agent schema                  # read the contract")
     print("  2. inspect 2-3 raw source records; find where the call->result link lives")
-    print(f"  3. python {path} SOURCE > traces.jsonl   # required fields only, first")
-    print("  4. insight-agent validate traces.jsonl   # until it exits 0")
-    print("  5. insight-agent coverage traces.jsonl   # see which rules abstain")
+    print(f"  3. {run_path} SOURCE > traces.jsonl   # required fields only, first")
+    print("  4. uv run insight-agent validate traces.jsonl   # until it exits 0")
+    print("  5. uv run insight-agent coverage traces.jsonl   # see which rules abstain")
     print("  6. add ONE optional field, then repeat 3-5")
-    print("  7. insight-agent run-ia3 traces.jsonl -o out, then check 3 findings by hand")
+    print("  7. uv run insight-agent run-ia3 traces.jsonl -o out, then check 3 findings by hand")
     return EXIT_OK
 
 

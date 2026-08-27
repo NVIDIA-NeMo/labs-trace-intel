@@ -34,7 +34,7 @@ def test_committed_sample_data_matches_the_generator(tmp_path, filename):
 
     assert regenerated == committed, (
         f"{filename} differs from what tools/make_sample_corpus.py produces. "
-        "Re-run `python tools/make_sample_corpus.py` and commit the result."
+        "Re-run `./tools/make_sample_corpus.py` and commit the result."
     )
 
 

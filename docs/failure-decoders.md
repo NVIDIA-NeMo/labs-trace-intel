@@ -4,7 +4,7 @@ IA2 and IA3 were developed independently, and each has its own idea of what
 counts as a tool failure. The canonical trace format does **not** unify them,
 because unifying them would mean changing measured algorithm behaviour. Instead
 the divergence is documented here and made observable with
-`insight-agent explain-failures`.
+`uv run insight-agent explain-failures`.
 
 This matters to anyone writing an adapter, because a result payload that reads
 as a failure in one engine can read as a success in the other.
@@ -65,7 +65,7 @@ sees text under `output`, `message` or `summary` with no `content` key.
 ## Checking your own corpus
 
 ```bash
-insight-agent explain-failures traces.jsonl --only-disagreements
+uv run insight-agent explain-failures traces.jsonl --only-disagreements
 ```
 
 On a well-formed corpus this prints `No disagreements.` Anything else is worth

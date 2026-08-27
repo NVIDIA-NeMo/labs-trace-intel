@@ -2,7 +2,7 @@
 
 One JSON object per line; one line per complete trace. This page is generated
 from `src/insight_agent/schemas/insight_trace_v1.schema.json` — print the schema
-itself with `insight-agent schema`.
+itself with `uv run insight-agent schema`.
 
 Adapters can emit this format in any language. `InsightTraceV1Loader` validates it and
 normalizes each record into the local `Trace` and `Span` models. Evidence streams then own

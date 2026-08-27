@@ -36,8 +36,8 @@ change what the detector means.
 ## Using one
 
 ```bash
-insight-agent sample --copy ./sample          # includes venue_profile_example.json
-insight-agent run-ia3 traces.jsonl --profile ./sample/venue_profile_example.json -o out
+uv run insight-agent sample --copy ./sample          # includes venue_profile_example.json
+uv run insight-agent run-ia3 traces.jsonl --profile ./sample/venue_profile_example.json -o out
 ```
 
 ```json
