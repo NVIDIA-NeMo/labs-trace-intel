@@ -25,8 +25,11 @@ import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
+
+from jsonschema import Draft202012Validator, SchemaError, validators
 
 __all__ = [
     "CANONICAL_VERSION",
@@ -151,8 +154,6 @@ def trace_schema() -> dict[str, Any]:
     install and a zipapp alike.
     """
 
-    from importlib.resources import files
-
     # Resolved through the parent package because `schemas/` has no
     # __init__.py and is therefore a namespace package.
     text = files("insight_agent").joinpath("schemas", SCHEMA_FILENAME).read_text(encoding="utf-8")
@@ -162,8 +163,6 @@ def trace_schema() -> dict[str, Any]:
 @lru_cache(maxsize=1)
 def trace_validator():
     """A cached Draft 2020-12 validator for the canonical schema."""
-
-    from jsonschema import Draft202012Validator
 
     schema = trace_schema()
     Draft202012Validator.check_schema(schema)
@@ -240,7 +239,6 @@ def _lint_tool_catalog(record: Mapping, line, trace_id) -> Iterator[Diagnostic]:
     catalog = record.get("tool_catalog")
     if not isinstance(catalog, Mapping):
         return
-    from jsonschema import SchemaError, validators
 
     for tool_name, schema in catalog.items():
         if schema is None:

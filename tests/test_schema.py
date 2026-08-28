@@ -8,6 +8,7 @@ import json
 import pytest
 from jsonschema import Draft202012Validator
 
+from insight_agent.evidence_streams.anomaly_and_patterns import DEFAULT_FEATURES
 from insight_agent.trace_loaders.validation import (
     BUILTIN_FEATURE_NAMES,
     CANONICAL_VERSION,
@@ -143,8 +144,6 @@ def test_non_object_line_is_reported_clearly():
 
 def test_builtin_feature_name_list_matches_the_engine():
     """Loader validation duplicates the feature list to stay import-light."""
-    from insight_agent.evidence_streams.anomaly_and_patterns import DEFAULT_FEATURES
-
     assert BUILTIN_FEATURE_NAMES == set(DEFAULT_FEATURES)
 
 

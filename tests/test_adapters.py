@@ -17,8 +17,11 @@ from insight_agent.adapters.messages import (
     adapt_many,
     detect_format,
 )
-from insight_agent.evidence_streams.anomaly_and_patterns import to_ia2_trace
-from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
+from insight_agent.evidence_streams.anomaly_and_patterns import (
+    decode_explicit_failure,
+    to_ia2_trace,
+)
+from insight_agent.evidence_streams.tool_issues import MISSING, detect, strict_failure, to_ia3_trace
 from insight_agent.trace_loaders import InsightTraceV1Loader, validate_record
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
@@ -174,9 +177,6 @@ def test_textual_results_land_under_content(anthropic_records, openai_records):
 
 def test_the_two_engines_agree_on_every_adapted_call(anthropic_records, openai_records):
     """The content-vs-output trap would show up here as a disagreement."""
-    from insight_agent.evidence_streams.anomaly_and_patterns import decode_explicit_failure
-    from insight_agent.evidence_streams.tool_issues import strict_failure
-
     for record in list(anthropic_records.values()) + list(openai_records.values()):
         trace = normalized_trace(record)
         ia2 = {c.call_id: c for c in to_ia2_trace(trace).calls}

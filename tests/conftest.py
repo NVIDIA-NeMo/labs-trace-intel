@@ -9,6 +9,7 @@ from __future__ import annotations
 import pathlib
 import sys
 
+import litellm
 import pytest
 
 TESTS_DIR = pathlib.Path(__file__).parent
@@ -46,11 +47,6 @@ def no_real_model_calls(monkeypatch, tmp_path):
     # anywhere inside the checkout would pick up a developer's real `.env`.
     # A tmp cwd is outside that walk entirely.
     monkeypatch.chdir(tmp_path)
-
-    try:
-        import litellm
-    except ImportError:
-        return
 
     def _blocked(**kwargs):
         raise AssertionError(

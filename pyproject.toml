@@ -47,8 +47,3 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
-
-[tool.ruff.lint.per-file-ignores]
-# The TYPE_CHECKING block exists so type checkers and IDEs can see the lazily
-# imported submodules; they are deliberately not imported at runtime.
-"src/insight_agent/__init__.py" = ["F401"]

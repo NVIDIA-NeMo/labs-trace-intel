@@ -14,6 +14,9 @@ from pathlib import Path
 
 import pytest
 
+from insight_agent.evidence_streams.venue import load_profile
+from insight_agent.trace_loaders import validate_corpus
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "src" / "insight_agent" / "data"
 TOOLS_DIR = REPO_ROOT / "tools"
@@ -21,13 +24,13 @@ TOOLS_DIR = REPO_ROOT / "tools"
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
+import make_sample_corpus  # noqa: E402 - tools path must be registered first
+
 GENERATED_FILES = ("sample_corpus.jsonl", "sample_tool_catalog.json", "venue_profile_example.json")
 
 
 @pytest.mark.parametrize("filename", GENERATED_FILES)
 def test_committed_sample_data_matches_the_generator(tmp_path, filename):
-    import make_sample_corpus
-
     make_sample_corpus.write_outputs(tmp_path)
     regenerated = (tmp_path / filename).read_bytes()
     committed = (DATA_DIR / filename).read_bytes()
@@ -39,16 +42,12 @@ def test_committed_sample_data_matches_the_generator(tmp_path, filename):
 
 
 def test_sample_corpus_validates_in_strict_mode():
-    from insight_agent.trace_loaders import validate_corpus
-
     report = validate_corpus(DATA_DIR / "sample_corpus.jsonl")
     assert report.ok, [d.format() for d in report.errors]
 
 
 def test_sample_corpus_warnings_are_deliberate():
     """The sample plants exactly one lintable defect, to demonstrate the lint."""
-    from insight_agent.trace_loaders import validate_corpus
-
     report = validate_corpus(DATA_DIR / "sample_corpus.jsonl")
     assert [d.code for d in report.warnings] == ["duplicate_call_id"]
 
@@ -70,8 +69,6 @@ def test_sample_corpus_shape():
 
 
 def test_venue_profile_example_loads():
-    from insight_agent.evidence_streams.venue import load_profile
-
     profile = load_profile(DATA_DIR / "venue_profile_example.json")
     assert profile.name == "docops-renamed"
     assert "PythonSandbox" in profile.code_execution_tools

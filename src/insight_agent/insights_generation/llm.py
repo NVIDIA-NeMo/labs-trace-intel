@@ -28,7 +28,10 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
+from importlib.resources import files
 from typing import Any
+
+import litellm
 
 from ..evidence_streams.contracts import EvidenceStreamResult
 from ..traces import Trace, TraceSnapshot
@@ -96,8 +99,6 @@ class ResponseParseError(InsightsGenerationError):
 
 
 def _prompts_dir():
-    from importlib.resources import files
-
     return files("insight_agent.insights_generation").joinpath("prompts")
 
 
@@ -604,14 +605,6 @@ def _author_insights(
     Callers on a provider that accepts them can pass them explicitly through
     ``litellm_kwargs``.
     """
-
-    try:
-        import litellm
-    except ModuleNotFoundError as exc:  # pragma: no cover - exercised via monkeypatch
-        raise InsightsGenerationError(
-            "the Analyst stage needs litellm, which is not installed. "
-            "Run `uv sync` to install the project dependencies."
-        ) from exc
 
     system, user = _build_prompt(request)
 

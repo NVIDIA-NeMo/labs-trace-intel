@@ -17,12 +17,19 @@ from pathlib import Path
 import pytest
 
 from insight_agent.cli import EXIT_ERROR, EXIT_OK, main
+from insight_agent.evidence_streams.anomaly_and_patterns import (
+    NormalizedTrace,
+    PreparedTrace,
+    TraceFeatures,
+    build_evidence_digest,
+)
 from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
 from insight_agent.insights_generation import (
     DEFAULT_MODEL,
     InsightsGeneration,
     InsightsGenerationError,
     ResponseParseError,
+    llm,
 )
 from insight_agent.insights_generation.llm import (
     _AnalystRequest,
@@ -94,7 +101,7 @@ def mock_litellm(monkeypatch):
             return fake_response(content)
 
         module.completion = completion
-        monkeypatch.setitem(sys.modules, "litellm", module)
+        monkeypatch.setattr(llm, "litellm", module)
         return calls
 
     return _install
@@ -140,8 +147,6 @@ def test_output_contract_is_not_duplicated(request_obj):
 
 def test_output_contract_is_supplied_when_the_template_omits_it(tmp_path, monkeypatch):
     """A hand-written prompt should still produce a parseable shape."""
-    from insight_agent.insights_generation import llm
-
     monkeypatch.setattr(
         llm, "_prompt_template", lambda v=None: "Find problems in {agent}.\n\n{evidence}"
     )
@@ -152,8 +157,6 @@ def test_output_contract_is_supplied_when_the_template_omits_it(tmp_path, monkey
 def test_a_template_without_the_evidence_marker_is_an_error(monkeypatch):
     """Silently appending the evidence would hide a typo in a custom prompt and
     send a paid request whose evidence landed somewhere the prompt never refers to."""
-    from insight_agent.insights_generation import llm
-
     monkeypatch.setattr(llm, "_prompt_template", lambda v=None: "Analyse {agent}.")
     with pytest.raises(InsightsGenerationError, match="{evidence}"):
         llm._build_prompt(llm._AnalystRequest(agent="A"))
@@ -307,23 +310,8 @@ def test_unset_api_base_is_not_forwarded(mock_litellm, request_obj):
     assert "api_key" not in calls[0]
 
 
-def test_missing_litellm_names_the_uv_sync_command(monkeypatch, request_obj):
-    """The package must import and run without litellm; only this call needs it."""
-    monkeypatch.setitem(sys.modules, "litellm", None)
-    monkeypatch.delitem(sys.modules, "litellm")
-
-    real_import = (
-        __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
-    )
-
-    def blocked(name, *args, **kwargs):
-        if name == "litellm":
-            raise ModuleNotFoundError("No module named 'litellm'")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr("builtins.__import__", blocked)
-    with pytest.raises(InsightsGenerationError, match=r"uv sync"):
-        generate(request_obj)
+def test_litellm_is_imported_at_module_scope():
+    assert llm.litellm is sys.modules["litellm"]
 
 
 # -- trace lookup ----------------------------------------------------------
@@ -422,7 +410,7 @@ def scripted_litellm(monkeypatch):
             }
 
         module.completion = completion
-        monkeypatch.setitem(sys.modules, "litellm", module)
+        monkeypatch.setattr(llm, "litellm", module)
         return calls
 
     return _install
@@ -437,8 +425,6 @@ ANSWER = '[{"name":"N","description":"D","trace_ids":["t1"]}]'
 
 @pytest.fixture
 def tool_prompt(monkeypatch):
-    from insight_agent.insights_generation import llm
-
     monkeypatch.setattr(
         llm,
         "_prompt_template",
@@ -458,8 +444,6 @@ def test_a_prompt_that_never_names_the_tool_gets_no_tools(
 ):
     """A hand-written prompt that never mentions the tool would have no way to
     explain it to the model, so offering it anyway just invites confusion."""
-    from insight_agent.insights_generation import llm
-
     monkeypatch.setattr(llm, "_prompt_template", lambda v=None: "Analyse {agent}.\n\n{evidence}")
     calls = scripted_litellm(ANSWER)
     generate(request_obj, snapshot=SNAPSHOT)
@@ -518,8 +502,6 @@ def test_evidence_is_inlined_when_the_template_asks_for_it(tool_prompt, request_
 
 def test_a_self_contained_template_gets_only_a_kickoff(monkeypatch, request_obj):
     """A template with its own contract owns the whole prompt."""
-    from insight_agent.insights_generation import llm
-
     monkeypatch.setattr(
         llm,
         "_prompt_template",
@@ -814,13 +796,6 @@ def test_run_all_fails_loudly_when_litellm_is_absent(tmp_path, monkeypatch, caps
 
 def test_digest_reports_the_true_flag_count_above_the_render_cap():
     """The inventory used to report the truncated row count as the total."""
-    from insight_agent.evidence_streams.anomaly_and_patterns import (
-        NormalizedTrace,
-        PreparedTrace,
-        TraceFeatures,
-        build_evidence_digest,
-    )
-
     prepared, anomalies = [], []
     for i in range(120):
         trace = NormalizedTrace(trace_id=f"t{i:03d}", calls=())

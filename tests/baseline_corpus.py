@@ -20,7 +20,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     NormalizedStep,
     NormalizedTrace,
 )
-from insight_agent.evidence_streams.tool_issues import CallRecord, TraceRecord
+from insight_agent.evidence_streams.tool_issues import MISSING, CallRecord, TraceRecord
 
 SEARCH_SCHEMA = {
     "type": "object",
@@ -201,8 +201,6 @@ def ia2_traces() -> list[NormalizedTrace]:
 
 def ia3_traces() -> list[TraceRecord]:
     """Exercises the traceback gate, the state patterns and the retry rules."""
-
-    from insight_agent.evidence_streams.tool_issues import MISSING
 
     records = []
     for n in range(3):

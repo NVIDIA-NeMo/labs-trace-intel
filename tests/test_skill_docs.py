@@ -8,15 +8,17 @@ that every field name and every finding type is at least mentioned.
 
 from __future__ import annotations
 
+import json
 import re
+import warnings
 from pathlib import Path
 
 import pytest
 
-from insight_agent.evidence_streams.tool_issue_coverage import RULE_REQUIREMENTS
+from insight_agent.evidence_streams.tool_issue_coverage import RULE_REQUIREMENTS, corpus_coverage
 from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
 from insight_agent.evidence_streams.venue import VenueProfile
-from insight_agent.trace_loaders import trace_schema
+from insight_agent.trace_loaders import InsightTraceV1Loader, trace_schema
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "insight-trace-adapter"
@@ -86,12 +88,6 @@ def test_the_tool_catalog_uplift_claim_is_the_measured_number():
     which fires with or without a catalog). Adapter authors prioritise work off
     this number, so it is pinned here rather than left to prose.
     """
-    import json
-    import warnings
-
-    from insight_agent.evidence_streams.tool_issue_coverage import corpus_coverage
-    from insight_agent.trace_loaders import InsightTraceV1Loader
-
     corpus_path = REPO_ROOT / "src" / "insight_agent" / "data" / "sample_corpus.jsonl"
     records = [
         json.loads(line)

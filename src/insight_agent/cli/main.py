@@ -1,9 +1,5 @@
 """Command-line implementations.
 
-Every subcommand imports its engine lazily. ``insight-agent validate`` and
-``insight-agent schema`` are the commands an adapter author runs dozens of
-times in a row, and they have no reason to pay the ~1s scikit-learn import.
-
 Exit codes:
     0  success
     1  usage or runtime error
@@ -14,29 +10,74 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import shutil
 import sys
+import warnings as _warnings
 from collections.abc import Sequence
+from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
+
+import numpy
+import sklearn
 
 from .. import __version__
-
-# InsightsGeneration is import-light (no litellm at module scope), so naming its
-# defaults here costs nothing and keeps `--help` accurate.
-from ..insights_generation import DEFAULT_MAX_TOKENS as ANALYST_DEFAULT_MAX_TOKENS
-from ..insights_generation import DEFAULT_MAX_TOOL_ROUNDS as ANALYST_DEFAULT_TOOL_ROUNDS
+from ..adapters.messages import adapt_file
+from ..evidence_streams.anomaly_and_patterns import (
+    AnomalyAndPatternsAnalysis,
+    AnomalyAndPatternsArtifacts,
+    AnomalyAndPatternsConfig,
+    decode_explicit_failure,
+    problems_from_analysis,
+    to_ia2_trace,
+)
+from ..evidence_streams.builtins import (
+    ANOMALY_AND_PATTERNS,
+    BUILTIN_STREAM_NAMES,
+    TOOL_ISSUES,
+    registered_builtin_streams,
+)
+from ..evidence_streams.contracts import EvidenceStreamResult
+from ..evidence_streams.registry import EvidenceStreamRegistry
+from ..evidence_streams.tool_issue_coverage import corpus_coverage, format_coverage
+from ..evidence_streams.tool_issues import (
+    ToolIssueCard,
+    ToolIssueConfig,
+    ToolIssueEvidenceArtifacts,
+    detect,
+    problems_from_cards,
+    strict_failure,
+    to_ia3_trace,
+)
+from ..evidence_streams.venue import VenueProfile, load_profile
+from ..insights_generation import (
+    DEFAULT_MAX_TOKENS as ANALYST_DEFAULT_MAX_TOKENS,
+)
+from ..insights_generation import (
+    DEFAULT_MAX_TOOL_ROUNDS as ANALYST_DEFAULT_TOOL_ROUNDS,
+)
 from ..insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
 from ..insights_generation import DEFAULT_PROMPT_VERSION as ANALYST_DEFAULT_PROMPT
-
-if TYPE_CHECKING:
-    from ..evidence_streams.contracts import EvidenceStreamResult
-    from ..evidence_streams.registry import EvidenceStreamRegistry
-    from ..evidence_streams.tool_issues import ToolIssueCard
-    from ..evidence_streams.venue import VenueProfile
-    from ..trace_loaders import InsightTraceV1Loader
-    from ..traces import TraceSnapshot
+from ..insights_generation import InsightsGeneration, InsightsGenerationError, ResponseParseError
+from ..insights_generation.config import (
+    ENV_API_BASE,
+    ENV_API_KEY,
+    ENV_MODEL,
+    load_dotenv,
+    resolve,
+)
+from ..trace_loaders import (
+    InsightTraceV1Loader,
+    InsightTraceV1Options,
+    TraceLoadError,
+    load_tool_catalog,
+    trace_schema,
+    validate_corpus,
+)
+from ..traces import TraceSnapshot
+from .artifacts import prepared_features, write_json
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -107,14 +148,6 @@ _REPORTED_WARNINGS: set[str] = set()
 
 def _trace_loader(args: argparse.Namespace) -> InsightTraceV1Loader:
     """Configure and validate the CLI's ``insight-trace/v1`` source."""
-    import warnings as _warnings
-
-    from ..trace_loaders import (
-        InsightTraceV1Loader,
-        InsightTraceV1Options,
-        load_tool_catalog,
-    )
-
     options = InsightTraceV1Options(
         tool_catalog=load_tool_catalog(args.tool_catalog),
         allow_metric_shadowing=getattr(args, "allow_metric_shadowing", False),
@@ -134,8 +167,6 @@ def _trace_loader(args: argparse.Namespace) -> InsightTraceV1Loader:
 
 
 def _venue_profile(args: argparse.Namespace) -> VenueProfile:
-    from ..evidence_streams.venue import load_profile
-
     return load_profile(args.profile)
 
 
@@ -150,9 +181,6 @@ def _run_metadata(
     IsolationForest and KMeans output, and records whether steps were present
     because that changes IA2's feature vector.
     """
-
-    import numpy
-    import sklearn
 
     payload = {
         "insight_agent_version": __version__,
@@ -171,8 +199,6 @@ def _run_metadata(
 
 
 def cmd_schema(args) -> int:
-    from ..trace_loaders.validation import trace_schema
-
     text = json.dumps(trace_schema(), indent=2, ensure_ascii=False) + "\n"
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
@@ -183,8 +209,6 @@ def cmd_schema(args) -> int:
 
 
 def cmd_validate(args) -> int:
-    from ..trace_loaders.validation import validate_corpus
-
     report = validate_corpus(args.traces, allow_metric_shadowing=args.allow_metric_shadowing)
 
     if args.json:
@@ -214,14 +238,10 @@ def cmd_validate(args) -> int:
 
 
 def cmd_coverage(args) -> int:
-    from ..evidence_streams.tool_issue_coverage import corpus_coverage, format_coverage
-
     loader = _trace_loader(args)
     profile = _venue_profile(args)
     findings = None
     if args.with_findings:
-        from ..evidence_streams.tool_issues import detect, to_ia3_trace
-
         findings = detect(
             (to_ia3_trace(trace) for trace in loader.load().scan()),
             profile=profile,
@@ -244,12 +264,6 @@ def cmd_explain_failures(args) -> int:
     accepts ``called``/a non-empty ``error``/shell exit lines. This command
     makes the divergence visible rather than mysterious.
     """
-    from ..evidence_streams.anomaly_and_patterns import (
-        decode_explicit_failure,
-        to_ia2_trace,
-    )
-    from ..evidence_streams.tool_issues import strict_failure, to_ia3_trace
-
     loader = _trace_loader(args)
     profile = _venue_profile(args)
     snapshot = loader.load()
@@ -315,15 +329,6 @@ def _registered_evidence_streams(
     profile: VenueProfile,
     *names: str,
 ) -> EvidenceStreamRegistry:
-    from ..evidence_streams.anomaly_and_patterns import AnomalyAndPatternsConfig
-    from ..evidence_streams.builtins import (
-        ANOMALY_AND_PATTERNS,
-        BUILTIN_STREAM_NAMES,
-        TOOL_ISSUES,
-        registered_builtin_streams,
-    )
-    from ..evidence_streams.tool_issues import ToolIssueConfig
-
     requested = names or BUILTIN_STREAM_NAMES
     anomaly_and_patterns: AnomalyAndPatternsConfig | None = None
     if ANOMALY_AND_PATTERNS in requested:
@@ -357,9 +362,6 @@ def _write_anomaly_and_patterns(
     evidence: EvidenceStreamResult,
     profile: VenueProfile,
 ) -> int:
-    from ..evidence_streams.anomaly_and_patterns import AnomalyAndPatternsArtifacts
-    from .artifacts import prepared_features, write_json
-
     artifacts = evidence.artifacts
     if not isinstance(artifacts, AnomalyAndPatternsArtifacts):
         raise TypeError("anomaly-and-patterns stream returned unexpected artifacts")
@@ -425,8 +427,6 @@ def _write_anomaly_and_patterns(
 
 
 def cmd_run_ia2(args: argparse.Namespace) -> int:
-    from ..evidence_streams.builtins import ANOMALY_AND_PATTERNS
-
     loader = _trace_loader(args)
     snapshot = loader.load()
     profile = _venue_profile(args)
@@ -444,9 +444,6 @@ def _write_tool_issues(
     evidence: EvidenceStreamResult,
     profile: VenueProfile,
 ) -> int:
-    from ..evidence_streams.tool_issues import ToolIssueEvidenceArtifacts
-    from .artifacts import write_json
-
     artifacts = evidence.artifacts
     if not isinstance(artifacts, ToolIssueEvidenceArtifacts):
         raise TypeError("tool-issue evidence stream returned unexpected artifacts")
@@ -509,8 +506,6 @@ def _write_tool_issues(
 
 
 def cmd_run_ia3(args: argparse.Namespace) -> int:
-    from ..evidence_streams.builtins import TOOL_ISSUES
-
     loader = _trace_loader(args)
     snapshot = loader.load()
     profile = _venue_profile(args)
@@ -615,10 +610,6 @@ def cmd_run_all(args: argparse.Namespace) -> int:
 
 
 def _analyst_preflight(args: argparse.Namespace) -> str | None:
-    import importlib.util
-
-    from ..insights_generation.config import ENV_API_KEY, load_dotenv, resolve
-
     load_dotenv(getattr(args, "env_file", None))
     if not (resolve(ENV_API_KEY) or "").strip():
         return "the Analyst needs an API key; set INSIGHT_AGENT_API_KEY"
@@ -690,20 +681,6 @@ def _insights_inputs(args):
     profile = _venue_profile(args)
 
     if args.digest:
-        from ..evidence_streams.anomaly_and_patterns import (
-            AnomalyAndPatternsAnalysis,
-            AnomalyAndPatternsArtifacts,
-            AnomalyAndPatternsConfig,
-            problems_from_analysis,
-        )
-        from ..evidence_streams.contracts import EvidenceStreamResult
-        from ..evidence_streams.tool_issues import (
-            ToolIssueCard,
-            ToolIssueConfig,
-            ToolIssueEvidenceArtifacts,
-            problems_from_cards,
-        )
-
         digest = Path(args.digest).read_text(encoding="utf-8")
         cards = tuple(
             ToolIssueCard.model_validate(card)
@@ -767,20 +744,6 @@ def _run_insights(
     snapshot: TraceSnapshot,
     evidence: Sequence[EvidenceStreamResult],
 ) -> int:
-    from ..insights_generation import (
-        InsightsGeneration,
-        InsightsGenerationError,
-        ResponseParseError,
-    )
-    from ..insights_generation.config import (
-        ENV_API_BASE,
-        ENV_API_KEY,
-        ENV_MODEL,
-        load_dotenv,
-        resolve,
-    )
-    from .artifacts import write_json
-
     # Credentials are only needed here, so `.env` is only read here. A purely
     # deterministic run never touches the filesystem for configuration.
     loaded = load_dotenv(getattr(args, "env_file", None))
@@ -926,8 +889,6 @@ def cmd_run_analyst(args: argparse.Namespace) -> int:
 
 
 def cmd_adapt_messages(args) -> int:
-    from ..adapters.messages import adapt_file
-
     records = adapt_file(
         args.input,
         fmt=args.format,
@@ -952,8 +913,6 @@ def _bundled_data_dir() -> Path:
     # Resolve from the parent package: `data/` has no __init__.py, so
     # files("insight_agent.data") would return a MultiplexedPath that does not
     # stringify into a usable filesystem path.
-    from importlib.resources import files
-
     return Path(str(files("insight_agent"))) / "data"
 
 
@@ -1117,8 +1076,6 @@ def cmd_demo(args) -> int:
         f"validate: {loaded.report.record_count} records, "
         f"{len(loaded.report.errors)} error(s), {len(loaded.report.warnings)} warning(s)"
     )
-
-    from ..evidence_streams.tool_issue_coverage import corpus_coverage
 
     cov = corpus_coverage(loaded)
     print(f"coverage: {cov['rules']['evaluable']}/{cov['rules']['total']} IA3 rules evaluable\n")
@@ -1318,8 +1275,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
     except Exception as exc:  # noqa: BLE001 - CLI boundary
-        from ..trace_loaders import TraceLoadError
-
         if isinstance(exc, TraceLoadError):
             print(f"error: {exc}", file=sys.stderr)
             for diagnostic in exc.report.errors[:20]:
