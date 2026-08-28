@@ -1,13 +1,13 @@
 """Trace loaders normalize source-specific data into ``TraceSnapshot``."""
 
-from .contracts import TraceLoader
-from .insight_trace_v1 import (
+from insight_agent.trace_loaders.contracts import TraceLoader
+from insight_agent.trace_loaders.insight_trace_v1 import (
     InsightTraceV1Loader,
     InsightTraceV1Options,
     TraceLoadError,
     load_tool_catalog,
 )
-from .validation import (
+from insight_agent.trace_loaders.validation import (
     CANONICAL_VERSION,
     Diagnostic,
     ValidationReport,

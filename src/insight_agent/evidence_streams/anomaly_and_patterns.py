@@ -27,9 +27,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
-from ..traces import UNSET, ContractModel, Span, SpanKind, Trace, TraceSnapshot
-from .contracts import EvidenceStreamResult, Problem
-from .venue import DEFAULT_PROFILE, VenueProfile
+from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
+from insight_agent.evidence_streams.venue import DEFAULT_PROFILE, VenueProfile
+from insight_agent.traces import UNSET, ContractModel, Span, SpanKind, Trace, TraceSnapshot
 
 N_ESTIMATORS = 300
 CONTAMINATION = 0.02

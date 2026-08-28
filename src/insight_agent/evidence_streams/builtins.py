@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from .anomaly_and_patterns import (
+from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsConfig,
     AnomalyAndPatternsEvidenceStream,
 )
-from .registry import EvidenceStreamRegistry
-from .tool_issues import ToolIssueConfig, ToolIssueEvidenceStream
-from .venue import VenueProfile
+from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
+from insight_agent.evidence_streams.tool_issues import ToolIssueConfig, ToolIssueEvidenceStream
+from insight_agent.evidence_streams.venue import VenueProfile
 
 ANOMALY_AND_PATTERNS = AnomalyAndPatternsEvidenceStream.name
 TOOL_ISSUES = ToolIssueEvidenceStream.name

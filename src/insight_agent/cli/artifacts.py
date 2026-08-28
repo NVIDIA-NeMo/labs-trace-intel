@@ -19,7 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from ..evidence_streams.tool_issues import MISSING
+from insight_agent.evidence_streams.tool_issues import MISSING
 
 __all__ = ["dump_json", "jsonable", "prepared_features", "write_json"]
 

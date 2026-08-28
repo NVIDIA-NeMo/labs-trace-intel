@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from ..traces import TraceSnapshot
-from .contracts import EvidenceStream, EvidenceStreamResult
+from insight_agent.evidence_streams.contracts import EvidenceStream, EvidenceStreamResult
+from insight_agent.traces import TraceSnapshot
 
 
 class EvidenceStreamRegistry:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from ..traces import TraceSnapshot
+from insight_agent.traces import TraceSnapshot
 
 
 class TraceLoader(Protocol):

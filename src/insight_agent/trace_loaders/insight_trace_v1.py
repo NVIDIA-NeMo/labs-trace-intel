@@ -9,13 +9,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..traces import UNSET, Span, SpanKind, SpanStatus, ToolCall, Trace, TraceSnapshot
-from .validation import (
+from insight_agent.trace_loaders.validation import (
     Diagnostic,
     ValidationReport,
     iter_jsonl,
     validate_records,
 )
+from insight_agent.traces import UNSET, Span, SpanKind, SpanStatus, ToolCall, Trace, TraceSnapshot
 
 __all__ = [
     "InsightTraceV1Loader",

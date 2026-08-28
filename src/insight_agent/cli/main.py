@@ -23,9 +23,10 @@ from typing import Any
 import numpy
 import sklearn
 
-from .. import __version__
-from ..adapters.messages import adapt_file
-from ..evidence_streams.anomaly_and_patterns import (
+from insight_agent import __version__
+from insight_agent.adapters.messages import adapt_file
+from insight_agent.cli.artifacts import prepared_features, write_json
+from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsAnalysis,
     AnomalyAndPatternsArtifacts,
     AnomalyAndPatternsConfig,
@@ -33,16 +34,16 @@ from ..evidence_streams.anomaly_and_patterns import (
     problems_from_analysis,
     to_ia2_trace,
 )
-from ..evidence_streams.builtins import (
+from insight_agent.evidence_streams.builtins import (
     ANOMALY_AND_PATTERNS,
     BUILTIN_STREAM_NAMES,
     TOOL_ISSUES,
     registered_builtin_streams,
 )
-from ..evidence_streams.contracts import EvidenceStreamResult
-from ..evidence_streams.registry import EvidenceStreamRegistry
-from ..evidence_streams.tool_issue_coverage import corpus_coverage, format_coverage
-from ..evidence_streams.tool_issues import (
+from insight_agent.evidence_streams.contracts import EvidenceStreamResult
+from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
+from insight_agent.evidence_streams.tool_issue_coverage import corpus_coverage, format_coverage
+from insight_agent.evidence_streams.tool_issues import (
     ToolIssueCard,
     ToolIssueConfig,
     ToolIssueEvidenceArtifacts,
@@ -51,24 +52,24 @@ from ..evidence_streams.tool_issues import (
     strict_failure,
     to_ia3_trace,
 )
-from ..evidence_streams.venue import VenueProfile, load_profile
-from ..insights_generation import (
-    DEFAULT_MAX_TOKENS as ANALYST_DEFAULT_MAX_TOKENS,
+from insight_agent.evidence_streams.venue import VenueProfile, load_profile
+from insight_agent.insights_generation import DEFAULT_MAX_TOKENS as ANALYST_DEFAULT_MAX_TOKENS
+from insight_agent.insights_generation import DEFAULT_MAX_TOOL_ROUNDS as ANALYST_DEFAULT_TOOL_ROUNDS
+from insight_agent.insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
+from insight_agent.insights_generation import DEFAULT_PROMPT_VERSION as ANALYST_DEFAULT_PROMPT
+from insight_agent.insights_generation import (
+    InsightsGeneration,
+    InsightsGenerationError,
+    ResponseParseError,
 )
-from ..insights_generation import (
-    DEFAULT_MAX_TOOL_ROUNDS as ANALYST_DEFAULT_TOOL_ROUNDS,
-)
-from ..insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
-from ..insights_generation import DEFAULT_PROMPT_VERSION as ANALYST_DEFAULT_PROMPT
-from ..insights_generation import InsightsGeneration, InsightsGenerationError, ResponseParseError
-from ..insights_generation.config import (
+from insight_agent.insights_generation.config import (
     ENV_API_BASE,
     ENV_API_KEY,
     ENV_MODEL,
     load_dotenv,
     resolve,
 )
-from ..trace_loaders import (
+from insight_agent.trace_loaders import (
     InsightTraceV1Loader,
     InsightTraceV1Options,
     TraceLoadError,
@@ -76,8 +77,7 @@ from ..trace_loaders import (
     trace_schema,
     validate_corpus,
 )
-from ..traces import TraceSnapshot
-from .artifacts import prepared_features, write_json
+from insight_agent.traces import TraceSnapshot
 
 EXIT_OK = 0
 EXIT_ERROR = 1

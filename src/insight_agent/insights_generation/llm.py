@@ -33,8 +33,8 @@ from typing import Any
 
 import litellm
 
-from ..evidence_streams.contracts import EvidenceStreamResult
-from ..traces import Trace, TraceSnapshot
+from insight_agent.evidence_streams.contracts import EvidenceStreamResult
+from insight_agent.traces import Trace, TraceSnapshot
 
 __all__ = [
     "DEFAULT_MAX_TOKENS",

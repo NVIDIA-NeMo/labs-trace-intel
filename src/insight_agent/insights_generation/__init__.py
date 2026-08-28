@@ -1,6 +1,6 @@
 """InsightsGeneration stage."""
 
-from .llm import (
+from insight_agent.insights_generation.llm import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_MAX_TOOL_ROUNDS,
     DEFAULT_MODEL,

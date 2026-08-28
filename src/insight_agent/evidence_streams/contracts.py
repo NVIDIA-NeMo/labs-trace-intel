@@ -6,7 +6,7 @@ from typing import Any, Protocol
 
 from pydantic import Field
 
-from ..traces import ContractModel, TraceSnapshot
+from insight_agent.traces import ContractModel, TraceSnapshot
 
 
 class Problem(ContractModel):

@@ -19,9 +19,9 @@ from typing import Any, Literal
 from jsonschema import validators
 from pydantic import Field
 
-from ..traces import UNSET, ContractModel, SpanKind, SpanStatus, Trace, TraceSnapshot
-from .contracts import EvidenceStreamResult, Problem
-from .venue import DEFAULT_PROFILE, VenueProfile
+from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
+from insight_agent.evidence_streams.venue import DEFAULT_PROFILE, VenueProfile
+from insight_agent.traces import UNSET, ContractModel, SpanKind, SpanStatus, Trace, TraceSnapshot
 
 DETECTOR_VERSION = "tid-v1"
 CARD_MINIMUM_CASES = 3
