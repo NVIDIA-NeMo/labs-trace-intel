@@ -620,6 +620,15 @@ class ToolIssueEvidenceArtifacts:
     findings: tuple[Mapping[str, Any], ...]
     cards: tuple[ToolIssueCard, ...]
     catalog_coverage: Mapping[str, int]
+    config: ToolIssueConfig
+
+
+class ToolIssueConfig(ContractModel):
+    """Typed configuration owned by tool-issue analysis."""
+
+    minimum_independent_cases: int = Field(default=CARD_MINIMUM_CASES, ge=1)
+    retry_threshold: int = Field(default=RETRY_THRESHOLD, ge=1)
+    include_audit_problems: bool = False
 
 
 def problems_from_cards(
@@ -731,23 +740,25 @@ def to_ia3_trace(trace: Trace) -> TraceRecord:
 class ToolIssueEvidenceStream:
     name = "tool-issues"
 
-    minimum_independent_cases: int = CARD_MINIMUM_CASES
-    retry_threshold: int = RETRY_THRESHOLD
-    include_audit_problems: bool = False
+    config: ToolIssueConfig = field(default_factory=ToolIssueConfig)
     profile: VenueProfile = DEFAULT_PROFILE
+
+    def validate_configuration(self) -> None:
+        if not isinstance(self.config, ToolIssueConfig):
+            raise TypeError("tool-issues requires ToolIssueConfig")
 
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         traces = tuple(to_ia3_trace(trace) for trace in snapshot.scan())
         findings = detect(
             traces,
             profile=self.profile,
-            retry_threshold=self.retry_threshold,
+            retry_threshold=self.config.retry_threshold,
         )
         cards = build_cards(
             findings,
-            minimum_independent_cases=self.minimum_independent_cases,
+            minimum_independent_cases=self.config.minimum_independent_cases,
         )
-        problems = problems_from_cards(cards, include_audit=self.include_audit_problems)
+        problems = problems_from_cards(cards, include_audit=self.config.include_audit_problems)
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=problems,
@@ -755,5 +766,6 @@ class ToolIssueEvidenceStream:
                 findings=tuple(findings),
                 cards=tuple(cards),
                 catalog_coverage=catalog_coverage(findings),
+                config=self.config,
             ),
         )

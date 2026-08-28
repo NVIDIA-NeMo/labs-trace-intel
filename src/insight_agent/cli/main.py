@@ -32,6 +32,7 @@ from ..insights_generation import DEFAULT_PROMPT_VERSION as ANALYST_DEFAULT_PROM
 
 if TYPE_CHECKING:
     from ..evidence_streams.contracts import EvidenceStreamResult
+    from ..evidence_streams.registry import EvidenceStreamRegistry
     from ..evidence_streams.tool_issues import ToolIssueCard
     from ..evidence_streams.venue import VenueProfile
     from ..trace_loaders import InsightTraceV1Loader
@@ -73,10 +74,21 @@ def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--quiet", action="store_true", help="suppress the stdout summary")
 
 
+def _cluster_candidates(value: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(item.strip()) for item in value.split(","))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected comma-separated integers") from exc
+
+
 def _add_anomaly_and_patterns_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--contamination", type=float, default=0.02)
     parser.add_argument("--input-scaling", choices=("none", "robust"), default="none")
-    parser.add_argument("--cluster-candidates", default="2,3,4,5,6,7,8")
+    parser.add_argument(
+        "--cluster-candidates",
+        type=_cluster_candidates,
+        default=(2, 3, 4, 5, 6, 7, 8),
+    )
     parser.add_argument("--min-independent-traces", type=int, default=3)
     parser.add_argument(
         "--feature", action="append", default=None, help="override the feature list (repeatable)"
@@ -298,24 +310,44 @@ def cmd_explain_failures(args) -> int:
     return EXIT_OK
 
 
-def _analyze_anomaly_and_patterns(
+def _registered_evidence_streams(
     args: argparse.Namespace,
-    snapshot: TraceSnapshot,
     profile: VenueProfile,
-) -> EvidenceStreamResult:
-    from ..evidence_streams.anomaly_and_patterns import (
-        AnomalyAndPatternsEvidenceStream,
+    *names: str,
+) -> EvidenceStreamRegistry:
+    from ..evidence_streams.anomaly_and_patterns import AnomalyAndPatternsConfig
+    from ..evidence_streams.builtins import (
+        ANOMALY_AND_PATTERNS,
+        BUILTIN_STREAM_NAMES,
+        TOOL_ISSUES,
+        registered_builtin_streams,
     )
+    from ..evidence_streams.tool_issues import ToolIssueConfig
 
-    stream = AnomalyAndPatternsEvidenceStream(
-        contamination=args.contamination,
-        input_scaling=args.input_scaling,
-        cluster_candidates=tuple(int(item) for item in args.cluster_candidates.split(",")),
-        minimum_independent_traces=args.min_independent_traces,
-        feature_names=tuple(args.feature) if args.feature else None,
+    requested = names or BUILTIN_STREAM_NAMES
+    anomaly_and_patterns: AnomalyAndPatternsConfig | None = None
+    if ANOMALY_AND_PATTERNS in requested:
+        anomaly_and_patterns = AnomalyAndPatternsConfig(
+            contamination=args.contamination,
+            input_scaling=args.input_scaling,
+            cluster_candidates=args.cluster_candidates,
+            minimum_independent_traces=args.min_independent_traces,
+            feature_names=tuple(args.feature) if args.feature is not None else None,
+        )
+
+    tool_issues: ToolIssueConfig | None = None
+    if TOOL_ISSUES in requested:
+        tool_issues = ToolIssueConfig(
+            minimum_independent_cases=args.min_independent_cases,
+            retry_threshold=args.retry_threshold,
+            include_audit_problems=args.all_cards,
+        )
+
+    return registered_builtin_streams(
         profile=profile,
+        anomaly_and_patterns=anomaly_and_patterns,
+        tool_issues=tool_issues,
     )
-    return stream.analyze(snapshot)
 
 
 def _write_anomaly_and_patterns(
@@ -351,7 +383,25 @@ def _write_anomaly_and_patterns(
         target / "problems.json",
         [problem.model_dump(mode="json") for problem in evidence.problems],
     )
-    write_json(target / "run.json", _run_metadata(loader, profile, dict(artifacts.parameters)))
+    write_json(
+        target / "run.json",
+        _run_metadata(
+            loader,
+            profile,
+            {
+                "contamination": artifacts.config.contamination,
+                "cluster_candidates": artifacts.config.cluster_candidates,
+                "minimum_independent_traces": artifacts.config.minimum_independent_traces,
+                "input_scaling": artifacts.config.input_scaling,
+                "profile": profile,
+                "feature_names": (
+                    list(artifacts.config.feature_names)
+                    if artifacts.config.feature_names
+                    else "default"
+                ),
+            },
+        ),
+    )
 
     if not args.quiet:
         flagged = [row for row in result.anomalies if row.is_anomaly]
@@ -363,10 +413,11 @@ def _write_anomaly_and_patterns(
         print(f"  failure groups        : {len(result.failure_groups)}")
         print(f"  cross-tool groups     : {len(result.cross_tool_failure_groups)}")
         print(f"  digest                : {target / 'digest.md'}")
-        expected = snapshot.trace_count * args.contamination
+        contamination = artifacts.config.contamination
+        expected = snapshot.trace_count * contamination
         if expected < 1:
             print(
-                f"  note: contamination={args.contamination} on {snapshot.trace_count} traces expects "
+                f"  note: contamination={contamination} on {snapshot.trace_count} traces expects "
                 f"{expected:.2f} flags. The default is tuned for corpora in the thousands; "
                 "try --contamination 0.15 on a small sample."
             )
@@ -374,29 +425,16 @@ def _write_anomaly_and_patterns(
 
 
 def cmd_run_ia2(args: argparse.Namespace) -> int:
+    from ..evidence_streams.builtins import ANOMALY_AND_PATTERNS
+
     loader = _trace_loader(args)
     snapshot = loader.load()
     profile = _venue_profile(args)
-    evidence = _analyze_anomaly_and_patterns(args, snapshot, profile)
+
+    evidence = _registered_evidence_streams(args, profile, ANOMALY_AND_PATTERNS).analyze(
+        ANOMALY_AND_PATTERNS, snapshot
+    )
     return _write_anomaly_and_patterns(args, loader, snapshot, evidence, profile)
-
-
-def _analyze_tool_issues(
-    args: argparse.Namespace,
-    snapshot: TraceSnapshot,
-    profile: VenueProfile,
-) -> EvidenceStreamResult:
-    from ..evidence_streams.tool_issues import (
-        ToolIssueEvidenceStream,
-    )
-
-    stream = ToolIssueEvidenceStream(
-        minimum_independent_cases=args.min_independent_cases,
-        retry_threshold=args.retry_threshold,
-        include_audit_problems=args.all_cards,
-        profile=profile,
-    )
-    return stream.analyze(snapshot)
 
 
 def _write_tool_issues(
@@ -416,7 +454,8 @@ def _write_tool_issues(
     findings = list(artifacts.findings)
     cards = list(artifacts.cards)
     eligible = [card for card in cards if card.eligible_for_analyst]
-    rendered = cards if (args.all_cards or not eligible) else eligible
+    include_audit = artifacts.config.include_audit_problems
+    rendered = cards if (include_audit or not eligible) else eligible
     target = args.out / "ia3"
     target.mkdir(parents=True, exist_ok=True)
     write_json(target / "findings.json", findings)
@@ -433,8 +472,8 @@ def _write_tool_issues(
             loader,
             profile,
             {
-                "retry_threshold": args.retry_threshold,
-                "minimum_independent_cases": args.min_independent_cases,
+                "retry_threshold": artifacts.config.retry_threshold,
+                "minimum_independent_cases": artifacts.config.minimum_independent_cases,
             },
         ),
     )
@@ -451,7 +490,8 @@ def _write_tool_issues(
             distinct = len({trace.logical_case_id or trace.id for trace in traces})
             populated = any(trace.logical_case_id for trace in traces)
             print(
-                f"  note: no card reached {args.min_independent_cases} independent logical "
+                f"  note: no card reached {artifacts.config.minimum_independent_cases} "
+                "independent logical "
                 "cases, i.e. no single issue type recurred across that many distinct cases."
             )
             if not populated:
@@ -469,10 +509,15 @@ def _write_tool_issues(
 
 
 def cmd_run_ia3(args: argparse.Namespace) -> int:
+    from ..evidence_streams.builtins import TOOL_ISSUES
+
     loader = _trace_loader(args)
     snapshot = loader.load()
     profile = _venue_profile(args)
-    evidence = _analyze_tool_issues(args, snapshot, profile)
+
+    evidence = _registered_evidence_streams(args, profile, TOOL_ISSUES).analyze(
+        TOOL_ISSUES, snapshot
+    )
     return _write_tool_issues(args, loader, snapshot, evidence, profile)
 
 
@@ -530,7 +575,8 @@ def _run_all(args: argparse.Namespace, loader: InsightTraceV1Loader) -> int:
     snapshot = loader.load()
     profile = _venue_profile(args)
     args.out.mkdir(parents=True, exist_ok=True)
-    anomaly_and_patterns = _analyze_anomaly_and_patterns(args, snapshot, profile)
+    registry = _registered_evidence_streams(args, profile)
+    anomaly_and_patterns, tool_issues = registry.analyze_all(snapshot)
     if (
         _write_anomaly_and_patterns(args, loader, snapshot, anomaly_and_patterns, profile)
         != EXIT_OK
@@ -539,7 +585,6 @@ def _run_all(args: argparse.Namespace, loader: InsightTraceV1Loader) -> int:
     if not args.quiet:
         print()
 
-    tool_issues = _analyze_tool_issues(args, snapshot, profile)
     if _write_tool_issues(args, loader, snapshot, tool_issues, profile) != EXIT_OK:
         return EXIT_ERROR
     if not args.quiet:
@@ -648,11 +693,13 @@ def _insights_inputs(args):
         from ..evidence_streams.anomaly_and_patterns import (
             AnomalyAndPatternsAnalysis,
             AnomalyAndPatternsArtifacts,
+            AnomalyAndPatternsConfig,
             problems_from_analysis,
         )
         from ..evidence_streams.contracts import EvidenceStreamResult
         from ..evidence_streams.tool_issues import (
             ToolIssueCard,
+            ToolIssueConfig,
             ToolIssueEvidenceArtifacts,
             problems_from_cards,
         )
@@ -684,7 +731,7 @@ def _insights_inputs(args):
                 problems=anomaly_problems,
                 artifacts=AnomalyAndPatternsArtifacts(
                     result=anomaly_result,
-                    parameters={},
+                    config=AnomalyAndPatternsConfig(),
                 ),
             ),
             EvidenceStreamResult(
@@ -694,6 +741,7 @@ def _insights_inputs(args):
                     findings=tuple(finding_rows),
                     cards=cards,
                     catalog_coverage={},
+                    config=ToolIssueConfig(include_audit_problems=args.all_cards),
                 ),
             ),
         )
@@ -702,10 +750,7 @@ def _insights_inputs(args):
     return (
         loader,
         snapshot,
-        (
-            _analyze_anomaly_and_patterns(args, snapshot, profile),
-            _analyze_tool_issues(args, snapshot, profile),
-        ),
+        _registered_evidence_streams(args, profile).analyze_all(snapshot),
     )
 
 

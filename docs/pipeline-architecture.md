@@ -290,6 +290,8 @@ they do not become top-level Analyst stages.
 class EvidenceStream(Protocol):
     name: str
 
+    def validate_configuration(self) -> None: ...
+
     def analyze(
         self,
         snapshot: TraceSnapshot,
@@ -327,8 +329,19 @@ Stable algorithm outputs are typed at the stream boundary as well. IA2 returns a
 typed `ToolIssueCard` values with typed representative evidence. Temporary detector structures
 can remain local dictionaries, but code outside the algorithm uses validated model attributes.
 
-The Analyst collects the results and passes them directly to `InsightsGeneration`. Collection
-is ordinary orchestration, not a separate merge or composition phase.
+Each run explicitly registers its configured streams in an in-process
+`EvidenceStreamRegistry`. Registration calls the stream's own
+`validate_configuration()` method for runtime preflight checks such as provider credentials or
+required dependencies. The registry rejects duplicate names and runs the selected streams
+through the common interface; it does not discover imports or configure streams itself.
+
+Each stream owns a typed configuration model that validates its algorithm settings. CLI or
+service inputs are normalized into those models before stream construction; the registry never
+receives untyped option mappings.
+
+The Analyst collects the registered results and passes them directly to
+`InsightsGeneration`. Collection is ordinary orchestration, not a separate merge or
+composition phase.
 
 ## 3. InsightsGeneration
 
@@ -408,6 +421,7 @@ uv run insight-agent run-ia3 traces.jsonl -o out/ia3
 uv run insight-agent run-all traces.jsonl -o out/evidence-only --no-analyst
 ```
 
-The architecture does not require YAML, a component registry, or a general-purpose workflow
-engine. A future `analyze` command may provide a clearer product entry point, but it should
-construct this concrete Analyst directly rather than expose its stages as a pipeline language.
+The architecture does not require YAML, import-time plugin discovery, or a general-purpose
+workflow engine. A future `analyze` command may provide a clearer product entry point, but it
+should construct this concrete Analyst directly rather than expose its stages as a pipeline
+language.

@@ -19,7 +19,7 @@ from statistics import median
 from typing import Any, Literal
 
 import numpy as np
-from pydantic import Field, FiniteFloat
+from pydantic import Field, FiniteFloat, field_validator
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.ensemble import IsolationForest
@@ -955,7 +955,7 @@ def run_ia2(
 @dataclass(frozen=True)
 class AnomalyAndPatternsArtifacts:
     result: AnomalyAndPatternsAnalysis
-    parameters: Mapping[str, Any]
+    config: AnomalyAndPatternsConfig
 
 
 def problems_from_analysis(result: AnomalyAndPatternsAnalysis) -> tuple[Problem, ...]:
@@ -1116,38 +1116,67 @@ def to_ia2_trace(trace: Trace, *, profile: VenueProfile = DEFAULT_PROFILE) -> No
     )
 
 
-@dataclass(frozen=True)
-class AnomalyAndPatternsEvidenceStream:
-    name = "anomaly-and-patterns"
+class AnomalyAndPatternsConfig(ContractModel):
+    """Typed configuration owned by anomaly-and-pattern analysis."""
 
     contamination: float = CONTAMINATION
     input_scaling: Literal["none", "robust"] = "none"
     cluster_candidates: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8)
-    minimum_independent_traces: int = RECURRENCE_THRESHOLD
+    minimum_independent_traces: int = Field(default=RECURRENCE_THRESHOLD, ge=1)
     feature_names: tuple[str, ...] | None = None
+
+    @field_validator("contamination")
+    @classmethod
+    def contamination_is_finite_and_bounded(cls, value: float) -> float:
+        if not math.isfinite(value) or not 0.0 < value < 0.5:
+            raise ValueError("contamination must be between 0 and 0.5")
+        return value
+
+    @field_validator("cluster_candidates")
+    @classmethod
+    def cluster_candidates_are_valid(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if not value or any(candidate < 2 for candidate in value):
+            raise ValueError("cluster_candidates must contain integers greater than or equal to 2")
+        return value
+
+    @field_validator("feature_names")
+    @classmethod
+    def feature_names_are_valid(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
+        if value is not None and (not value or any(not name.strip() for name in value)):
+            raise ValueError("feature_names must contain non-empty names")
+        if value is not None and len(set(value)) != len(value):
+            raise ValueError("feature_names must not contain duplicates")
+        return value
+
+
+@dataclass(frozen=True)
+class AnomalyAndPatternsEvidenceStream:
+    name = "anomaly-and-patterns"
+
+    config: AnomalyAndPatternsConfig = field(default_factory=AnomalyAndPatternsConfig)
     profile: VenueProfile = DEFAULT_PROFILE
 
+    def validate_configuration(self) -> None:
+        if not isinstance(self.config, AnomalyAndPatternsConfig):
+            raise TypeError("anomaly-and-patterns requires AnomalyAndPatternsConfig")
+
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        parameters: dict[str, Any] = {
-            "contamination": self.contamination,
-            "cluster_candidates": self.cluster_candidates,
-            "minimum_independent_traces": self.minimum_independent_traces,
-            "input_scaling": self.input_scaling,
-            "profile": self.profile,
-        }
-        if self.feature_names:
-            parameters["feature_names"] = self.feature_names
         traces = [to_ia2_trace(trace, profile=self.profile) for trace in snapshot.scan()]
-        result = run_ia2(traces, **parameters)
+        result = run_ia2(
+            traces,
+            feature_names=self.config.feature_names or DEFAULT_FEATURES,
+            contamination=self.config.contamination,
+            cluster_candidates=self.config.cluster_candidates,
+            minimum_independent_traces=self.config.minimum_independent_traces,
+            input_scaling=self.config.input_scaling,
+            profile=self.profile,
+        )
         problems = problems_from_analysis(result)
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=problems,
             artifacts=AnomalyAndPatternsArtifacts(
                 result=result,
-                parameters=parameters
-                | {
-                    "feature_names": (list(self.feature_names) if self.feature_names else "default")
-                },
+                config=self.config,
             ),
         )

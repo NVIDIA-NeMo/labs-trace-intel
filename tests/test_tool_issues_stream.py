@@ -9,6 +9,7 @@ import pytest
 from insight_agent.evidence_streams.tool_issues import (
     FINDING_TYPES,
     MISSING,
+    ToolIssueConfig,
     ToolIssueEvidenceArtifacts,
     ToolIssueEvidenceStream,
     to_ia3_trace,
@@ -148,7 +149,9 @@ def test_tool_issue_stream_retains_all_findings_and_cards():
 def test_tool_issue_stream_can_expose_audit_cards_as_problems():
     with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
         snapshot = InsightTraceV1Loader.from_path(CORPUS).load()
-    evidence = ToolIssueEvidenceStream(include_audit_problems=True).analyze(snapshot)
+    evidence = ToolIssueEvidenceStream(config=ToolIssueConfig(include_audit_problems=True)).analyze(
+        snapshot
+    )
 
     assert isinstance(evidence.artifacts, ToolIssueEvidenceArtifacts)
     assert len(evidence.problems) == len(evidence.artifacts.cards)
