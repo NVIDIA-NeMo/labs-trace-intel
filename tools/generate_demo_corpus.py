@@ -10,7 +10,7 @@ tmpdir and asserts byte equality, so the data can never drift from this file.
 
 Fully deterministic: no RNG, no clock. Run it with::
 
-    ./tools/make_sample_corpus.py
+    ./tools/generate_demo_corpus.py
 
 The synthetic venue is a "DocOps agent" with five catalogued tools. It uses the
 literal name ``CodeExecutionTool`` so the shipped defaults are exercised; the
@@ -508,24 +508,6 @@ def build_corpus() -> list[dict[str, Any]]:
     ]
 
 
-VENUE_PROFILE_EXAMPLE = {
-    "name": "docops-renamed",
-    "code_execution_tools": ["PythonSandbox"],
-    "agent_step_types": ["agent", "agent_step", "planning"],
-    "evaluation_step_type": "evaluation",
-    "returned_data_key": "returned_data",
-    "state_patterns": [
-        ["needs_workspace", "(?i)(?:\\[NO_WORKSPACE\\]|open a workspace)"],
-    ],
-    "notes": {
-        "why": "Demonstrates renaming the code-execution tool and replacing the "
-        "venue-specific state patterns. Running the sample corpus with this "
-        "profile moves python_traceback findings off CodeExecutionTool and "
-        "changes which state failures are detected.",
-    },
-}
-
-
 def write_outputs(data_dir: Path) -> dict[str, Path]:
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -536,19 +518,7 @@ def write_outputs(data_dir: Path) -> dict[str, Path]:
     ]
     corpus_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    catalog_path = data_dir / "sample_tool_catalog.json"
-    catalog_path.write_text(
-        json.dumps(TOOL_CATALOG, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-
-    profile_path = data_dir / "venue_profile_example.json"
-    profile_path.write_text(
-        json.dumps(VENUE_PROFILE_EXAMPLE, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-
-    return {"corpus": corpus_path, "catalog": catalog_path, "profile": profile_path}
+    return {"corpus": corpus_path}
 
 
 def main() -> int:

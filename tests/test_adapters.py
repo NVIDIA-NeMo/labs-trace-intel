@@ -24,7 +24,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
 from insight_agent.evidence_streams.tool_issues import MISSING, detect, strict_failure, to_ia3_trace
 from insight_agent.trace_loaders import InsightTraceV1Loader, validate_record
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
+DATA_DIR = Path(__file__).resolve().parent / "data" / "adapters"
 ANTHROPIC = DATA_DIR / "anthropic_messages.json"
 OPENAI = DATA_DIR / "openai_messages.json"
 

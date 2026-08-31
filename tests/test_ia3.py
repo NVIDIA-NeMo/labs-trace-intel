@@ -62,7 +62,7 @@ def test_every_finding_type_fires_on_the_sample_corpus(findings, issue_type):
     fired = {f["issue_type"] for f in findings}
     assert issue_type in fired, (
         f"{issue_type} never fires on the bundled corpus, so nobody can use the sample to "
-        "check their own adapter's coverage of this rule. Extend tools/make_sample_corpus.py."
+        "check their own adapter's coverage of this rule. Extend tools/generate_demo_corpus.py."
     )
 
 

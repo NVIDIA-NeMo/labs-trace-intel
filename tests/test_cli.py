@@ -11,6 +11,7 @@ from insight_agent.cli import EXIT_OK, EXIT_SCHEMA, main
 from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
+TEST_DATA_DIR = Path(__file__).resolve().parent / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
 
 
@@ -215,7 +216,7 @@ def test_demo_runs_end_to_end(tmp_path, capsys):
 
 def test_profile_changes_detection_and_is_recorded(tmp_path):
     out = tmp_path / "out"
-    profile = DATA_DIR / "venue_profile_example.json"
+    profile = TEST_DATA_DIR / "venue_profile_example.json"
     assert main(["run-ia3", str(CORPUS), "--profile", str(profile), "-o", str(out)]) == EXIT_OK
 
     findings = json.loads((out / "ia3" / "findings.json").read_text(encoding="utf-8"))
@@ -263,17 +264,6 @@ def test_explain_failures_surfaces_the_content_vs_output_trap(tmp_path, capsys):
     assert len(rows) == 1
     assert rows[0]["ia2_failed"] is True
     assert rows[0]["ia3_failed"] is False
-
-
-# -- scaffolding -----------------------------------------------------------
-
-
-def test_sample_copies_bundled_data(tmp_path, capsys):
-    target = tmp_path / "sample"
-    assert main(["sample", "--copy", str(target)]) == EXIT_OK
-    assert (target / "sample_corpus.jsonl").exists()
-    assert (target / "sample_tool_catalog.json").exists()
-    assert (target / "venue_profile_example.json").exists()
 
 
 def test_init_adapter_scaffolds_a_runnable_template(tmp_path, capsys):

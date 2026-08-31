@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import shutil
 import sys
 import warnings as _warnings
 from collections.abc import Sequence
@@ -98,9 +97,7 @@ def _add_corpus_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="corpus-wide tool catalog JSON, used for records that carry none of their own",
     )
-    parser.add_argument(
-        "--profile", type=Path, default=None, help="venue profile JSON (see `insight-agent sample`)"
-    )
+    parser.add_argument("--profile", type=Path, default=None, help="venue profile JSON")
     parser.add_argument(
         "--allow-metric-shadowing",
         action="store_true",
@@ -916,26 +913,6 @@ def _bundled_data_dir() -> Path:
     return Path(str(files("insight_agent"))) / "data"
 
 
-def cmd_sample(args) -> int:
-    source = _bundled_data_dir()
-    available = sorted(p.name for p in source.iterdir() if p.suffix in {".json", ".jsonl"})
-
-    if args.list or not args.copy:
-        print(f"Bundled sample data ({source}):")
-        for name in available:
-            print(f"  {name}")
-        if not args.copy:
-            print("\nCopy it out with: uv run insight-agent sample --copy ./sample")
-        return EXIT_OK
-
-    args.copy.mkdir(parents=True, exist_ok=True)
-    for name in available:
-        shutil.copy2(source / name, args.copy / name)
-    print(f"copied {len(available)} file(s) to {args.copy}")
-    print(f"next: uv run insight-agent run-all {args.copy / 'sample_corpus.jsonl'} -o out")
-    return EXIT_OK
-
-
 ADAPTER_TEMPLATE = '''#!/usr/bin/env -S uv run
 """Adapter: {name} -> Insight Agent canonical JSONL (insight-trace/v1).
 
@@ -1225,12 +1202,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tool-catalog", type=Path, default=None)
     p.add_argument("--trace-id-prefix", default="trace")
     p.set_defaults(func=cmd_adapt_messages)
-
-    # sample
-    p = sub.add_parser("sample", help="list or copy the bundled sample data")
-    p.add_argument("--list", action="store_true")
-    p.add_argument("--copy", type=Path, default=None)
-    p.set_defaults(func=cmd_sample)
 
     # init-adapter
     p = sub.add_parser("init-adapter", help="scaffold a new adapter and print the verify loop")

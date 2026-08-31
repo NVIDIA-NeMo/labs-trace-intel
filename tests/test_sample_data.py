@@ -12,9 +12,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
-from insight_agent.evidence_streams.venue import load_profile
 from insight_agent.trace_loaders import validate_corpus
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -24,20 +21,18 @@ TOOLS_DIR = REPO_ROOT / "tools"
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-import make_sample_corpus  # noqa: E402 - tools path must be registered first
-
-GENERATED_FILES = ("sample_corpus.jsonl", "sample_tool_catalog.json", "venue_profile_example.json")
+import generate_demo_corpus  # noqa: E402 - tools path must be registered first
 
 
-@pytest.mark.parametrize("filename", GENERATED_FILES)
-def test_committed_sample_data_matches_the_generator(tmp_path, filename):
-    make_sample_corpus.write_outputs(tmp_path)
+def test_committed_sample_data_matches_the_generator(tmp_path):
+    generate_demo_corpus.write_outputs(tmp_path)
+    filename = "sample_corpus.jsonl"
     regenerated = (tmp_path / filename).read_bytes()
     committed = (DATA_DIR / filename).read_bytes()
 
     assert regenerated == committed, (
-        f"{filename} differs from what tools/make_sample_corpus.py produces. "
-        "Re-run `./tools/make_sample_corpus.py` and commit the result."
+        f"{filename} differs from what tools/generate_demo_corpus.py produces. "
+        "Re-run `./tools/generate_demo_corpus.py` and commit the result."
     )
 
 
@@ -66,17 +61,3 @@ def test_sample_corpus_shape():
     # Several traces must share a logical case, otherwise the sample cannot
     # demonstrate that card eligibility counts cases and not traces.
     assert len(case_ids) < len(trace_ids)
-
-
-def test_venue_profile_example_loads():
-    profile = load_profile(DATA_DIR / "venue_profile_example.json")
-    assert profile.name == "docops-renamed"
-    assert "PythonSandbox" in profile.code_execution_tools
-
-
-def test_standalone_catalog_matches_the_embedded_one():
-    catalog = json.loads((DATA_DIR / "sample_tool_catalog.json").read_text(encoding="utf-8"))
-    first = json.loads(
-        (DATA_DIR / "sample_corpus.jsonl").read_text(encoding="utf-8").splitlines()[0]
-    )
-    assert first["tool_catalog"] == catalog

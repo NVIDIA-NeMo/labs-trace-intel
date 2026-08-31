@@ -35,10 +35,7 @@ change what the detector means.
 
 ## Using one
 
-```bash
-uv run insight-agent sample --copy ./sample          # includes venue_profile_example.json
-uv run insight-agent run-ia3 traces.jsonl --profile ./sample/venue_profile_example.json -o out
-```
+Save a profile as `my_venue.json`:
 
 ```json
 {
@@ -52,6 +49,12 @@ uv run insight-agent run-ia3 traces.jsonl --profile ./sample/venue_profile_examp
     ["needs_workspace", "(?i)open a workspace"]
   ]
 }
+```
+
+Then pass it to an evidence-stream command:
+
+```bash
+uv run insight-agent run-ia3 traces.jsonl --profile my_venue.json -o out
 ```
 
 Unknown fields are rejected, and an invalid regex fails at load rather than
@@ -68,21 +71,6 @@ profile = DEFAULT_PROFILE.with_overrides(code_execution_tools=frozenset({"Python
 run_ia2(traces, profile=profile)
 detect(records, profile=profile)
 ```
-
-## Effect on the sample corpus
-
-Running the bundled corpus with `venue_profile_example.json`, which renames the
-code-execution tool and replaces the state patterns:
-
-| | Default | Renamed profile |
-|---|---:|---:|
-| `python_traceback` findings | 1 | 0 |
-| `explicit_prerequisite_or_state_failure` findings | 7 | 3 |
-
-The traceback finding disappears because `CodeExecutionTool` is no longer a
-code-execution tool under that profile — which is exactly the point. If your
-venue calls it something else, you would otherwise be silently missing every
-code-execution failure in your corpus.
 
 ## What is deliberately *not* configurable
 
