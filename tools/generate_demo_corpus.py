@@ -13,8 +13,7 @@ Fully deterministic: no RNG, no clock. Run it with::
     ./tools/generate_demo_corpus.py
 
 The synthetic venue is a "DocOps agent" with five catalogued tools. It uses the
-literal name ``CodeExecutionTool`` so the shipped defaults are exercised; the
-bundled venue profile then shows how to rename it.
+literal name ``CodeExecutionTool`` so the built-in traceback handling is exercised.
 """
 
 from __future__ import annotations

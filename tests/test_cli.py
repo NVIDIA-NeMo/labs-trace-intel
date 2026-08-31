@@ -211,22 +211,6 @@ def test_demo_runs_end_to_end(tmp_path, capsys):
     assert (tmp_path / "out" / "ia2" / "digest.md").exists()
 
 
-# -- venue profile ---------------------------------------------------------
-
-
-def test_profile_changes_detection_and_is_recorded(tmp_path):
-    out = tmp_path / "out"
-    profile = TEST_DATA_DIR / "venue_profile_example.json"
-    assert main(["run-ia3", str(CORPUS), "--profile", str(profile), "-o", str(out)]) == EXIT_OK
-
-    findings = json.loads((out / "ia3" / "findings.json").read_text(encoding="utf-8"))
-    # The renamed profile moves code execution off CodeExecutionTool.
-    assert not [f for f in findings if f.get("mechanism_key") == "python_traceback"]
-
-    run = json.loads((out / "ia3" / "run.json").read_text(encoding="utf-8"))
-    assert run["venue_profile"]["name"] == "docops-renamed"
-
-
 # -- explain-failures ------------------------------------------------------
 
 

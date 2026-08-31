@@ -1,11 +1,7 @@
-"""A small hand-written corpus used as the pre-refactor behavioural baseline.
+"""A small hand-written corpus used as a behavioural baseline.
 
-Phase 1 makes every venue-specific literal configurable through a
-``VenueProfile``. The whole point of that refactor is that the *defaults*
-reproduce the measured behaviour exactly, so this module builds a fixed corpus
-and the golden artefacts in ``tests/data/`` are generated from it **before** the
-refactor. ``tests/test_venue_profile.py`` then asserts the post-refactor output
-is byte-identical.
+This module builds a fixed corpus, and the golden artefacts in ``tests/data/``
+assert that built-in IA2 and IA3 behavior remains byte-identical.
 
 Deliberately written against the raw engine dataclasses rather than the
 canonical JSONL loader: the loader does not exist yet at Phase 0, and keeping

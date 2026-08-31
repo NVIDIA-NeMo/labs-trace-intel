@@ -20,7 +20,6 @@ from jsonschema import validators
 from pydantic import Field
 
 from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
-from insight_agent.evidence_streams.venue import DEFAULT_PROFILE, VenueProfile
 from insight_agent.traces import UNSET, ContractModel, SpanKind, SpanStatus, Trace, TraceSnapshot
 
 DETECTOR_VERSION = "tid-v1"
@@ -87,8 +86,29 @@ PLACEHOLDER = re.compile(
 )
 IDENTIFIER_FIELD = re.compile(r"(?i)(?:^|_)(?:id|refid|reference|handle|key)$")
 IDENTIFIER_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/\-]{2,127}$")
-# Venue profiles can override these state patterns without changing the stream.
-STATE_PATTERNS = DEFAULT_PROFILE.compiled_state_patterns()
+CODE_EXECUTION_TOOLS = frozenset({"CodeExecutionTool"})
+STATE_PATTERNS = tuple(
+    (name, re.compile(source))
+    for name, source in (
+        (
+            "no_active_session",
+            r"(?i)(?:\[NO_ACTIVE_SESSION\]|no active [a-z0-9 _-]{1,40}session)",
+        ),
+        (
+            "initialize_before_use",
+            r"(?i)(?:not initialized|please .{0,80}\bbefore (?:running|using|calling))",
+        ),
+        (
+            "required_type_or_target",
+            r"(?i)(?:must be (?:a|an|the) [a-z][a-z0-9 _-]{1,50}"
+            r"|cannot be created without (?:a|an|the) [a-z][a-z0-9 _-]{1,50})",
+        ),
+        (
+            "required_first_step",
+            r"(?i)(?:must|need(?:s)? to|require(?:s|d)?) .{0,100}\bfirst\b",
+        ),
+    )
+)
 
 
 def stable_json(value: Any) -> str:
@@ -191,9 +211,7 @@ def schema_errors(
     return output
 
 
-def strict_failure(
-    call: CallRecord, *, profile: VenueProfile = DEFAULT_PROFILE
-) -> tuple[bool, str | None]:
+def strict_failure(call: CallRecord) -> tuple[bool, str | None]:
     """Decode failure only from structured or strict tool-native evidence."""
 
     if call.explicit_error is True:
@@ -226,7 +244,7 @@ def strict_failure(
         return code != 0, f"shell_exit_code_{code}"
     if STRICT_ERROR.search(text):
         return True, "error_prefix"
-    if profile.is_code_execution_tool(call.tool_name) and TRACEBACK.search(text):
+    if call.tool_name in CODE_EXECUTION_TOOLS and TRACEBACK.search(text):
         return True, "python_traceback"
     return False, None
 
@@ -278,7 +296,6 @@ def _flatten_strings(value: Any, prefix: str = "$") -> Iterable[tuple[str, str, 
 def detect_trace(
     trace: TraceRecord,
     *,
-    profile: VenueProfile = DEFAULT_PROFILE,
     retry_threshold: int = RETRY_THRESHOLD,
 ) -> list[dict[str, Any]]:
     """Run all evaluable TID v1 rules on one ordered trace."""
@@ -376,7 +393,7 @@ def detect_trace(
                 )
             )
 
-        failed, marker = strict_failure(call, profile=profile)
+        failed, marker = strict_failure(call)
         if failed and not contract_root:
             findings.append(
                 _finding(
@@ -441,9 +458,7 @@ def detect_trace(
                         },
                     )
                 )
-        state_matches = [
-            name for name, pattern in profile.compiled_state_patterns() if pattern.search(output)
-        ]
+        state_matches = [name for name, pattern in STATE_PATTERNS if pattern.search(output)]
         if state_matches:
             findings.append(
                 _finding(
@@ -517,7 +532,6 @@ def detect_trace(
 def detect(
     traces: Iterable[TraceRecord],
     *,
-    profile: VenueProfile = DEFAULT_PROFILE,
     retry_threshold: int = RETRY_THRESHOLD,
 ) -> list[dict[str, Any]]:
     """Run TID over traces and return a stable evidence-first ordering."""
@@ -525,7 +539,7 @@ def detect(
     findings = [
         finding
         for trace in traces
-        for finding in detect_trace(trace, profile=profile, retry_threshold=retry_threshold)
+        for finding in detect_trace(trace, retry_threshold=retry_threshold)
     ]
     return sorted(
         findings,
@@ -741,7 +755,6 @@ class ToolIssueEvidenceStream:
     name = "tool-issues"
 
     config: ToolIssueConfig = field(default_factory=ToolIssueConfig)
-    profile: VenueProfile = DEFAULT_PROFILE
 
     def validate_configuration(self) -> None:
         if not isinstance(self.config, ToolIssueConfig):
@@ -751,7 +764,6 @@ class ToolIssueEvidenceStream:
         traces = tuple(to_ia3_trace(trace) for trace in snapshot.scan())
         findings = detect(
             traces,
-            profile=self.profile,
             retry_threshold=self.config.retry_threshold,
         )
         cards = build_cards(

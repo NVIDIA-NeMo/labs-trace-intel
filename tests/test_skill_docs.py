@@ -21,7 +21,6 @@ from insight_agent.evidence_streams.common.insight_trace import (
 )
 from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
 from insight_agent.evidence_streams.tool_issues.coverage import RULE_REQUIREMENTS, corpus_coverage
-from insight_agent.evidence_streams.venue import VenueProfile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "insight-trace-adapter"
@@ -169,14 +168,6 @@ def test_bundled_template_is_valid_python_and_teaches_the_loop():
     assert template.stat().st_mode & 0o111
     assert "insight-agent validate" in source
     assert "missing_tool_result" in source
-
-
-def test_venue_profile_fields_are_documented():
-    text = (
-        REPO_ROOT / "src" / "insight_agent" / "evidence_streams" / "common" / "venue-profiles.md"
-    ).read_text(encoding="utf-8")
-    for field in VenueProfile().to_dict():
-        assert f"`{field}`" in text, field
 
 
 def test_readme_links_resolve():

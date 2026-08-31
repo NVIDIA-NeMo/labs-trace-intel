@@ -97,7 +97,7 @@ implementation modules live with the stage or interface that owns them.
 
 The [anomaly-and-pattern](src/insight_agent/evidence_streams/anomaly_and_patterns/README.md)
 and [tool-issue](src/insight_agent/evidence_streams/tool_issues/README.md) packages document
-their own configuration, analysis, and outputs. Shared input and venue documentation lives in
+their own configuration, analysis, and outputs. Shared input documentation lives in
 [evidence-stream common](src/insight_agent/evidence_streams/common/README.md).
 
 ### Reading the outputs

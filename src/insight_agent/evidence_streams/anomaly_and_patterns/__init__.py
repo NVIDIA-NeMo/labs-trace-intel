@@ -28,13 +28,16 @@ from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
 from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
-from insight_agent.evidence_streams.venue import DEFAULT_PROFILE, VenueProfile
 from insight_agent.traces import UNSET, ContractModel, Span, SpanKind, Trace, TraceSnapshot
 
 N_ESTIMATORS = 300
 CONTAMINATION = 0.02
 RANDOM_STATE = 0
 RECURRENCE_THRESHOLD = 3
+CODE_EXECUTION_TOOLS = frozenset({"CodeExecutionTool"})
+AGENT_STEP_TYPES = frozenset({"agent", "agent_step", "planning"})
+EVALUATION_STEP_TYPE = "evaluation"
+RETURNED_DATA_KEY = "returned_data"
 
 STRICT_ERROR_PREFIX = re.compile(r"\A\s*(?:error|failed|failure)\s*[:\-]", re.I)
 PYTHON_TRACEBACK = re.compile(r"(?m)^Traceback \(most recent call last\):")
@@ -194,8 +197,6 @@ def denoise_output(text: str, *, max_chars: int = 8_000) -> str:
 def decode_explicit_failure(
     tool_name: str,
     result: Any,
-    *,
-    profile: VenueProfile = DEFAULT_PROFILE,
 ) -> tuple[bool, str | None, str]:
     """Conservatively decode only structured or native explicit failure evidence."""
 
@@ -213,7 +214,7 @@ def decode_explicit_failure(
             return True, "nonzero_exit_code", text
     if STRICT_ERROR_PREFIX.search(text):
         return True, "tool_output_error_prefix", text
-    if profile.is_code_execution_tool(tool_name) and PYTHON_TRACEBACK.search(text):
+    if tool_name in CODE_EXECUTION_TOOLS and PYTHON_TRACEBACK.search(text):
         return True, "python_traceback", text
     return False, None, text
 
@@ -230,13 +231,11 @@ def normalized_failure_signature(tool_name: str, text: str, marker: str) -> str:
     return f"{tool_name}: {normalize_error_template(message)}"
 
 
-def _sequence_tokens(
-    trace: NormalizedTrace, *, profile: VenueProfile = DEFAULT_PROFILE
-) -> list[str]:
+def _sequence_tokens(trace: NormalizedTrace) -> list[str]:
     # The emitted token stays the literal "evaluation:boundary" regardless of
     # what the venue calls its terminal step: it is a fixed vocabulary item in
     # the clustering feature space, not a passthrough of the source value.
-    evaluation_type = profile.evaluation_step_type.strip().lower()
+    evaluation_type = EVALUATION_STEP_TYPE
     if trace.steps:
         tokens = []
         for step in sorted(trace.steps, key=lambda item: item.step_index):
@@ -252,19 +251,15 @@ def _sequence_tokens(
     ] or ["trajectory:empty"]
 
 
-def _last_agent_excerpt(
-    trace: NormalizedTrace, limit: int = 520, *, profile: VenueProfile = DEFAULT_PROFILE
-) -> str:
+def _last_agent_excerpt(trace: NormalizedTrace, limit: int = 520) -> str:
     for step in sorted(trace.steps, key=lambda item: item.step_index, reverse=True):
-        if step.step_type in profile.agent_step_types and step.content:
+        if step.step_type in AGENT_STEP_TYPES and step.content:
             text = WHITESPACE.sub(" ", step.content).strip()
             return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
     return ""
 
 
-def extract_trace_features(
-    trace: NormalizedTrace, *, profile: VenueProfile = DEFAULT_PROFILE
-) -> PreparedTrace:
+def extract_trace_features(trace: NormalizedTrace) -> PreparedTrace:
     """Build Stage-3 events and default numeric features from one trace."""
 
     calls = sorted(trace.calls, key=lambda item: item.call_index)
@@ -276,11 +271,11 @@ def extract_trace_features(
     failures: list[dict[str, Any]] = []
     returned_false = 0
     for call in calls:
-        failed, marker, text = decode_explicit_failure(call.tool_name, call.result, profile=profile)
+        failed, marker, text = decode_explicit_failure(call.tool_name, call.result)
         output_sizes.append(len(text.encode("utf-8", "ignore")))
         if call.duration_ms is not None and math.isfinite(float(call.duration_ms)):
             durations.append(max(0.0, float(call.duration_ms)))
-        if isinstance(call.result, Mapping) and call.result.get(profile.returned_data_key) is False:
+        if isinstance(call.result, Mapping) and call.result.get(RETURNED_DATA_KEY) is False:
             returned_false += 1
         if failed and marker:
             signature = normalized_failure_signature(call.tool_name, text, marker)
@@ -311,9 +306,7 @@ def extract_trace_features(
         "explicit_failure_rate": len(failures) / n_calls if n_calls else 0.0,
         "returned_data_false_rate": returned_false / n_calls if n_calls else 0.0,
         "code_execution_share": (
-            sum(counts.get(name, 0) for name in profile.code_execution_tools) / n_calls
-            if n_calls
-            else 0.0
+            sum(counts.get(name, 0) for name in CODE_EXECUTION_TOOLS) / n_calls if n_calls else 0.0
         ),
         "output_kb_per_call": sum(output_sizes) / n_calls / 1024.0 if n_calls else 0.0,
         "largest_output_kb": max(output_sizes) / 1024.0 if output_sizes else 0.0,
@@ -340,21 +333,21 @@ def extract_trace_features(
         features=TraceFeatures(
             trace_id=trace.trace_id,
             numeric=numeric,
-            sequence_tokens=_sequence_tokens(trace, profile=profile),
+            sequence_tokens=_sequence_tokens(trace),
             source_pointer=trace.source_pointer,
         ),
         tool_names=tool_names,
         failure_events=failures,
-        last_agent_excerpt=_last_agent_excerpt(trace, profile=profile),
+        last_agent_excerpt=_last_agent_excerpt(trace),
     )
 
 
 def prepare_traces(
-    traces: Iterable[NormalizedTrace], *, profile: VenueProfile = DEFAULT_PROFILE
+    traces: Iterable[NormalizedTrace],
 ) -> tuple[list[PreparedTrace], list[dict[str, Any]]]:
     """Run Stage 3 over complete traces and return trace rows plus failure events."""
 
-    prepared = [extract_trace_features(trace, profile=profile) for trace in traces]
+    prepared = [extract_trace_features(trace) for trace in traces]
     prepared.sort(key=lambda item: item.trace.trace_id)
     events = [dict(event) for item in prepared for event in item.failure_events]
     return prepared, events
@@ -906,11 +899,10 @@ def run_ia2(
     cluster_candidates: Sequence[int] = (2, 3, 4, 5, 6, 7, 8),
     minimum_independent_traces: int = RECURRENCE_THRESHOLD,
     input_scaling: str = "none",
-    profile: VenueProfile = DEFAULT_PROFILE,
 ) -> AnomalyAndPatternsAnalysis:
     """Execute Stages 3–6 and return every intermediate plus the cited digest."""
 
-    prepared, failure_events = prepare_traces(traces, profile=profile)
+    prepared, failure_events = prepare_traces(traces)
     records = [item.features for item in prepared]
     anomalies = select_anomalies(
         records,
@@ -1054,7 +1046,7 @@ def _native_step_type(span: Span) -> str:
     }.get(span.kind, span.kind.value.lower())
 
 
-def to_ia2_trace(trace: Trace, *, profile: VenueProfile = DEFAULT_PROFILE) -> NormalizedTrace:
+def to_ia2_trace(trace: Trace) -> NormalizedTrace:
     """Project one normalized trace into the anomaly-and-pattern analysis model."""
 
     calls: list[NormalizedCall] = []
@@ -1066,8 +1058,8 @@ def to_ia2_trace(trace: Trace, *, profile: VenueProfile = DEFAULT_PROFILE) -> No
         returned_data = details.returned_data if details is not None else UNSET
         if returned_data is not UNSET:
             if isinstance(result, Mapping):
-                if profile.returned_data_key not in result:
-                    result = {**result, profile.returned_data_key: returned_data}
+                if RETURNED_DATA_KEY not in result:
+                    result = {**result, RETURNED_DATA_KEY: returned_data}
             else:
                 warnings.warn(
                     f"call {(details.call_id if details else span.span_id)!r} in trace "
@@ -1154,14 +1146,13 @@ class AnomalyAndPatternsEvidenceStream:
     name = "anomaly-and-patterns"
 
     config: AnomalyAndPatternsConfig = field(default_factory=AnomalyAndPatternsConfig)
-    profile: VenueProfile = DEFAULT_PROFILE
 
     def validate_configuration(self) -> None:
         if not isinstance(self.config, AnomalyAndPatternsConfig):
             raise TypeError("anomaly-and-patterns requires AnomalyAndPatternsConfig")
 
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        traces = [to_ia2_trace(trace, profile=self.profile) for trace in snapshot.scan()]
+        traces = [to_ia2_trace(trace) for trace in snapshot.scan()]
         result = run_ia2(
             traces,
             feature_names=self.config.feature_names or DEFAULT_FEATURES,
@@ -1169,7 +1160,6 @@ class AnomalyAndPatternsEvidenceStream:
             cluster_candidates=self.config.cluster_candidates,
             minimum_independent_traces=self.config.minimum_independent_traces,
             input_scaling=self.config.input_scaling,
-            profile=self.profile,
         )
         problems = problems_from_analysis(result)
         return EvidenceStreamResult(

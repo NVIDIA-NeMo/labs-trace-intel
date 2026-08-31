@@ -15,7 +15,6 @@ from insight_agent.evidence_streams.common.insight_trace import (
     TraceLoadError,
 )
 from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
-from insight_agent.evidence_streams.venue import DEFAULT_PROFILE
 
 BASE = {
     "schema_version": CANONICAL_VERSION,
@@ -42,13 +41,10 @@ def one_call(**call_overrides):
     return rec
 
 
-def ia2_trace(rec, *, profile=DEFAULT_PROFILE, tool_catalog=None):
+def ia2_trace(rec, *, tool_catalog=None):
     options = InsightTraceOptions(tool_catalog=tool_catalog)
     trace = next(InsightTraceLoader.from_records([rec], options).load().scan())
-    return to_ia2_trace(
-        trace,
-        profile=profile,
-    )
+    return to_ia2_trace(trace)
 
 
 def ia3_trace(rec, *, tool_catalog=None):
@@ -253,12 +249,6 @@ def test_returned_data_is_injected_into_a_mapping_result():
     trace = ia2_trace(rec)
     assert trace.calls[0].result["returned_data"] is False
     assert extract_trace_features(trace).features.numeric["returned_data_false_rate"] == 1.0
-
-
-def test_returned_data_uses_the_profile_key():
-    custom = DEFAULT_PROFILE.with_overrides(returned_data_key="had_rows")
-    rec = one_call(result={"content": "none"}, returned_data=False)
-    assert ia2_trace(rec, profile=custom).calls[0].result["had_rows"] is False
 
 
 def test_returned_data_on_a_string_result_warns_and_does_not_wrap():

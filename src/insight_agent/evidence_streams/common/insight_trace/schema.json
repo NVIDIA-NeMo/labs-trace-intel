@@ -224,7 +224,7 @@
         "step_type": {
           "type": "string",
           "minLength": 1,
-          "description": "Kind of step. Conventional values are 'tool', 'agent', 'planning', 'evaluation' and 'user'; all of these names are configurable through a venue profile. Steps typed 'evaluation' collapse to a single token during clustering so per-run verdict text does not fragment the clusters."
+          "description": "Kind of step. Conventional values are 'tool', 'agent', 'planning', 'evaluation' and 'user'. Steps typed 'evaluation' collapse to a single token during clustering so per-run verdict text does not fragment the clusters."
         },
         "name": {
           "type": "string",

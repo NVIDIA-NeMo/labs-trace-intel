@@ -30,9 +30,6 @@ remains available in `AnomalyAndPatternsArtifacts`.
 | `minimum_independent_traces` | `3` | Recurrence threshold for grouped evidence |
 | `feature_names` | `None` | Uses the built-in feature set unless explicitly overridden |
 
-Venue-dependent tool names, step types, and state patterns come from the shared
-[venue profile](../common/venue-profiles.md).
-
 ## Run it
 
 ```bash

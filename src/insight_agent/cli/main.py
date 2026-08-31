@@ -59,7 +59,6 @@ from insight_agent.evidence_streams.tool_issues import (
     to_ia3_trace,
 )
 from insight_agent.evidence_streams.tool_issues.coverage import corpus_coverage, format_coverage
-from insight_agent.evidence_streams.venue import VenueProfile, load_profile
 from insight_agent.insights_generation import DEFAULT_MAX_TOKENS as ANALYST_DEFAULT_MAX_TOKENS
 from insight_agent.insights_generation import DEFAULT_MAX_TOOL_ROUNDS as ANALYST_DEFAULT_TOOL_ROUNDS
 from insight_agent.insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
@@ -97,7 +96,6 @@ def _add_corpus_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="corpus-wide tool catalog JSON, used for records that carry none of their own",
     )
-    parser.add_argument("--profile", type=Path, default=None, help="venue profile JSON")
     parser.add_argument(
         "--allow-metric-shadowing",
         action="store_true",
@@ -163,13 +161,8 @@ def _trace_loader(args: argparse.Namespace) -> InsightTraceLoader:
     return loader
 
 
-def _venue_profile(args: argparse.Namespace) -> VenueProfile:
-    return load_profile(args.profile)
-
-
 def _run_metadata(
     loader: InsightTraceLoader,
-    profile: VenueProfile,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Provenance recorded beside every result.
@@ -185,7 +178,6 @@ def _run_metadata(
         "scikit_learn_version": sklearn.__version__,
         "python_version": sys.version.split()[0],
         "corpus": loader.describe(),
-        "venue_profile": profile.to_dict(),
     }
     if extra:
         payload["parameters"] = extra
@@ -236,12 +228,10 @@ def cmd_validate(args) -> int:
 
 def cmd_coverage(args) -> int:
     loader = _trace_loader(args)
-    profile = _venue_profile(args)
     findings = None
     if args.with_findings:
         findings = detect(
             (to_ia3_trace(trace) for trace in loader.load().scan()),
-            profile=profile,
         )
 
     report = corpus_coverage(loader, findings=findings)
@@ -262,21 +252,18 @@ def cmd_explain_failures(args) -> int:
     makes the divergence visible rather than mysterious.
     """
     loader = _trace_loader(args)
-    profile = _venue_profile(args)
     snapshot = loader.load()
-    ia2_traces = {trace.id: to_ia2_trace(trace, profile=profile) for trace in snapshot.scan()}
+    ia2_traces = {trace.id: to_ia2_trace(trace) for trace in snapshot.scan()}
     rows = []
 
     for trace in (to_ia3_trace(item) for item in snapshot.scan()):
         ia2_calls = {c.call_id: c for c in ia2_traces[trace.trace_id].calls}
         for call in trace.calls:
-            ia3_failed, ia3_marker = strict_failure(call, profile=profile)
+            ia3_failed, ia3_marker = strict_failure(call)
             ia2_call = ia2_calls.get(call.call_id)
             if ia2_call is None:
                 continue
-            ia2_failed, ia2_marker, _ = decode_explicit_failure(
-                ia2_call.tool_name, ia2_call.result, profile=profile
-            )
+            ia2_failed, ia2_marker, _ = decode_explicit_failure(ia2_call.tool_name, ia2_call.result)
             row = {
                 "trace_id": trace.trace_id,
                 "call_id": call.call_id,
@@ -323,7 +310,6 @@ def cmd_explain_failures(args) -> int:
 
 def _registered_evidence_streams(
     args: argparse.Namespace,
-    profile: VenueProfile,
     *names: str,
 ) -> EvidenceStreamRegistry:
     requested = names or BUILTIN_STREAM_NAMES
@@ -346,7 +332,6 @@ def _registered_evidence_streams(
         )
 
     return registered_builtin_streams(
-        profile=profile,
         anomaly_and_patterns=anomaly_and_patterns,
         tool_issues=tool_issues,
     )
@@ -357,7 +342,6 @@ def _write_anomaly_and_patterns(
     loader: InsightTraceLoader,
     snapshot: TraceSnapshot,
     evidence: EvidenceStreamResult,
-    profile: VenueProfile,
 ) -> int:
     artifacts = evidence.artifacts
     if not isinstance(artifacts, AnomalyAndPatternsArtifacts):
@@ -386,13 +370,11 @@ def _write_anomaly_and_patterns(
         target / "run.json",
         _run_metadata(
             loader,
-            profile,
             {
                 "contamination": artifacts.config.contamination,
                 "cluster_candidates": artifacts.config.cluster_candidates,
                 "minimum_independent_traces": artifacts.config.minimum_independent_traces,
                 "input_scaling": artifacts.config.input_scaling,
-                "profile": profile,
                 "feature_names": (
                     list(artifacts.config.feature_names)
                     if artifacts.config.feature_names
@@ -426,12 +408,11 @@ def _write_anomaly_and_patterns(
 def cmd_run_ia2(args: argparse.Namespace) -> int:
     loader = _trace_loader(args)
     snapshot = loader.load()
-    profile = _venue_profile(args)
 
-    evidence = _registered_evidence_streams(args, profile, ANOMALY_AND_PATTERNS).analyze(
+    evidence = _registered_evidence_streams(args, ANOMALY_AND_PATTERNS).analyze(
         ANOMALY_AND_PATTERNS, snapshot
     )
-    return _write_anomaly_and_patterns(args, loader, snapshot, evidence, profile)
+    return _write_anomaly_and_patterns(args, loader, snapshot, evidence)
 
 
 def _write_tool_issues(
@@ -439,7 +420,6 @@ def _write_tool_issues(
     loader: InsightTraceLoader,
     snapshot: TraceSnapshot,
     evidence: EvidenceStreamResult,
-    profile: VenueProfile,
 ) -> int:
     artifacts = evidence.artifacts
     if not isinstance(artifacts, ToolIssueEvidenceArtifacts):
@@ -464,7 +444,6 @@ def _write_tool_issues(
         target / "run.json",
         _run_metadata(
             loader,
-            profile,
             {
                 "retry_threshold": artifacts.config.retry_threshold,
                 "minimum_independent_cases": artifacts.config.minimum_independent_cases,
@@ -505,12 +484,9 @@ def _write_tool_issues(
 def cmd_run_ia3(args: argparse.Namespace) -> int:
     loader = _trace_loader(args)
     snapshot = loader.load()
-    profile = _venue_profile(args)
 
-    evidence = _registered_evidence_streams(args, profile, TOOL_ISSUES).analyze(
-        TOOL_ISSUES, snapshot
-    )
-    return _write_tool_issues(args, loader, snapshot, evidence, profile)
+    evidence = _registered_evidence_streams(args, TOOL_ISSUES).analyze(TOOL_ISSUES, snapshot)
+    return _write_tool_issues(args, loader, snapshot, evidence)
 
 
 def _render_cards(cards: Sequence[ToolIssueCard], *, total: int | None = None) -> str:
@@ -565,19 +541,15 @@ def _run_all(args: argparse.Namespace, loader: InsightTraceLoader) -> int:
             return EXIT_ERROR
 
     snapshot = loader.load()
-    profile = _venue_profile(args)
     args.out.mkdir(parents=True, exist_ok=True)
-    registry = _registered_evidence_streams(args, profile)
+    registry = _registered_evidence_streams(args)
     anomaly_and_patterns, tool_issues = registry.analyze_all(snapshot)
-    if (
-        _write_anomaly_and_patterns(args, loader, snapshot, anomaly_and_patterns, profile)
-        != EXIT_OK
-    ):
+    if _write_anomaly_and_patterns(args, loader, snapshot, anomaly_and_patterns) != EXIT_OK:
         return EXIT_ERROR
     if not args.quiet:
         print()
 
-    if _write_tool_issues(args, loader, snapshot, tool_issues, profile) != EXIT_OK:
+    if _write_tool_issues(args, loader, snapshot, tool_issues) != EXIT_OK:
         return EXIT_ERROR
     if not args.quiet:
         print()
@@ -675,7 +647,6 @@ def _insights_inputs(args):
 
     loader = _trace_loader(args)
     snapshot = loader.load()
-    profile = _venue_profile(args)
 
     if args.digest:
         digest = Path(args.digest).read_text(encoding="utf-8")
@@ -724,7 +695,7 @@ def _insights_inputs(args):
     return (
         loader,
         snapshot,
-        _registered_evidence_streams(args, profile).analyze_all(snapshot),
+        _registered_evidence_streams(args).analyze_all(snapshot),
     )
 
 
@@ -1045,7 +1016,6 @@ def cmd_demo(args) -> int:
 
     args.traces = corpus
     args.tool_catalog = None
-    args.profile = None
     args.allow_metric_shadowing = False
 
     loaded = _trace_loader(args)

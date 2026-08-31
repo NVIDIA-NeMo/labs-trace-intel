@@ -59,7 +59,7 @@ Required: `step_index`, `step_type`
 | Field | Type | Required | What it does / what omitting it costs |
 |---|---|:---:|---|
 | `step_index` | integer | **yes** | Zero-based position of this step in the trajectory. |
-| `step_type` | string | **yes** | Kind of step. Conventional values are 'tool', 'agent', 'planning', 'evaluation' and 'user'; all of these names are configurable through a venue profile. Steps typed 'evaluation' collapse to a single token during clustering so per-run verdict text does not fragment the clusters. |
+| `step_type` | string | **yes** | Kind of step. Conventional values are 'tool', 'agent', 'planning', 'evaluation' and 'user'. Steps typed 'evaluation' collapse to a single token during clustering so per-run verdict text does not fragment the clusters. |
 | `name` | string | no | Step label, typically the tool name for tool steps. Becomes part of the trajectory token. |
 | `content` | string | no | Text produced at this step. Only read for agent-ish steps and for the terminal evaluation. |
 | `source_pointer` | object | no | Free-form pointer back to this step in the source record. |

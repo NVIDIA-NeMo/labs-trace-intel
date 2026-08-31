@@ -29,9 +29,6 @@ the native artifacts without presenting them as recurring problems.
 | `retry_threshold` | `3` | Failed calls required for retry-pattern findings |
 | `include_audit_problems` | `false` | Include cards below the recurrence threshold in projected problems |
 
-Venue-dependent tool names and state patterns come from the shared
-[venue profile](../common/venue-profiles.md).
-
 ## Run it
 
 ```bash

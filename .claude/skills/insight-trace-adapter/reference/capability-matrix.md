@@ -58,7 +58,7 @@ Check your own corpus with `uv run insight-agent coverage traces.jsonl`.
 
 | Finding type | Family | Gate | Notes |
 |---|---|---|---|
-| `explicit_prerequisite_or_state_failure` | explicit_prerequisite_or_state | `ia3_tid.py:398` | Needs result text matching the venue's state patterns. |
+| `explicit_prerequisite_or_state_failure` | explicit_prerequisite_or_state | `ia3_tid.py:398` | Needs result text matching the built-in state patterns. |
 | `explicit_tool_failure` | explicit_tool_outcome | `ia3_tid.py:341` | Needs a decodable result. explicit_error:false disables it entirely. |
 | `modified_retry_same_failure` | recovery_and_retries | `ia3_tid.py:439` | Needs three failing calls sharing a failure class across >=2 argument sets. |
 | `repeated_identical_failed_call` | recovery_and_retries | `ia3_tid.py:429` | Needs three failing calls with byte-identical arguments. |

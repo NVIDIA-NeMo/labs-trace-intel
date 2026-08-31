@@ -8,7 +8,6 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
 )
 from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
 from insight_agent.evidence_streams.tool_issues import ToolIssueConfig, ToolIssueEvidenceStream
-from insight_agent.evidence_streams.venue import VenueProfile
 
 ANOMALY_AND_PATTERNS = AnomalyAndPatternsEvidenceStream.name
 TOOL_ISSUES = ToolIssueEvidenceStream.name
@@ -17,7 +16,6 @@ BUILTIN_STREAM_NAMES = (ANOMALY_AND_PATTERNS, TOOL_ISSUES)
 
 def registered_builtin_streams(
     *,
-    profile: VenueProfile,
     anomaly_and_patterns: AnomalyAndPatternsConfig | None = None,
     tool_issues: ToolIssueConfig | None = None,
 ) -> EvidenceStreamRegistry:
@@ -25,14 +23,9 @@ def registered_builtin_streams(
 
     registry = EvidenceStreamRegistry()
     if anomaly_and_patterns is not None:
-        registry.register(
-            AnomalyAndPatternsEvidenceStream(
-                config=anomaly_and_patterns,
-                profile=profile,
-            )
-        )
+        registry.register(AnomalyAndPatternsEvidenceStream(config=anomaly_and_patterns))
     if tool_issues is not None:
-        registry.register(ToolIssueEvidenceStream(config=tool_issues, profile=profile))
+        registry.register(ToolIssueEvidenceStream(config=tool_issues))
     return registry
 
 

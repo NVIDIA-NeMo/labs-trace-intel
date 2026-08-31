@@ -15,7 +15,6 @@ from insight_agent.evidence_streams.builtins import (
 from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
 from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
 from insight_agent.evidence_streams.tool_issues import ToolIssueConfig
-from insight_agent.evidence_streams.venue import DEFAULT_PROFILE
 from insight_agent.traces import TraceSnapshot
 
 
@@ -96,7 +95,6 @@ def test_builtin_streams_accept_typed_configuration_and_are_explicitly_registere
         retry_threshold=2,
     )
     registry = registered_builtin_streams(
-        profile=DEFAULT_PROFILE,
         anomaly_and_patterns=anomaly_config,
         tool_issues=tool_config,
     )
