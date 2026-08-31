@@ -546,7 +546,7 @@ def test_full_run_writes_insights_and_provenance(tmp_path, mock_litellm):
 
     run = json.loads((out / "analyst" / "run.json").read_text(encoding="utf-8"))
     assert run["agent"] == "DocOps"
-    assert run["prompt_version"] == "analyst_v4"
+    assert run["prompt_version"] == "analyst"
     assert run["insight_count"] == 1
     assert run["problems_presented"] > 0
 

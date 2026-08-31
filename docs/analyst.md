@@ -226,10 +226,9 @@ streams identify where to investigate but do not measure consequences.
 
 ## Prompt
 
-`src/insight_agent/insights_generation/prompts/analyst_v4.md`, packaged with the wheel. The spec
-assumes a frozen prompt and output contract across matched comparisons, so the
-version is recorded in every `run.json` and the assembled text is echoed into
-every `prompt.md`.
+`src/insight_agent/insights_generation/prompts/analyst.md`, packaged with the wheel. Git records
+the prompt's source revision; `run.json` records its name and `prompt.md` echoes
+the assembled text sent to the model.
 
 To try your own, drop a `<name>.md` beside it and pass `--prompt-version <name>`.
 Two requirements:

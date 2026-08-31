@@ -55,9 +55,9 @@ DEFAULT_MODEL = "anthropic/claude-opus-5"
 #: is an unparseable one, which wastes the whole call.
 DEFAULT_MAX_TOKENS = 16_000
 
-#: Prompts are versioned artifacts. A changed prompt gets a new version rather
-#: than silently altering the identity recorded in run metadata.
-DEFAULT_PROMPT_VERSION = "analyst_v4"
+#: The default prompt follows the source revision; its name is recorded in run
+#: metadata alongside the assembled text.
+DEFAULT_PROMPT_VERSION = "analyst"
 
 #: A prompt containing this marker gets the evidence substituted in place, and
 #: the user turn becomes a short kickoff. Without it the template is the system
@@ -104,7 +104,7 @@ def _prompts_dir():
 
 @lru_cache(maxsize=8)
 def _prompt_template(version: str = DEFAULT_PROMPT_VERSION) -> str:
-    """One versioned Analyst prompt, read from the packaged resources."""
+    """One named Analyst prompt, read from the packaged resources."""
 
     try:
         return _prompts_dir().joinpath(f"{version}.md").read_text(encoding="utf-8")
