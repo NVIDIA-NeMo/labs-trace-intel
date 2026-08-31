@@ -1,4 +1,4 @@
-"""Tool-issue evidence stream.
+"""Tool-issue evidence stream package.
 
 The implementation follows the current seven-category, nineteen-finding
 catalog. It is deterministic, capability-gated, and independent of dataset

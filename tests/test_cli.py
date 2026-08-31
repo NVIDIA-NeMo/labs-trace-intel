@@ -266,6 +266,9 @@ def test_explain_failures_surfaces_the_content_vs_output_trap(tmp_path, capsys):
     assert rows[0]["ia3_failed"] is False
 
 
+# -- scaffolding -----------------------------------------------------------
+
+
 def test_init_adapter_scaffolds_a_runnable_template(tmp_path, capsys):
     assert main(["init-adapter", "mytool", "--dir", str(tmp_path)]) == EXIT_OK
     adapter = tmp_path / "mytool.py"

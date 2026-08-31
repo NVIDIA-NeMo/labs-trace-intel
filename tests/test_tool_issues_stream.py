@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader
 from insight_agent.evidence_streams.tool_issues import (
     FINDING_TYPES,
     MISSING,
@@ -14,7 +15,6 @@ from insight_agent.evidence_streams.tool_issues import (
     ToolIssueEvidenceStream,
     to_ia3_trace,
 )
-from insight_agent.trace_loaders import InsightTraceV1Loader
 from insight_agent.traces import Span, SpanKind, Trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
@@ -50,7 +50,7 @@ def test_input_normalization_preserves_every_field_ia3_uses():
     }
 
     with pytest.warns(UserWarning, match=r"WARNING\[result_id_mostly_mismatched\]"):
-        trace = next(InsightTraceV1Loader.from_records([record]).load().scan())
+        trace = next(InsightTraceLoader.from_records([record]).load().scan())
     projected = to_ia3_trace(trace)
     call = projected.calls[0]
     assert projected.trace_id == "trace-1"
@@ -74,7 +74,7 @@ def test_input_normalization_preserves_every_field_ia3_uses():
 
 def test_missing_output_uses_ia3_singleton_but_json_null_remains_none():
     trace = next(
-        InsightTraceV1Loader.from_records(
+        InsightTraceLoader.from_records(
             [
                 {
                     "schema_version": "insight-trace/v1",
@@ -130,7 +130,7 @@ def test_full_trace_input_supplies_prior_user_context():
 
 def test_tool_issue_stream_retains_all_findings_and_cards():
     with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        loader = InsightTraceV1Loader.from_path(CORPUS)
+        loader = InsightTraceLoader.from_path(CORPUS)
     snapshot = loader.load()
     evidence = ToolIssueEvidenceStream().analyze(snapshot)
 
@@ -148,7 +148,7 @@ def test_tool_issue_stream_retains_all_findings_and_cards():
 
 def test_tool_issue_stream_can_expose_audit_cards_as_problems():
     with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        snapshot = InsightTraceV1Loader.from_path(CORPUS).load()
+        snapshot = InsightTraceLoader.from_path(CORPUS).load()
     evidence = ToolIssueEvidenceStream(config=ToolIssueConfig(include_audit_problems=True)).analyze(
         snapshot
     )

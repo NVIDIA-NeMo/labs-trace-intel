@@ -1,4 +1,4 @@
-"""Anomaly and recurring-pattern evidence stream.
+"""Anomaly and recurring-pattern evidence stream package.
 
 This module owns the stream entry point and its feature extraction, anomaly
 selection, clustering, recurring-failure analysis, and evidence rendering.

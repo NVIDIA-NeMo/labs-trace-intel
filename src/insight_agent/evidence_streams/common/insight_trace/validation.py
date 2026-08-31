@@ -45,7 +45,7 @@ __all__ = [
 
 CANONICAL_VERSION = "insight-trace/v1"
 
-SCHEMA_FILENAME = "insight_trace_v1.schema.json"
+SCHEMA_FILENAME = "schema.json"
 
 #: The eleven built-in IA2 features. Duplicated here rather than imported so
 #: that validation stays free of the scikit-learn import chain; a test asserts
@@ -154,9 +154,11 @@ def trace_schema() -> dict[str, Any]:
     install and a zipapp alike.
     """
 
-    # Resolved through the parent package because `schemas/` has no
-    # __init__.py and is therefore a namespace package.
-    text = files("insight_agent").joinpath("schemas", SCHEMA_FILENAME).read_text(encoding="utf-8")
+    text = (
+        files("insight_agent.evidence_streams.common.insight_trace")
+        .joinpath(SCHEMA_FILENAME)
+        .read_text(encoding="utf-8")
+    )
     return json.loads(text)
 
 

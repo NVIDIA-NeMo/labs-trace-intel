@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from insight_agent.trace_loaders import validate_corpus
+from insight_agent.evidence_streams.common.insight_trace import validate_corpus
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "src" / "insight_agent" / "data"

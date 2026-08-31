@@ -1,10 +1,10 @@
 # The canonical trace format (`insight-trace/v1`)
 
 One JSON object per line; one line per complete trace. This page is generated
-from `src/insight_agent/schemas/insight_trace_v1.schema.json` — print the schema
+from `src/insight_agent/evidence_streams/common/insight_trace/schema.json` — print the schema
 itself with `uv run insight-agent schema`.
 
-Adapters can emit this format in any language. `InsightTraceV1Loader` validates it and
+Adapters can emit this format in any language. `InsightTraceLoader` validates it and
 normalizes each record into the local `Trace` and `Span` models. Evidence streams then own
 their projections into any algorithm-specific types.
 

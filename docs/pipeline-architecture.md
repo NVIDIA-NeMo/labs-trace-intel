@@ -32,7 +32,7 @@ flowchart TB
 
 `TraceLoader` is the input boundary, not a generic pipeline phase. Each loader owns the I/O,
 validation, and normalization for one source and returns the local normalized contract. The
-current `InsightTraceV1Loader` reads the repository's `insight-trace/v1` JSONL format. A future
+current `InsightTraceLoader` reads the repository's `insight-trace/v1` JSONL format. A future
 LangSmith, OpenTelemetry, ATIF, or NeMo Platform loader would emit the same `Trace` values
 directly; it would not translate through `insight-trace/v1` first.
 
@@ -41,7 +41,7 @@ directly; it would not translate through `insight-trace/v1` first.
 ```mermaid
 flowchart TB
     input["Input<br/>provider-native, OTel, ATIF,<br/>NeMo Intake, or insight-trace/v1"]
-    normalize["Concrete example<br/>InsightTraceV1Loader"]
+    normalize["Concrete example<br/>InsightTraceLoader"]
     output["Output<br/>validated TraceSnapshot<br/>containing Trace + Span records"]
     input --> normalize --> output
 ```
@@ -232,7 +232,7 @@ Provider, model, token, session, agent, and trace-summary fields are omitted unt
 stream actually consumes them. Future analysis should extend this contract from a concrete
 requirement rather than copying a provider's storage model wholesale.
 
-Concrete example: `InsightTraceV1Loader` validates `insight-trace/v1` records, maps their
+Concrete example: `InsightTraceLoader` validates `insight-trace/v1` records, maps their
 steps and calls into normalized spans, and returns a snapshot. A future loader for NeMo
 Platform would map its API objects into these local models; it would not return or import
 NeMo Platform classes.

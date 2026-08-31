@@ -8,14 +8,14 @@ import json
 import pytest
 
 from insight_agent.evidence_streams.anomaly_and_patterns import extract_trace_features, to_ia2_trace
-from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
-from insight_agent.evidence_streams.venue import DEFAULT_PROFILE
-from insight_agent.trace_loaders import (
+from insight_agent.evidence_streams.common.insight_trace import (
     CANONICAL_VERSION,
-    InsightTraceV1Loader,
-    InsightTraceV1Options,
+    InsightTraceLoader,
+    InsightTraceOptions,
     TraceLoadError,
 )
+from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
+from insight_agent.evidence_streams.venue import DEFAULT_PROFILE
 
 BASE = {
     "schema_version": CANONICAL_VERSION,
@@ -43,8 +43,8 @@ def one_call(**call_overrides):
 
 
 def ia2_trace(rec, *, profile=DEFAULT_PROFILE, tool_catalog=None):
-    options = InsightTraceV1Options(tool_catalog=tool_catalog)
-    trace = next(InsightTraceV1Loader.from_records([rec], options).load().scan())
+    options = InsightTraceOptions(tool_catalog=tool_catalog)
+    trace = next(InsightTraceLoader.from_records([rec], options).load().scan())
     return to_ia2_trace(
         trace,
         profile=profile,
@@ -52,8 +52,8 @@ def ia2_trace(rec, *, profile=DEFAULT_PROFILE, tool_catalog=None):
 
 
 def ia3_trace(rec, *, tool_catalog=None):
-    options = InsightTraceV1Options(tool_catalog=tool_catalog)
-    trace = next(InsightTraceV1Loader.from_records([rec], options).load().scan())
+    options = InsightTraceOptions(tool_catalog=tool_catalog)
+    trace = next(InsightTraceLoader.from_records([rec], options).load().scan())
     return to_ia3_trace(trace)
 
 
@@ -279,17 +279,17 @@ def test_existing_returned_data_key_is_not_overwritten():
 
 def test_load_records_validates_and_raises_in_strict_mode():
     with pytest.raises(TraceLoadError) as excinfo:
-        InsightTraceV1Loader.from_records([{"schema_version": CANONICAL_VERSION, "trace_id": "t"}])
+        InsightTraceLoader.from_records([{"schema_version": CANONICAL_VERSION, "trace_id": "t"}])
     assert excinfo.value.report.errors
 
 
 def test_metric_shadowing_is_an_error_unless_allowed():
     bad = record(metrics={"tool_call_count": 5.0})
     with pytest.raises(TraceLoadError):
-        InsightTraceV1Loader.from_records([bad])
+        InsightTraceLoader.from_records([bad])
 
-    loader = InsightTraceV1Loader.from_records(
-        [bad], InsightTraceV1Options(allow_metric_shadowing=True)
+    loader = InsightTraceLoader.from_records(
+        [bad], InsightTraceOptions(allow_metric_shadowing=True)
     )
     assert len(loader) == 1
 
@@ -298,13 +298,13 @@ def test_non_strict_mode_drops_bad_records_and_keeps_the_rest():
     good = record()
     bad = {"schema_version": CANONICAL_VERSION, "trace_id": "t2"}  # no calls
     with pytest.warns(UserWarning):
-        loader = InsightTraceV1Loader.from_records([good, bad], InsightTraceV1Options(strict=False))
+        loader = InsightTraceLoader.from_records([good, bad], InsightTraceOptions(strict=False))
     assert [r["trace_id"] for r in loader.records] == ["t1"]
     assert loader.report.errors
 
 
 def test_loader_builds_a_reiterable_snapshot():
-    loader = InsightTraceV1Loader.from_records([record(trace_id=f"t{i}") for i in range(3)])
+    loader = InsightTraceLoader.from_records([record(trace_id=f"t{i}") for i in range(3)])
     snapshot = loader.load()
     assert snapshot.trace_count == 3
     assert [trace.id for trace in snapshot.scan()] == ["t0", "t1", "t2"]
@@ -312,7 +312,7 @@ def test_loader_builds_a_reiterable_snapshot():
 
 
 def test_loader_describe_reports_provenance_relevant_facts():
-    loader = InsightTraceV1Loader.from_records(
+    loader = InsightTraceLoader.from_records(
         [
             record(trace_id="t1", logical_case_id="case-a"),
             record(trace_id="t2", logical_case_id="case-a"),
@@ -331,7 +331,7 @@ def test_loader_reads_jsonl_from_disk(tmp_path):
         "\n".join(json.dumps(record(trace_id=f"t{i}")) for i in range(3)) + "\n",
         encoding="utf-8",
     )
-    loader = InsightTraceV1Loader.from_path(path)
+    loader = InsightTraceLoader.from_path(path)
     assert len(loader) == 3
     assert loader.source == str(path)
 
@@ -340,12 +340,12 @@ def test_loader_rejects_malformed_json_lines(tmp_path):
     path = tmp_path / "corpus.jsonl"
     path.write_text(json.dumps(record()) + "\n{oops\n", encoding="utf-8")
     with pytest.raises(TraceLoadError, match="malformed JSON"):
-        InsightTraceV1Loader.from_path(path)
+        InsightTraceLoader.from_path(path)
 
 
 def test_duplicate_trace_ids_are_rejected():
     with pytest.raises(TraceLoadError):
-        InsightTraceV1Loader.from_records([record(), record()])
+        InsightTraceLoader.from_records([record(), record()])
 
 
 # -- structural round trip -------------------------------------------------
@@ -369,7 +369,7 @@ def test_round_trip_preserves_identity_fields():
             },
         ]
     )
-    trace = next(InsightTraceV1Loader.from_records([rec]).load().scan())
+    trace = next(InsightTraceLoader.from_records([rec]).load().scan())
     ia2 = to_ia2_trace(trace)
     ia3 = to_ia3_trace(trace)
 

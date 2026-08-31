@@ -17,7 +17,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     run_ia2,
     to_ia2_trace,
 )
-from insight_agent.trace_loaders import InsightTraceV1Loader
+from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
@@ -37,7 +37,7 @@ DIGEST_SECTIONS = (
 @pytest.fixture(scope="module")
 def traces():
     with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        loader = InsightTraceV1Loader.from_path(CORPUS)
+        loader = InsightTraceLoader.from_path(CORPUS)
     return [to_ia2_trace(trace) for trace in loader.load().scan()]
 
 

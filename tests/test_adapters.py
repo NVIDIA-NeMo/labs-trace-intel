@@ -21,8 +21,11 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     decode_explicit_failure,
     to_ia2_trace,
 )
+from insight_agent.evidence_streams.common.insight_trace import (
+    InsightTraceLoader,
+    validate_record,
+)
 from insight_agent.evidence_streams.tool_issues import MISSING, detect, strict_failure, to_ia3_trace
-from insight_agent.trace_loaders import InsightTraceV1Loader, validate_record
 
 DATA_DIR = Path(__file__).resolve().parent / "data" / "adapters"
 ANTHROPIC = DATA_DIR / "anthropic_messages.json"
@@ -34,7 +37,7 @@ def by_id(records):
 
 
 def normalized_trace(record):
-    return next(InsightTraceV1Loader.from_records([record]).load().scan())
+    return next(InsightTraceLoader.from_records([record]).load().scan())
 
 
 @pytest.fixture(scope="module")
@@ -65,8 +68,8 @@ def test_both_sample_files_produce_valid_canonical_records(anthropic_records, op
 
 
 def test_adapted_corpora_load_without_lint_errors(anthropic_records, openai_records):
-    assert len(InsightTraceV1Loader.from_records(anthropic_records.values())) == 4
-    assert len(InsightTraceV1Loader.from_records(openai_records.values())) == 4
+    assert len(InsightTraceLoader.from_records(anthropic_records.values())) == 4
+    assert len(InsightTraceLoader.from_records(openai_records.values())) == 4
 
 
 # -- the call/result join --------------------------------------------------

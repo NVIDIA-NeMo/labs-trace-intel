@@ -11,7 +11,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsEvidenceStream,
     to_ia2_trace,
 )
-from insight_agent.trace_loaders import InsightTraceV1Loader
+from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader
 from insight_agent.traces import Span, SpanKind, Trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
@@ -21,7 +21,7 @@ DUPLICATE_CALL_ID_WARNING = r"WARNING\[duplicate_call_id\].*docops-instrumentati
 
 def test_input_normalization_preserves_every_field_ia2_uses():
     with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        loader = InsightTraceV1Loader.from_path(CORPUS)
+        loader = InsightTraceLoader.from_path(CORPUS)
     record = loader.records[0]
     trace = next(loader.load().scan())
     projected = to_ia2_trace(trace)
@@ -61,7 +61,7 @@ def test_tool_calls_are_a_valid_trajectory_when_no_other_spans_exist():
         ],
     }
 
-    trace = next(InsightTraceV1Loader.from_records([record]).load().scan())
+    trace = next(InsightTraceLoader.from_records([record]).load().scan())
     projected = to_ia2_trace(trace)
     assert len(projected.calls) == 1
     assert [(step.step_type, step.name) for step in projected.steps] == [("tool", "search")]
@@ -115,7 +115,7 @@ def test_native_projection_uses_canonical_spans_for_steps_and_tool_calls():
 
 def test_ia2_stream_runs_the_engine_from_a_snapshot():
     with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        loader = InsightTraceV1Loader.from_path(CORPUS)
+        loader = InsightTraceLoader.from_path(CORPUS)
     stream = AnomalyAndPatternsEvidenceStream()
     snapshot = loader.load()
     actual = stream.analyze(snapshot)

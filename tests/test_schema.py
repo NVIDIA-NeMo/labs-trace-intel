@@ -9,7 +9,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from insight_agent.evidence_streams.anomaly_and_patterns import DEFAULT_FEATURES
-from insight_agent.trace_loaders.validation import (
+from insight_agent.evidence_streams.common.insight_trace.validation import (
     BUILTIN_FEATURE_NAMES,
     CANONICAL_VERSION,
     trace_schema,

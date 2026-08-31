@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from insight_agent.trace_loaders import InsightTraceV1Loader
+from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader
 from insight_agent.traces import (
     UNSET,
     Span,
@@ -188,7 +188,7 @@ def test_timestamp_must_be_timezone_aware():
 def test_input_normalization_preserves_missing_null_and_duplicate_source_ids():
     with pytest.warns(UserWarning, match=r"WARNING\[duplicate_call_id\].*duplicate-source-ids"):
         trace = next(
-            InsightTraceV1Loader.from_records(
+            InsightTraceLoader.from_records(
                 [
                     {
                         "schema_version": "insight-trace/v1",

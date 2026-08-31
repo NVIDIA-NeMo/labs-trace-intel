@@ -1,4 +1,4 @@
-"""Load ``insight-trace/v1`` records into normalized traces."""
+"""Load shared ``insight-trace/v1`` records into normalized traces."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from insight_agent.trace_loaders.validation import (
+from insight_agent.evidence_streams.common.insight_trace.validation import (
     Diagnostic,
     ValidationReport,
     iter_jsonl,
@@ -18,8 +18,8 @@ from insight_agent.trace_loaders.validation import (
 from insight_agent.traces import UNSET, Span, SpanKind, SpanStatus, ToolCall, Trace, TraceSnapshot
 
 __all__ = [
-    "InsightTraceV1Loader",
-    "InsightTraceV1Options",
+    "InsightTraceLoader",
+    "InsightTraceOptions",
     "TraceLoadError",
     "load_tool_catalog",
 ]
@@ -38,7 +38,7 @@ class TraceLoadError(ValueError):
 
 
 @dataclass(frozen=True)
-class InsightTraceV1Options:
+class InsightTraceOptions:
     """Options for loading ``insight-trace/v1`` records."""
 
     #: Source-wide fallback catalog, used for any record that has none of its
@@ -226,11 +226,11 @@ def _normalize_trace(
 
 
 @dataclass(frozen=True)
-class InsightTraceV1Loader:
+class InsightTraceLoader:
     """Validate and normalize one ``insight-trace/v1`` source."""
 
     records: tuple[Mapping[str, Any], ...]
-    options: InsightTraceV1Options = field(default_factory=InsightTraceV1Options)
+    options: InsightTraceOptions = field(default_factory=InsightTraceOptions)
     report: ValidationReport = field(default_factory=ValidationReport)
     source: str = "<memory>"
 
@@ -255,13 +255,13 @@ class InsightTraceV1Loader:
     def from_records(
         cls,
         records: Iterable[Mapping[str, Any]],
-        options: InsightTraceV1Options | None = None,
+        options: InsightTraceOptions | None = None,
         *,
         source: str = "<memory>",
-    ) -> InsightTraceV1Loader:
+    ) -> InsightTraceLoader:
         """Create a loader from already-parsed records."""
 
-        options = options or InsightTraceV1Options()
+        options = options or InsightTraceOptions()
         numbered = [(index + 1, record) for index, record in enumerate(records)]
         report = validate_records(numbered, allow_metric_shadowing=options.allow_metric_shadowing)
 
@@ -290,11 +290,11 @@ class InsightTraceV1Loader:
     def from_path(
         cls,
         path: str | Path,
-        options: InsightTraceV1Options | None = None,
-    ) -> InsightTraceV1Loader:
+        options: InsightTraceOptions | None = None,
+    ) -> InsightTraceLoader:
         """Create a loader from an ``insight-trace/v1`` JSONL file."""
 
-        options = options or InsightTraceV1Options()
+        options = options or InsightTraceOptions()
         path = Path(path)
         records: list[Mapping[str, Any]] = []
         parse_errors: list[Diagnostic] = []

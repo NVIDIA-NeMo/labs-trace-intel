@@ -83,15 +83,22 @@ TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insig
 ```text
 src/insight_agent/
 ├── adapters/             # source-specific conversion helpers
-├── trace_loaders/        # validation and normalization into TraceSnapshot
 ├── traces.py             # normalized Trace, Span, and TraceSnapshot contracts
-├── evidence_streams/     # IA2, IA3, their contracts, and shared configuration
+├── evidence_streams/     # evidence-stream contracts and shared configuration
+│   ├── anomaly_and_patterns/  # IA2 stream implementation
+│   ├── common/                # shared trace input contract and loader
+│   └── tool_issues/           # IA3 stream implementation and coverage helper
 ├── insights_generation/  # LLM-backed synthesis and its configuration
 └── cli/                  # command orchestration and artifact writing
 ```
 
 `traces.py` is intentionally the only shared domain module at package top level. The other
 implementation modules live with the stage or interface that owns them.
+
+The [anomaly-and-pattern](src/insight_agent/evidence_streams/anomaly_and_patterns/README.md)
+and [tool-issue](src/insight_agent/evidence_streams/tool_issues/README.md) packages document
+their own configuration, analysis, and outputs. Shared input and venue documentation lives in
+[evidence-stream common](src/insight_agent/evidence_streams/common/README.md).
 
 ### Reading the outputs
 ./out/analyst contains the final output in insights.json. It also contains a prompt.md which is the full interpolated prompt sent to the Analyst Agent. 
@@ -106,7 +113,7 @@ out/ia3 contains the artifacts from the tool-issue evidence stream.
 
 **Step 1: Load traces into the normalized format**
 Evidence streams consume a normalized `TraceSnapshot`. The current CLI uses
-`InsightTraceV1Loader`, so source traces must first be converted to `insight-trace/v1`.
+`InsightTraceLoader`, so source traces must first be converted to `insight-trace/v1`.
 
 If your traces are already in OpenAI or Anthropic message format you can use the built in adapter
 

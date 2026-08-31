@@ -39,9 +39,16 @@ from insight_agent.evidence_streams.builtins import (
     TOOL_ISSUES,
     registered_builtin_streams,
 )
+from insight_agent.evidence_streams.common.insight_trace import (
+    InsightTraceLoader,
+    InsightTraceOptions,
+    TraceLoadError,
+    load_tool_catalog,
+    trace_schema,
+    validate_corpus,
+)
 from insight_agent.evidence_streams.contracts import EvidenceStreamResult
 from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
-from insight_agent.evidence_streams.tool_issue_coverage import corpus_coverage, format_coverage
 from insight_agent.evidence_streams.tool_issues import (
     ToolIssueCard,
     ToolIssueConfig,
@@ -51,6 +58,7 @@ from insight_agent.evidence_streams.tool_issues import (
     strict_failure,
     to_ia3_trace,
 )
+from insight_agent.evidence_streams.tool_issues.coverage import corpus_coverage, format_coverage
 from insight_agent.evidence_streams.venue import VenueProfile, load_profile
 from insight_agent.insights_generation import DEFAULT_MAX_TOKENS as ANALYST_DEFAULT_MAX_TOKENS
 from insight_agent.insights_generation import DEFAULT_MAX_TOOL_ROUNDS as ANALYST_DEFAULT_TOOL_ROUNDS
@@ -67,14 +75,6 @@ from insight_agent.insights_generation.config import (
     ENV_MODEL,
     load_dotenv,
     resolve,
-)
-from insight_agent.trace_loaders import (
-    InsightTraceV1Loader,
-    InsightTraceV1Options,
-    TraceLoadError,
-    load_tool_catalog,
-    trace_schema,
-    validate_corpus,
 )
 from insight_agent.traces import TraceSnapshot
 
@@ -143,9 +143,9 @@ def _add_tool_issue_arguments(parser: argparse.ArgumentParser) -> None:
 _REPORTED_WARNINGS: set[str] = set()
 
 
-def _trace_loader(args: argparse.Namespace) -> InsightTraceV1Loader:
+def _trace_loader(args: argparse.Namespace) -> InsightTraceLoader:
     """Configure and validate the CLI's ``insight-trace/v1`` source."""
-    options = InsightTraceV1Options(
+    options = InsightTraceOptions(
         tool_catalog=load_tool_catalog(args.tool_catalog),
         allow_metric_shadowing=getattr(args, "allow_metric_shadowing", False),
         strict=True,
@@ -153,7 +153,7 @@ def _trace_loader(args: argparse.Namespace) -> InsightTraceV1Loader:
 
     with _warnings.catch_warnings(record=True) as caught:
         _warnings.simplefilter("always")
-        loader = InsightTraceV1Loader.from_path(args.traces, options)
+        loader = InsightTraceLoader.from_path(args.traces, options)
 
     for warning in caught:
         message = str(warning.message)
@@ -168,7 +168,7 @@ def _venue_profile(args: argparse.Namespace) -> VenueProfile:
 
 
 def _run_metadata(
-    loader: InsightTraceV1Loader,
+    loader: InsightTraceLoader,
     profile: VenueProfile,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -354,7 +354,7 @@ def _registered_evidence_streams(
 
 def _write_anomaly_and_patterns(
     args: argparse.Namespace,
-    loader: InsightTraceV1Loader,
+    loader: InsightTraceLoader,
     snapshot: TraceSnapshot,
     evidence: EvidenceStreamResult,
     profile: VenueProfile,
@@ -436,7 +436,7 @@ def cmd_run_ia2(args: argparse.Namespace) -> int:
 
 def _write_tool_issues(
     args: argparse.Namespace,
-    loader: InsightTraceV1Loader,
+    loader: InsightTraceLoader,
     snapshot: TraceSnapshot,
     evidence: EvidenceStreamResult,
     profile: VenueProfile,
@@ -556,7 +556,7 @@ def _render_cards(cards: Sequence[ToolIssueCard], *, total: int | None = None) -
     return "\n".join(lines)
 
 
-def _run_all(args: argparse.Namespace, loader: InsightTraceV1Loader) -> int:
+def _run_all(args: argparse.Namespace, loader: InsightTraceLoader) -> int:
     if not args.no_analyst:
         missing = _analyst_preflight(args)
         if missing:
@@ -737,7 +737,7 @@ def _read_sibling(reference: Path, name: str) -> Any:
 
 def _run_insights(
     args: argparse.Namespace,
-    loader: InsightTraceV1Loader,
+    loader: InsightTraceLoader,
     snapshot: TraceSnapshot,
     evidence: Sequence[EvidenceStreamResult],
 ) -> int:

@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from insight_agent.cli.artifacts import jsonable
+from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader
 from insight_agent.evidence_streams.tool_issues import (
     FINDING_TYPES,
     MISSING,
@@ -26,7 +27,6 @@ from insight_agent.evidence_streams.tool_issues import (
     detect,
     to_ia3_trace,
 )
-from insight_agent.trace_loaders import InsightTraceV1Loader
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
@@ -45,7 +45,7 @@ CONTRACT_TYPES = {
 @pytest.fixture(scope="module")
 def loader():
     with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        return InsightTraceV1Loader.from_path(CORPUS)
+        return InsightTraceLoader.from_path(CORPUS)
 
 
 @pytest.fixture(scope="module")
@@ -94,9 +94,9 @@ def test_issue_ids_are_stable_across_processes():
     """
     script = (
         "import json;"
-        "from insight_agent.trace_loaders import InsightTraceV1Loader;"
+        "from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader;"
         "from insight_agent.evidence_streams.tool_issues import detect,to_ia3_trace;"
-        f"loader=InsightTraceV1Loader.from_path({str(CORPUS)!r});"
+        f"loader=InsightTraceLoader.from_path({str(CORPUS)!r});"
         "print(json.dumps(sorted(f['issue_id'] for f in "
         "detect(to_ia3_trace(t) for t in loader.load().scan()))))"
     )
@@ -125,7 +125,7 @@ def test_dropping_the_catalog_silences_exactly_the_contract_rules(loader, findin
     stripped = [{k: v for k, v in r.items() if k != "tool_catalog"} for r in loader.records]
 
     with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        snapshot = InsightTraceV1Loader.from_records(stripped).load()
+        snapshot = InsightTraceLoader.from_records(stripped).load()
     without = detect(to_ia3_trace(trace) for trace in snapshot.scan())
 
     before = {f["issue_type"] for f in findings}
@@ -152,7 +152,7 @@ def test_a_null_schema_enables_unknown_tool_but_not_argument_checks():
             {"call_id": "c1", "call_index": 1, "tool_name": "GhostTool", "arguments": {}},
         ],
     }
-    trace = next(InsightTraceV1Loader.from_records([record]).load().scan())
+    trace = next(InsightTraceLoader.from_records([record]).load().scan())
     fired = {f["issue_type"] for f in detect([to_ia3_trace(trace)])}
     assert "unknown_tool" in fired
     assert not (fired & (CONTRACT_TYPES - {"unknown_tool"}))

@@ -15,10 +15,13 @@ from pathlib import Path
 
 import pytest
 
-from insight_agent.evidence_streams.tool_issue_coverage import RULE_REQUIREMENTS, corpus_coverage
+from insight_agent.evidence_streams.common.insight_trace import (
+    InsightTraceLoader,
+    trace_schema,
+)
 from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
+from insight_agent.evidence_streams.tool_issues.coverage import RULE_REQUIREMENTS, corpus_coverage
 from insight_agent.evidence_streams.venue import VenueProfile
-from insight_agent.trace_loaders import InsightTraceV1Loader, trace_schema
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "insight-trace-adapter"
@@ -73,7 +76,7 @@ def test_every_schema_field_appears_in_the_canonical_schema_reference(name):
     text = (REFERENCE / "canonical-schema.md").read_text(encoding="utf-8")
     assert f"`{name}`" in text, (
         f"schema field {name!r} is undocumented in the skill's reference. Regenerate "
-        "docs/canonical-schema.md and copy it into the skill."
+        "the canonical input README and copy it into the skill."
     )
 
 
@@ -98,8 +101,8 @@ def test_the_tool_catalog_uplift_claim_is_the_measured_number():
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        full = corpus_coverage(InsightTraceV1Loader.from_records(records))
-        without = corpus_coverage(InsightTraceV1Loader.from_records(stripped))
+        full = corpus_coverage(InsightTraceLoader.from_records(records))
+        without = corpus_coverage(InsightTraceLoader.from_records(stripped))
 
     uplift = full["rules"]["evaluable"] - without["rules"]["evaluable"]
     gated = sum(1 for r in RULE_REQUIREMENTS if r.needs == "tool_catalog")
@@ -111,7 +114,13 @@ def test_the_tool_catalog_uplift_claim_is_the_measured_number():
 def test_skill_reference_matches_the_repo_documentation():
     """The skill's schema reference is a copy; it must not drift."""
     assert (REFERENCE / "canonical-schema.md").read_text(encoding="utf-8") == (
-        REPO_ROOT / "docs" / "canonical-schema.md"
+        REPO_ROOT
+        / "src"
+        / "insight_agent"
+        / "evidence_streams"
+        / "common"
+        / "insight_trace"
+        / "README.md"
     ).read_text(encoding="utf-8")
 
 
@@ -163,7 +172,9 @@ def test_bundled_template_is_valid_python_and_teaches_the_loop():
 
 
 def test_venue_profile_fields_are_documented():
-    text = (REPO_ROOT / "docs" / "venue-profiles.md").read_text(encoding="utf-8")
+    text = (
+        REPO_ROOT / "src" / "insight_agent" / "evidence_streams" / "common" / "venue-profiles.md"
+    ).read_text(encoding="utf-8")
     for field in VenueProfile().to_dict():
         assert f"`{field}`" in text, field
 
