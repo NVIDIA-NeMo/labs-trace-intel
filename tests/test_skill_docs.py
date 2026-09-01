@@ -15,12 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from insight_agent.evidence_streams.common.insight_trace import (
+from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
+from insight_agent.evidence_streams.tool_issues.coverage import RULE_REQUIREMENTS, corpus_coverage
+from insight_agent.trace_loaders import (
     InsightTraceLoader,
     trace_schema,
 )
-from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
-from insight_agent.evidence_streams.tool_issues.coverage import RULE_REQUIREMENTS, corpus_coverage
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "insight-trace-adapter"
@@ -113,13 +113,7 @@ def test_the_tool_catalog_uplift_claim_is_the_measured_number():
 def test_skill_reference_matches_the_repo_documentation():
     """The skill's schema reference is a copy; it must not drift."""
     assert (REFERENCE / "canonical-schema.md").read_text(encoding="utf-8") == (
-        REPO_ROOT
-        / "src"
-        / "insight_agent"
-        / "evidence_streams"
-        / "common"
-        / "insight_trace"
-        / "README.md"
+        REPO_ROOT / "src" / "insight_agent" / "trace_loaders" / "insight_trace" / "README.md"
     ).read_text(encoding="utf-8")
 
 

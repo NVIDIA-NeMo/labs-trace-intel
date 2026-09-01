@@ -1,7 +1,7 @@
 # The canonical trace format (`insight-trace/v1`)
 
 One JSON object per line; one line per complete trace. This page is generated
-from `src/insight_agent/evidence_streams/common/insight_trace/schema.json` — print the schema
+from `src/insight_agent/trace_loaders/insight_trace/schema.json` — print the schema
 itself with `uv run insight-agent schema`.
 
 Adapters can emit this format in any language. `InsightTraceLoader` validates it and

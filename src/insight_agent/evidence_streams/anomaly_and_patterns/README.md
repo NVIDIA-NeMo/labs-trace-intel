@@ -45,4 +45,4 @@ failure groups, projected problems, and run metadata.
 - `run_ia2()` owns the native analysis.
 - `AnomalyAndPatternsEvidenceStream.analyze()` owns the shared evidence-stream handoff.
 - `decode_explicit_failure()` is intentionally independent from the tool-issue decoder; their
-  measured differences are documented in [the decoder comparison](../common/failure-decoders.md).
+  measured differences are documented in [the decoder comparison](../../../../docs/failure-decoders.md).

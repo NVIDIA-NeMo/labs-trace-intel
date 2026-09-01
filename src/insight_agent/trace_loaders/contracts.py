@@ -1,4 +1,4 @@
-"""Shared trace source boundary for evidence streams."""
+"""Trace source boundary."""
 
 from __future__ import annotations
 

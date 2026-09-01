@@ -8,13 +8,13 @@ import json
 import pytest
 
 from insight_agent.evidence_streams.anomaly_and_patterns import extract_trace_features, to_ia2_trace
-from insight_agent.evidence_streams.common.insight_trace import (
+from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
+from insight_agent.trace_loaders import (
     CANONICAL_VERSION,
     InsightTraceLoader,
     InsightTraceOptions,
     TraceLoadError,
 )
-from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
 
 BASE = {
     "schema_version": CANONICAL_VERSION,

@@ -87,7 +87,7 @@ sparse relative to the digest.
 
 **Check:** `uv run insight-agent explain-failures traces.jsonl --only-disagreements`
 should print `No disagreements.` See the
-[failure-decoder comparison](../../../../src/insight_agent/evidence_streams/common/failure-decoders.md).
+[failure-decoder comparison](../../../../docs/failure-decoders.md).
 
 ---
 

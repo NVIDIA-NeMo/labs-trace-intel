@@ -11,7 +11,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsEvidenceStream,
     to_ia2_trace,
 )
-from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader
+from insight_agent.trace_loaders import InsightTraceLoader
 from insight_agent.traces import Span, SpanKind, Trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"

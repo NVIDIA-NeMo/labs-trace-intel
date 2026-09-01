@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader
+from insight_agent.trace_loaders import InsightTraceLoader
 from insight_agent.traces import (
     UNSET,
     Span,

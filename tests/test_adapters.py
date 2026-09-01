@@ -21,11 +21,11 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     decode_explicit_failure,
     to_ia2_trace,
 )
-from insight_agent.evidence_streams.common.insight_trace import (
+from insight_agent.evidence_streams.tool_issues import MISSING, detect, strict_failure, to_ia3_trace
+from insight_agent.trace_loaders import (
     InsightTraceLoader,
     validate_record,
 )
-from insight_agent.evidence_streams.tool_issues import MISSING, detect, strict_failure, to_ia3_trace
 
 DATA_DIR = Path(__file__).resolve().parent / "data" / "adapters"
 ANTHROPIC = DATA_DIR / "anthropic_messages.json"

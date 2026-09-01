@@ -84,9 +84,9 @@ TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insig
 src/insight_agent/
 ├── adapters/             # source-specific conversion helpers
 ├── traces.py             # normalized Trace, Span, and TraceSnapshot contracts
-├── evidence_streams/     # evidence-stream contracts and shared configuration
+├── trace_loaders/        # loader contracts and canonical trace loader
+├── evidence_streams/     # evidence-stream contracts and implementations
 │   ├── anomaly_and_patterns/  # IA2 stream implementation
-│   ├── common/                # shared trace input contract and loader
 │   └── tool_issues/           # IA3 stream implementation and coverage helper
 ├── insights_generation/  # LLM-backed synthesis and its configuration
 └── cli/                  # command orchestration and artifact writing
@@ -97,8 +97,8 @@ implementation modules live with the stage or interface that owns them.
 
 The [anomaly-and-pattern](src/insight_agent/evidence_streams/anomaly_and_patterns/README.md)
 and [tool-issue](src/insight_agent/evidence_streams/tool_issues/README.md) packages document
-their own configuration, analysis, and outputs. Shared input documentation lives in
-[evidence-stream common](src/insight_agent/evidence_streams/common/README.md).
+their own configuration, analysis, and outputs. The canonical input format is documented with
+the [InsightTrace loader](src/insight_agent/trace_loaders/insight_trace/README.md).
 
 ### Reading the outputs
 ./out/analyst contains the final output in insights.json. It also contains a prompt.md which is the full interpolated prompt sent to the Analyst Agent. 

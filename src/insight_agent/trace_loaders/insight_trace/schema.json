@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://nvidia.com/insight-agent/schemas/insight-trace/v1",
   "title": "Insight Agent canonical trace (insight-trace/v1)",
-  "description": "One complete agent trace. A corpus is a JSONL file with one of these objects per line. This is the single format every dataset adapter targets; the shared loader fans one record out into the IA2 and IA3 engine contracts. Only four top-level fields and four per-call fields are required. Every optional field degrades gracefully, and each description below states exactly what omitting it costs.",
+  "description": "One complete agent trace. A corpus is a JSONL file with one of these objects per line. This is the single format every dataset adapter targets; InsightTraceLoader fans one record out into the IA2 and IA3 engine contracts. Only four top-level fields and four per-call fields are required. Every optional field degrades gracefully, and each description below states exactly what omitting it costs.",
   "type": "object",
   "required": [
     "schema_version",

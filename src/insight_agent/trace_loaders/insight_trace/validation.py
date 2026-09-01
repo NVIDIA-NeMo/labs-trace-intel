@@ -155,7 +155,7 @@ def trace_schema() -> dict[str, Any]:
     """
 
     text = (
-        files("insight_agent.evidence_streams.common.insight_trace")
+        files("insight_agent.trace_loaders.insight_trace")
         .joinpath(SCHEMA_FILENAME)
         .read_text(encoding="utf-8")
     )

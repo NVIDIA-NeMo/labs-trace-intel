@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from insight_agent.evidence_streams.common.insight_trace.validation import (
+from insight_agent.trace_loaders.insight_trace.validation import (
     Diagnostic,
     ValidationReport,
     iter_jsonl,

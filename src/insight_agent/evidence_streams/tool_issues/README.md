@@ -49,4 +49,4 @@ fields were not captured.
 - `build_cards()` owns recurrence grouping and promotion.
 - `ToolIssueEvidenceStream.analyze()` owns the shared evidence-stream handoff.
 - `strict_failure()` is intentionally narrower than the anomaly stream's decoder; their measured
-  differences are documented in [the decoder comparison](../common/failure-decoders.md).
+  differences are documented in [the decoder comparison](../../../../docs/failure-decoders.md).

@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from insight_agent.cli.artifacts import jsonable
-from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader
 from insight_agent.evidence_streams.tool_issues import (
     FINDING_TYPES,
     MISSING,
@@ -27,6 +26,7 @@ from insight_agent.evidence_streams.tool_issues import (
     detect,
     to_ia3_trace,
 )
+from insight_agent.trace_loaders import InsightTraceLoader
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
@@ -94,7 +94,7 @@ def test_issue_ids_are_stable_across_processes():
     """
     script = (
         "import json;"
-        "from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader;"
+        "from insight_agent.trace_loaders import InsightTraceLoader;"
         "from insight_agent.evidence_streams.tool_issues import detect,to_ia3_trace;"
         f"loader=InsightTraceLoader.from_path({str(CORPUS)!r});"
         "print(json.dumps(sorted(f['issue_id'] for f in "

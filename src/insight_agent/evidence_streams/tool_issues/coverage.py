@@ -16,8 +16,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader
 from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
+from insight_agent.trace_loaders import InsightTraceLoader
 
 __all__ = ["RULE_REQUIREMENTS", "corpus_coverage", "format_coverage"]
 

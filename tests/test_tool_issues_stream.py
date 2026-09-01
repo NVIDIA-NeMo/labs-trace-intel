@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from insight_agent.evidence_streams.common.insight_trace import InsightTraceLoader
 from insight_agent.evidence_streams.tool_issues import (
     FINDING_TYPES,
     MISSING,
@@ -15,6 +14,7 @@ from insight_agent.evidence_streams.tool_issues import (
     ToolIssueEvidenceStream,
     to_ia3_trace,
 )
+from insight_agent.trace_loaders import InsightTraceLoader
 from insight_agent.traces import Span, SpanKind, Trace
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"

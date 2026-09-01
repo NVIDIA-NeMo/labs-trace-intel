@@ -1,15 +1,14 @@
-"""Canonical input contract shared by the built-in evidence streams."""
+"""Trace loaders normalize source-specific data into ``TraceSnapshot``."""
 
-from insight_agent.evidence_streams.common.insight_trace.loader import (
+from insight_agent.trace_loaders.contracts import TraceLoader
+from insight_agent.trace_loaders.insight_trace import (
+    CANONICAL_VERSION,
+    Diagnostic,
     InsightTraceLoader,
     InsightTraceOptions,
     TraceLoadError,
-    load_tool_catalog,
-)
-from insight_agent.evidence_streams.common.insight_trace.validation import (
-    CANONICAL_VERSION,
-    Diagnostic,
     ValidationReport,
+    load_tool_catalog,
     trace_schema,
     validate_corpus,
     validate_record,
@@ -21,6 +20,7 @@ __all__ = [
     "InsightTraceLoader",
     "InsightTraceOptions",
     "TraceLoadError",
+    "TraceLoader",
     "ValidationReport",
     "load_tool_catalog",
     "trace_schema",

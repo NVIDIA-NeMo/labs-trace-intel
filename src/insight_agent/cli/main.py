@@ -39,14 +39,6 @@ from insight_agent.evidence_streams.builtins import (
     TOOL_ISSUES,
     registered_builtin_streams,
 )
-from insight_agent.evidence_streams.common.insight_trace import (
-    InsightTraceLoader,
-    InsightTraceOptions,
-    TraceLoadError,
-    load_tool_catalog,
-    trace_schema,
-    validate_corpus,
-)
 from insight_agent.evidence_streams.contracts import EvidenceStreamResult
 from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
 from insight_agent.evidence_streams.tool_issues import (
@@ -74,6 +66,14 @@ from insight_agent.insights_generation.config import (
     ENV_MODEL,
     load_dotenv,
     resolve,
+)
+from insight_agent.trace_loaders import (
+    InsightTraceLoader,
+    InsightTraceOptions,
+    TraceLoadError,
+    load_tool_catalog,
+    trace_schema,
+    validate_corpus,
 )
 from insight_agent.traces import TraceSnapshot
 
