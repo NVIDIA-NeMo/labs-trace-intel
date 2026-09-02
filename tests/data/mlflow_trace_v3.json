@@ -1,0 +1,61 @@
+{
+  "info": {
+    "trace_id": "tr-9df8a4c934051e916458d472ac87ee2a",
+    "trace_location": {
+      "type": "MLFLOW_EXPERIMENT",
+      "mlflow_experiment": {
+        "experiment_id": "1"
+      }
+    },
+    "request_time": "2026-09-02T18:37:38.529Z",
+    "state": "OK",
+    "trace_metadata": {
+      "mlflow.trace.sizeStats": "{\"total_size_bytes\": 1404, \"num_spans\": 1, \"max\": 591, \"p25\": 591, \"p50\": 591, \"p75\": 591}",
+      "mlflow.traceOutputs": "{\"answer\": \"The upstream timed out.\"}",
+      "mlflow.trace.sizeBytes": "1404",
+      "mlflow.source.type": "LOCAL",
+      "mlflow.traceInputs": "{\"query\": \"why did the agent retry?\"}",
+      "mlflow.trace.infoFinalized": "true",
+      "mlflow.source.name": "-",
+      "mlflow.source.git.branch": "",
+      "mlflow.source.git.repoURL": "",
+      "mlflow.source.git.commit": "",
+      "mlflow.user": "admin",
+      "mlflow.trace_schema.version": "3"
+    },
+    "tags": {
+      "mlflow.traceName": "analyst-fixture",
+      "mlflow.artifactLocation": "mlflow-artifacts:/1/traces/tr-9df8a4c934051e916458d472ac87ee2a/artifacts",
+      "mlflow.trace.spansLocation": "TRACKING_STORE"
+    },
+    "request_preview": "{\"query\": \"why did the agent retry?\"}",
+    "response_preview": "{\"answer\": \"The upstream timed out.\"}",
+    "execution_duration_ms": 4
+  },
+  "data": {
+    "spans": [
+      {
+        "trace_id": "nfikyTQFHpFkWNRyrIfuKg==",
+        "span_id": "QiE11VDVdUg=",
+        "parent_span_id": null,
+        "name": "analyst-fixture",
+        "start_time_unix_nano": 1788374258529802000,
+        "end_time_unix_nano": 1788374258533442000,
+        "events": [],
+        "status": {
+          "code": "STATUS_CODE_OK",
+          "message": ""
+        },
+        "attributes": {
+          "mlflow.traceRequestId": "\"tr-9df8a4c934051e916458d472ac87ee2a\"",
+          "mlflow.spanType": "\"TOOL\"",
+          "fixture.version": "\"1\"",
+          "mlflow.spanInputs": "{\"query\": \"why did the agent retry?\"}",
+          "mlflow.spanOutputs": "{\"answer\": \"The upstream timed out.\"}",
+          "mlflow.spanLogLevel": "20"
+        },
+        "links": []
+      }
+    ]
+  }
+}

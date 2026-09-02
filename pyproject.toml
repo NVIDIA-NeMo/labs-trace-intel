@@ -27,8 +27,14 @@ dependencies = [
     "litellm>=1.55,<2",
 ]
 
+[project.optional-dependencies]
+# Source adapter only. Filesystem users do not install or import the MLflow SDK.
+mlflow = ["mlflow-skinny>=3.6,<4"]
+
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+# Exercise the optional MLflow adapter in the standard contributor and CI test environment without
+# making MLflow a runtime dependency for users of the canonical filesystem format.
+dev = ["mlflow-skinny>=3.6,<4", "pytest>=8.0", "ruff>=0.6"]
 
 [project.scripts]
 insight-agent = "insight_agent.cli:main"

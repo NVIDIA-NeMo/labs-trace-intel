@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import importlib
 import json
+import warnings
 from pathlib import Path
 
 import pytest
 
-from insight_agent.cli import EXIT_OK, EXIT_SCHEMA, main
+from insight_agent.cli import EXIT_ERROR, EXIT_OK, EXIT_SCHEMA, build_parser, main
 from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
+from insight_agent.trace_loaders import (
+    InsightTraceLoader,
+    MLflowFileTraceConfig,
+    MLflowTraceConfig,
+)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 TEST_DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -202,6 +209,211 @@ def test_run_all_refuses_an_invalid_corpus(tmp_path, capsys):
     bad = tmp_path / "bad.jsonl"
     bad.write_text('{"schema_version": "insight-trace/v1", "trace_id": "t"}\n', encoding="utf-8")
     assert main(["run-all", str(bad), "-o", str(tmp_path / "out")]) == EXIT_SCHEMA
+
+
+def test_run_all_help_cites_the_mlflow_search_page_limit(capsys):
+    with pytest.raises(SystemExit) as raised:
+        main(["run-all", "--help"])
+
+    assert raised.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "500-trace pages" in help_text
+    compact_help = "".join(help_text.split())
+    assert (
+        "https://mlflow.org/docs/latest/api_reference/rest-api.html#searchtracesv3" in compact_help
+    )
+
+
+def test_run_all_accepts_mlflow_as_an_alternative_to_the_positional_file(monkeypatch, tmp_path):
+    cli_main = importlib.import_module("insight_agent.cli.main")
+    seen = {}
+
+    class FakeMLflowTraceLoader:
+        def __init__(self, config):
+            seen["config"] = config
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                self.delegate = InsightTraceLoader.from_path(CORPUS)
+
+        def load(self):
+            return self.delegate.load()
+
+        def describe(self):
+            return {
+                **self.delegate.describe(),
+                "source": "mlflow://http://mlflow.example/experiments/customer-support",
+            }
+
+    monkeypatch.setattr(cli_main, "MLflowTraceLoader", FakeMLflowTraceLoader)
+
+    out = tmp_path / "out"
+    assert (
+        main(
+            [
+                "run-all",
+                "--mlflow-experiment",
+                "customer-support",
+                "--mlflow-tracking-uri",
+                "http://mlflow.example",
+                "--mlflow-filter",
+                "trace.status = 'ERROR'",
+                "--max-traces",
+                "25",
+                "--no-analyst",
+                "--quiet",
+                "-o",
+                str(out),
+            ]
+        )
+        == EXIT_OK
+    )
+    assert seen == {
+        "config": MLflowTraceConfig(
+            experiment_name="customer-support",
+            tracking_uri="http://mlflow.example",
+            filter_string="trace.status = 'ERROR'",
+            max_traces=25,
+        )
+    }
+    assert "mlflow://http://mlflow.example" in (out / "index.md").read_text(encoding="utf-8")
+
+
+def test_run_all_accepts_a_native_mlflow_export_without_conversion(monkeypatch, tmp_path):
+    cli_main = importlib.import_module("insight_agent.cli.main")
+    export = tmp_path / "mlflow-traces.json"
+    export.write_text("{}", encoding="utf-8")
+    seen = {}
+
+    class FakeMLflowFileTraceLoader:
+        def __init__(self, config):
+            seen["config"] = config
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                self.delegate = InsightTraceLoader.from_path(CORPUS)
+
+        def load(self):
+            return self.delegate.load()
+
+        def describe(self):
+            return {
+                **self.delegate.describe(),
+                "source": f"mlflow-export:{export}",
+            }
+
+    monkeypatch.setattr(cli_main, "MLflowFileTraceLoader", FakeMLflowFileTraceLoader)
+
+    out = tmp_path / "out"
+    assert (
+        main(
+            [
+                "run-all",
+                "--mlflow-export",
+                str(export),
+                "--max-traces",
+                "25",
+                "--no-analyst",
+                "--quiet",
+                "-o",
+                str(out),
+            ]
+        )
+        == EXIT_OK
+    )
+    assert seen == {"config": MLflowFileTraceConfig(path=export, max_traces=25)}
+    assert f"mlflow-export:{export}" in (out / "index.md").read_text(encoding="utf-8")
+
+
+def test_file_and_mlflow_sources_are_mutually_exclusive():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["run-all", str(CORPUS), "--mlflow-experiment", "customer-support", "--no-analyst"]
+        )
+
+
+def test_live_mlflow_and_export_sources_are_mutually_exclusive(tmp_path):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "run-all",
+                "--mlflow-experiment",
+                "customer-support",
+                "--mlflow-export",
+                str(tmp_path / "traces.json"),
+                "--no-analyst",
+            ]
+        )
+
+
+def test_mlflow_query_options_require_the_mlflow_source(tmp_path, capsys):
+    assert (
+        main(
+            [
+                "run-all",
+                str(CORPUS),
+                "--mlflow-filter",
+                "trace.status = 'ERROR'",
+                "--no-analyst",
+                "-o",
+                str(tmp_path / "out"),
+            ]
+        )
+        == EXIT_ERROR
+    )
+    assert "--mlflow-filter require --mlflow-experiment" in capsys.readouterr().err
+
+
+def test_mlflow_query_options_are_not_applied_to_an_export(tmp_path, capsys):
+    export = tmp_path / "traces.json"
+    export.write_text("{}", encoding="utf-8")
+
+    assert (
+        main(
+            [
+                "run-all",
+                "--mlflow-export",
+                str(export),
+                "--mlflow-filter",
+                "trace.status = 'ERROR'",
+                "--no-analyst",
+                "-o",
+                str(tmp_path / "out"),
+            ]
+        )
+        == EXIT_ERROR
+    )
+    assert "--mlflow-filter require --mlflow-experiment" in capsys.readouterr().err
+
+
+def test_missing_mlflow_extra_has_an_actionable_error(monkeypatch, tmp_path, capsys):
+    cli_main = importlib.import_module("insight_agent.cli.main")
+
+    class MissingMLflowLoader:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def load(self):
+            raise ModuleNotFoundError("No module named 'mlflow'", name="mlflow")
+
+    monkeypatch.setattr(cli_main, "MLflowTraceLoader", MissingMLflowLoader)
+
+    assert (
+        main(
+            [
+                "run-all",
+                "--mlflow-experiment",
+                "customer-support",
+                "--no-analyst",
+                "-o",
+                str(tmp_path / "out"),
+            ]
+        )
+        == EXIT_ERROR
+    )
+    error = capsys.readouterr().err
+    assert "MLflow support is not installed" in error
+    assert "uv sync --extra mlflow" in error
 
 
 def test_demo_runs_end_to_end(tmp_path, capsys):

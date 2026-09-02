@@ -68,8 +68,15 @@ from insight_agent.insights_generation.config import (
     resolve,
 )
 from insight_agent.trace_loaders import (
+    MLFLOW_DEFAULT_MAX_TRACES,
     InsightTraceLoader,
     InsightTraceOptions,
+    MLflowFileTraceConfig,
+    MLflowFileTraceLoader,
+    MLflowTraceConfig,
+    MLflowTraceLoader,
+    MLflowTraceLoadError,
+    TraceLoader,
     TraceLoadError,
     load_tool_catalog,
     trace_schema,
@@ -88,8 +95,7 @@ STRUCTURAL_CODES = {"invalid_json", "not_an_object", "schema_violation", "unknow
 # -- shared plumbing -------------------------------------------------------
 
 
-def _add_corpus_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("traces", type=Path, help="canonical JSONL corpus")
+def _add_corpus_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--tool-catalog",
         type=Path,
@@ -101,6 +107,49 @@ def _add_corpus_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="permit metrics that overwrite a built-in IA2 feature",
     )
+
+
+def _add_file_corpus_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("traces", type=Path, help="canonical JSONL corpus")
+    _add_corpus_options(parser)
+
+
+def _add_trace_source_arguments(parser: argparse.ArgumentParser) -> None:
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("traces", type=Path, nargs="?", help="canonical JSONL corpus")
+    source.add_argument(
+        "--mlflow-experiment",
+        metavar="NAME",
+        help="load traces directly from this MLflow experiment",
+    )
+    source.add_argument(
+        "--mlflow-export",
+        type=Path,
+        metavar="PATH",
+        help="load a native MLflow trace JSON export",
+    )
+    parser.add_argument(
+        "--mlflow-tracking-uri",
+        default=None,
+        help="MLflow tracking URI (default: MLFLOW_TRACKING_URI or the MLflow default)",
+    )
+    parser.add_argument(
+        "--mlflow-filter",
+        default=None,
+        help="MLflow trace search filter, for example `trace.status = 'ERROR'`",
+    )
+    parser.add_argument(
+        "--max-traces",
+        type=int,
+        default=MLFLOW_DEFAULT_MAX_TRACES,
+        help=(
+            f"maximum MLflow traces to materialize in memory (default: "
+            f"{MLFLOW_DEFAULT_MAX_TRACES}); online queries use 500-trace pages per MLflow's "
+            "REST limit: "
+            "https://mlflow.org/docs/latest/api_reference/rest-api.html#searchtracesv3"
+        ),
+    )
+    _add_corpus_options(parser)
 
 
 def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
@@ -141,8 +190,55 @@ def _add_tool_issue_arguments(parser: argparse.ArgumentParser) -> None:
 _REPORTED_WARNINGS: set[str] = set()
 
 
-def _trace_loader(args: argparse.Namespace) -> InsightTraceLoader:
-    """Configure and validate the CLI's ``insight-trace/v1`` source."""
+def _trace_loader(args: argparse.Namespace) -> TraceLoader:
+    """Construct the selected trace source without leaking it downstream."""
+    experiment = getattr(args, "mlflow_experiment", None)
+    export_path = getattr(args, "mlflow_export", None)
+    if experiment or export_path:
+        if getattr(args, "tool_catalog", None) is not None:
+            raise ValueError("--tool-catalog is only supported with a canonical JSONL corpus")
+        if getattr(args, "allow_metric_shadowing", False):
+            raise ValueError(
+                "--allow-metric-shadowing is only supported with a canonical JSONL corpus"
+            )
+
+    if experiment:
+        return MLflowTraceLoader(
+            MLflowTraceConfig(
+                experiment_name=experiment,
+                tracking_uri=getattr(args, "mlflow_tracking_uri", None),
+                filter_string=getattr(args, "mlflow_filter", None),
+                max_traces=getattr(args, "max_traces", MLFLOW_DEFAULT_MAX_TRACES),
+            )
+        )
+
+    if export_path:
+        mlflow_query_options = []
+        if getattr(args, "mlflow_tracking_uri", None) is not None:
+            mlflow_query_options.append("--mlflow-tracking-uri")
+        if getattr(args, "mlflow_filter", None) is not None:
+            mlflow_query_options.append("--mlflow-filter")
+        if mlflow_query_options:
+            options = ", ".join(mlflow_query_options)
+            raise ValueError(f"{options} require --mlflow-experiment")
+        return MLflowFileTraceLoader(
+            MLflowFileTraceConfig(
+                path=export_path,
+                max_traces=getattr(args, "max_traces", MLFLOW_DEFAULT_MAX_TRACES),
+            )
+        )
+
+    mlflow_only = []
+    if getattr(args, "mlflow_tracking_uri", None) is not None:
+        mlflow_only.append("--mlflow-tracking-uri")
+    if getattr(args, "mlflow_filter", None) is not None:
+        mlflow_only.append("--mlflow-filter")
+    if getattr(args, "max_traces", MLFLOW_DEFAULT_MAX_TRACES) != MLFLOW_DEFAULT_MAX_TRACES:
+        mlflow_only.append("--max-traces")
+    if mlflow_only:
+        options = ", ".join(mlflow_only)
+        raise ValueError(f"{options} require --mlflow-experiment")
+
     options = InsightTraceOptions(
         tool_catalog=load_tool_catalog(args.tool_catalog),
         allow_metric_shadowing=getattr(args, "allow_metric_shadowing", False),
@@ -162,7 +258,7 @@ def _trace_loader(args: argparse.Namespace) -> InsightTraceLoader:
 
 
 def _run_metadata(
-    loader: InsightTraceLoader,
+    loader: TraceLoader,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Provenance recorded beside every result.
@@ -339,7 +435,7 @@ def _registered_evidence_streams(
 
 def _write_anomaly_and_patterns(
     args: argparse.Namespace,
-    loader: InsightTraceLoader,
+    loader: TraceLoader,
     snapshot: TraceSnapshot,
     evidence: EvidenceStreamResult,
 ) -> int:
@@ -417,7 +513,7 @@ def cmd_run_ia2(args: argparse.Namespace) -> int:
 
 def _write_tool_issues(
     args: argparse.Namespace,
-    loader: InsightTraceLoader,
+    loader: TraceLoader,
     snapshot: TraceSnapshot,
     evidence: EvidenceStreamResult,
 ) -> int:
@@ -532,7 +628,7 @@ def _render_cards(cards: Sequence[ToolIssueCard], *, total: int | None = None) -
     return "\n".join(lines)
 
 
-def _run_all(args: argparse.Namespace, loader: InsightTraceLoader) -> int:
+def _run_all(args: argparse.Namespace, loader: TraceLoader) -> int:
     if not args.no_analyst:
         missing = _analyst_preflight(args)
         if missing:
@@ -557,7 +653,10 @@ def _run_all(args: argparse.Namespace, loader: InsightTraceLoader) -> int:
     analyst_ran = False
     if not args.no_analyst:
         if not args.agent:
-            args.agent = Path(args.traces).stem
+            args.agent = (
+                getattr(args, "mlflow_experiment", None)
+                or Path(getattr(args, "mlflow_export", None) or args.traces).stem
+            )
         code = _run_insights(args, loader, snapshot, (anomaly_and_patterns, tool_issues))
         if code != EXIT_OK:
             return code
@@ -566,7 +665,7 @@ def _run_all(args: argparse.Namespace, loader: InsightTraceLoader) -> int:
             print()
 
     (args.out / "index.md").write_text(
-        _render_index(Path(args.traces), has_analyst=analyst_ran),
+        _render_index(str(loader.describe()["source"]), has_analyst=analyst_ran),
         encoding="utf-8",
     )
     if not args.quiet:
@@ -591,11 +690,11 @@ def _analyst_preflight(args: argparse.Namespace) -> str | None:
     return None
 
 
-def _render_index(source: Path, *, has_analyst: bool) -> str:
+def _render_index(source: str, *, has_analyst: bool) -> str:
     lines = [
         "# Insight Agent run",
         "",
-        f"Corpus: `{source}`",
+        f"Trace source: `{source}`",
         "",
         "## IA2 — what is unusual, and what recurs",
         "",
@@ -708,7 +807,7 @@ def _read_sibling(reference: Path, name: str) -> Any:
 
 def _run_insights(
     args: argparse.Namespace,
-    loader: InsightTraceLoader,
+    loader: TraceLoader,
     snapshot: TraceSnapshot,
     evidence: Sequence[EvidenceStreamResult],
 ) -> int:
@@ -1059,7 +1158,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # coverage
     p = sub.add_parser("coverage", help="report which IA3 rules this corpus can support")
-    _add_corpus_arguments(p)
+    _add_file_corpus_arguments(p)
     p.add_argument("--json", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true", help="list every rule")
     p.add_argument("--with-findings", action="store_true", help="also run IA3 and mark what fired")
@@ -1069,28 +1168,28 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser(
         "explain-failures", help="compare IA2's and IA3's failure decoding call by call"
     )
-    _add_corpus_arguments(p)
+    _add_trace_source_arguments(p)
     p.add_argument("--only-disagreements", action="store_true")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_explain_failures)
 
     # run-ia2
     p = sub.add_parser("run-ia2", help="anomalies, recurring patterns, and the Analyst digest")
-    _add_corpus_arguments(p)
+    _add_trace_source_arguments(p)
     _add_output_arguments(p)
     _add_anomaly_and_patterns_arguments(p)
     p.set_defaults(func=cmd_run_ia2)
 
     # run-ia3
     p = sub.add_parser("run-ia3", help="deterministic tool-issue detection and evidence cards")
-    _add_corpus_arguments(p)
+    _add_trace_source_arguments(p)
     _add_output_arguments(p)
     _add_tool_issue_arguments(p)
     p.set_defaults(func=cmd_run_ia3)
 
     # run-all
     p = sub.add_parser("run-all", help="validate, then run IA2, IA3 and the Analyst")
-    _add_corpus_arguments(p)
+    _add_trace_source_arguments(p)
     _add_output_arguments(p)
     _add_anomaly_and_patterns_arguments(p)
     _add_tool_issue_arguments(p)
@@ -1117,7 +1216,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser(
         "run-analyst", help="author Insights from the IA2 digest and IA3 cards (calls an LLM)"
     )
-    _add_corpus_arguments(p)
+    _add_trace_source_arguments(p)
     _add_output_arguments(p)
     p.add_argument("--agent", required=True, help="name of the agent under test")
     p.add_argument(
@@ -1215,12 +1314,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
+    except ModuleNotFoundError as exc:
+        if exc.name == "mlflow" or (exc.name or "").startswith("mlflow."):
+            print("error: MLflow support is not installed.", file=sys.stderr)
+            print("       install it with: uv sync --extra mlflow", file=sys.stderr)
+            return EXIT_ERROR
+        print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return EXIT_ERROR
     except Exception as exc:  # noqa: BLE001 - CLI boundary
         if isinstance(exc, TraceLoadError):
             print(f"error: {exc}", file=sys.stderr)
             for diagnostic in exc.report.errors[:20]:
                 print(f"  {diagnostic.format()}", file=sys.stderr)
             return EXIT_SCHEMA
+        if isinstance(exc, MLflowTraceLoadError):
+            print(f"error: {exc}", file=sys.stderr)
+            if isinstance(exc.__cause__, ImportError) or "not installed" in str(exc).lower():
+                print("       install it with: uv sync --extra mlflow", file=sys.stderr)
+            return EXIT_ERROR
         print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_ERROR
 

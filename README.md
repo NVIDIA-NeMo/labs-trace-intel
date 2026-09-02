@@ -84,7 +84,7 @@ TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insig
 src/insight_agent/
 ├── adapters/             # source-specific conversion helpers
 ├── traces.py             # normalized Trace, Span, and TraceSnapshot contracts
-├── trace_loaders/        # loader contracts and canonical trace loader
+├── trace_loaders/        # loader contracts and source-specific trace loaders
 ├── evidence_streams/     # evidence-stream contracts and implementations
 │   ├── anomaly_and_patterns/  # IA2 stream implementation
 │   └── tool_issues/           # IA3 stream implementation and coverage helper
@@ -111,11 +111,64 @@ out/ia3 contains the artifacts from the tool-issue evidence stream.
 
 ## Running the agent on your own traces
 
-**Step 1: Load traces into the normalized format**
-Evidence streams consume a normalized `TraceSnapshot`. The current CLI uses
-`InsightTraceLoader`, so source traces must first be converted to `insight-trace/v1`.
+Evidence streams consume a normalized `TraceSnapshot`. Choose the source adapter that matches
+where your traces already live; neither path changes the downstream analysis.
 
-If your traces are already in OpenAI or Anthropic message format you can use the built in adapter
+### Read an MLflow experiment directly
+
+Install the optional lightweight MLflow client, point it at your tracking server, and name the
+experiment:
+
+```bash
+uv sync --locked --extra mlflow
+
+MLFLOW_TRACKING_URI=https://mlflow.example.com \
+  uv run --no-sync insight-agent run-all \
+    --mlflow-experiment my-agent \
+    -o out
+```
+
+Authentication uses the MLflow SDK's standard environment variables. Set
+`MLFLOW_TRACKING_USERNAME` and `MLFLOW_TRACKING_PASSWORD` for HTTP Basic authentication, or
+`MLFLOW_TRACKING_TOKEN` for a bearer token; Basic authentication takes precedence when both are
+present. TLS options include `MLFLOW_TRACKING_SERVER_CERT_PATH`, `MLFLOW_TRACKING_CLIENT_CERT_PATH`,
+and `MLFLOW_TRACKING_INSECURE_TLS` (not recommended). See MLflow's
+[authentication and encryption documentation](https://mlflow.org/docs/latest/self-hosting/architecture/tracking-server/#authentication-and-encryption).
+There are intentionally no Analyst auth flags, which keeps credentials in MLflow's configuration;
+provider-specific or custom auth may require its corresponding MLflow extra or plugin.
+
+Add `--mlflow-filter "trace.status = 'ERROR'"` to select a subset. MLflow's
+[trace search filters](https://mlflow.org/docs/latest/genai/tracing/search-traces/) can target
+timestamps, names, span types, tags, and metadata. `--max-traces` controls the final number of
+complete traces materialized in memory and defaults to 10,000. The loader transparently requests
+sequential pages of at most 500 traces, matching MLflow's documented
+[SearchTraces limit](https://mlflow.org/docs/latest/api_reference/rest-api.html#searchtracesv3).
+Large or span-heavy traces may exhaust local memory before the trace-count limit, so production
+runs should use a coherent time window plus stable tags or metadata rather than an unbounded query.
+
+If the traces are already exported from MLflow, pass the native JSON directly instead of converting
+it to `insight-trace/v1` JSONL:
+
+```bash
+uv sync --locked --extra mlflow
+uv run --no-sync insight-agent run-all \
+  --mlflow-export traces.json \
+  -o out
+```
+
+The loader accepts complete JSON from `mlflow traces search --output json`, `mlflow traces get`,
+or MLflow's `Trace.to_json()` / `Trace.to_dict()` serializers. It also accepts arrays of native
+trace objects and JSONL containing one native trace per line. Exports must contain spans; the loader
+rejects metadata-only results. Export-time selection is authoritative: the offline loader does not
+apply MLflow filters or follow a continuation token, and it reads the complete file before applying
+`--max-traces`.
+
+### Read traces from the filesystem
+
+Source traces from other systems need to be converted to the `insight-trace/v1` JSONL contract
+first.
+
+If your traces are already in OpenAI or Anthropic message format you can use the built-in adapter:
 
 ```bash
 uv run insight-agent adapt-messages my-conversations.json -o traces.jsonl
@@ -123,7 +176,7 @@ uv run insight-agent adapt-messages my-conversations.json -o traces.jsonl
 
 If your traces are not in a compatible format, the repo ships with a skill for writing a custom adapter. Find it at .claude/skills/insight-trace-adapter/SKILL.md
 
-After you've converted your traces you can validate the format with:
+After converting your traces, validate the format:
 
 ```bash
 # Check the format
@@ -133,14 +186,14 @@ uv run insight-agent validate traces.jsonl
 uv run insight-agent coverage traces.jsonl
 ```
 
-Then run the full analysis with:
+Then run the full analysis:
 ```bash
 uv run insight-agent run-all traces.jsonl -o out
 ```
 
-Results will be written to the /out directory. 
+Results are written to the `out` directory.
 
-If you want to do a dry run or a run without the LLM synthesis you can use
+For a dry run or a run without LLM synthesis:
 ```bash
 uv run insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
 uv run insight-agent run-all traces.jsonl -o out --no-analyst

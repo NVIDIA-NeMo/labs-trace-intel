@@ -9,13 +9,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from insight_agent.trace_loaders.contracts import TraceDescription
 from insight_agent.trace_loaders.insight_trace.validation import (
     Diagnostic,
     ValidationReport,
     iter_jsonl,
     validate_records,
 )
-from insight_agent.traces import UNSET, Span, SpanKind, SpanStatus, ToolCall, Trace, TraceSnapshot
+from insight_agent.traces import (
+    UNSET,
+    Span,
+    SpanKind,
+    SpanStatus,
+    ToolCall,
+    Trace,
+    TraceSnapshot,
+)
 
 __all__ = [
     "InsightTraceLoader",
@@ -323,7 +332,7 @@ class InsightTraceLoader:
     def all_steps_present(self) -> bool:
         return all(r.get("steps") for r in self.records)
 
-    def describe(self) -> dict[str, Any]:
+    def describe(self) -> TraceDescription:
         return {
             "source": self.source,
             "trace_count": len(self.records),
