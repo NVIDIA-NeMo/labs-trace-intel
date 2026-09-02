@@ -43,13 +43,13 @@ def one_call(**call_overrides):
 
 def ia2_trace(rec, *, tool_catalog=None):
     options = InsightTraceOptions(tool_catalog=tool_catalog)
-    trace = next(InsightTraceLoader.from_records([rec], options).load().scan())
+    trace = next(iter(InsightTraceLoader.from_records([rec], options).load()))
     return to_ia2_trace(trace)
 
 
 def ia3_trace(rec, *, tool_catalog=None):
     options = InsightTraceOptions(tool_catalog=tool_catalog)
-    trace = next(InsightTraceLoader.from_records([rec], options).load().scan())
+    trace = next(iter(InsightTraceLoader.from_records([rec], options).load()))
     return to_ia3_trace(trace)
 
 
@@ -84,7 +84,7 @@ def test_result_count_zero_forces_the_sentinel():
 def test_result_count_zero_does_not_leak_into_the_duplicate_check():
     """0 means 'missing', not 'a count worth reporting'."""
     call = first_ia3_call(one_call(result_count=0))
-    assert call.result_count == 1
+    assert call.result_count == 0
 
 
 def test_missing_sentinel_reaches_the_engine_and_fires_missing_tool_result():
@@ -297,8 +297,8 @@ def test_loader_builds_a_reiterable_snapshot():
     loader = InsightTraceLoader.from_records([record(trace_id=f"t{i}") for i in range(3)])
     snapshot = loader.load()
     assert snapshot.trace_count == 3
-    assert [trace.id for trace in snapshot.scan()] == ["t0", "t1", "t2"]
-    assert [trace.id for trace in snapshot.scan()] == ["t0", "t1", "t2"]
+    assert [trace.id for trace in snapshot] == ["t0", "t1", "t2"]
+    assert [trace.id for trace in snapshot] == ["t0", "t1", "t2"]
 
 
 def test_loader_describe_reports_provenance_relevant_facts():
@@ -359,7 +359,7 @@ def test_round_trip_preserves_identity_fields():
             },
         ]
     )
-    trace = next(InsightTraceLoader.from_records([rec]).load().scan())
+    trace = next(iter(InsightTraceLoader.from_records([rec]).load()))
     ia2 = to_ia2_trace(trace)
     ia3 = to_ia3_trace(trace)
 

@@ -37,7 +37,7 @@ def by_id(records):
 
 
 def normalized_trace(record):
-    return next(InsightTraceLoader.from_records([record]).load().scan())
+    return next(iter(InsightTraceLoader.from_records([record]).load()))
 
 
 @pytest.fixture(scope="module")

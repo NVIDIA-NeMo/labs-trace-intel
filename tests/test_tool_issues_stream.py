@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -15,11 +16,13 @@ from insight_agent.evidence_streams.tool_issues import (
     to_ia3_trace,
 )
 from insight_agent.trace_loaders import InsightTraceLoader
-from insight_agent.traces import Span, SpanKind, Trace
+from insight_agent.traces import Span, SpanKind, TokenCounts, Trace, TraceAggregate
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
 DUPLICATE_CALL_ID_WARNING = r"WARNING\[duplicate_call_id\].*docops-instrumentation"
+NOW = datetime(2026, 8, 26, tzinfo=timezone.utc)
+TOKENS = TokenCounts(input_tokens=0, cached_input_tokens=0, output_tokens=0)
 
 
 def test_input_normalization_preserves_every_field_ia3_uses():
@@ -50,7 +53,7 @@ def test_input_normalization_preserves_every_field_ia3_uses():
     }
 
     with pytest.warns(UserWarning, match=r"WARNING\[result_id_mostly_mismatched\]"):
-        trace = next(InsightTraceLoader.from_records([record]).load().scan())
+        trace = next(iter(InsightTraceLoader.from_records([record]).load()))
     projected = to_ia3_trace(trace)
     call = projected.calls[0]
     assert projected.trace_id == "trace-1"
@@ -74,31 +77,31 @@ def test_input_normalization_preserves_every_field_ia3_uses():
 
 def test_missing_output_uses_ia3_singleton_but_json_null_remains_none():
     trace = next(
-        InsightTraceLoader.from_records(
-            [
-                {
-                    "schema_version": "insight-trace/v1",
-                    "trace_id": "missing-null",
-                    "calls": [
-                        {
-                            "call_id": "missing",
-                            "call_index": 0,
-                            "tool_name": "search",
-                            "arguments": {},
-                        },
-                        {
-                            "call_id": "null",
-                            "call_index": 1,
-                            "tool_name": "search",
-                            "arguments": {},
-                            "result": None,
-                        },
-                    ],
-                }
-            ]
+        iter(
+            InsightTraceLoader.from_records(
+                [
+                    {
+                        "schema_version": "insight-trace/v1",
+                        "trace_id": "missing-null",
+                        "calls": [
+                            {
+                                "call_id": "missing",
+                                "call_index": 0,
+                                "tool_name": "search",
+                                "arguments": {},
+                            },
+                            {
+                                "call_id": "null",
+                                "call_index": 1,
+                                "tool_name": "search",
+                                "arguments": {},
+                                "result": None,
+                            },
+                        ],
+                    }
+                ]
+            ).load()
         )
-        .load()
-        .scan()
     )
 
     projected = to_ia3_trace(trace)
@@ -109,20 +112,40 @@ def test_missing_output_uses_ia3_singleton_but_json_null_remains_none():
 def test_full_trace_input_supplies_prior_user_context():
     trace = Trace(
         id="messages",
-        input={
-            "messages": [
-                {"role": "system", "content": "Use tools"},
-                {"role": "user", "content": "Find DOC-9"},
-            ]
-        },
-        spans=(
+        root_spans=[
             Span(
-                span_id="call-1",
-                kind=SpanKind.TOOL,
-                tool_name="search",
-                input={"document_id": "DOC-9"},
-            ),
-        ),
+                id="agent",
+                kind=SpanKind.AGENT,
+                children=[
+                    Span(
+                        id="call-1",
+                        kind=SpanKind.TOOL,
+                        children=[],
+                        start_time=NOW,
+                        end_time=NOW,
+                        input={"document_id": "DOC-9"},
+                        output=None,
+                        cost_usd=0.0,
+                        token_counts=TOKENS,
+                        model=None,
+                        tool_name="search",
+                    )
+                ],
+                start_time=NOW,
+                end_time=NOW,
+                input={
+                    "messages": [
+                        {"role": "system", "content": "Use tools"},
+                        {"role": "user", "content": "Find DOC-9"},
+                    ]
+                },
+                output=None,
+                cost_usd=0.0,
+                token_counts=TOKENS,
+                model=None,
+            )
+        ],
+        aggregate=TraceAggregate(cost_usd=0.0, latency_ms=0.0, token_counts=TOKENS),
     )
 
     assert to_ia3_trace(trace).calls[0].prior_user_text == "Find DOC-9"
@@ -141,9 +164,7 @@ def test_tool_issue_stream_retains_all_findings_and_cards():
     assert len(evidence.problems) == sum(
         card.eligible_for_analyst for card in evidence.artifacts.cards
     )
-    assert [trace.id for trace in snapshot.scan()] == [
-        record["trace_id"] for record in loader.records
-    ]
+    assert [trace.id for trace in snapshot] == [record["trace_id"] for record in loader.records]
 
 
 def test_tool_issue_stream_can_expose_audit_cards_as_problems():

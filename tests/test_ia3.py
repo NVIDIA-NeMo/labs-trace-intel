@@ -50,7 +50,7 @@ def loader():
 
 @pytest.fixture(scope="module")
 def findings(loader):
-    return detect(to_ia3_trace(trace) for trace in loader.load().scan())
+    return detect(to_ia3_trace(trace) for trace in loader.load())
 
 
 def test_there_are_exactly_nineteen_finding_types():
@@ -81,8 +81,8 @@ def test_findings_are_fully_attributed(findings):
 
 
 def test_findings_are_deterministic_within_a_process(loader):
-    first = detect(to_ia3_trace(trace) for trace in loader.load().scan())
-    second = detect(to_ia3_trace(trace) for trace in loader.load().scan())
+    first = detect(to_ia3_trace(trace) for trace in loader.load())
+    second = detect(to_ia3_trace(trace) for trace in loader.load())
     assert first == second
 
 
@@ -97,8 +97,8 @@ def test_issue_ids_are_stable_across_processes():
         "from insight_agent.trace_loaders import InsightTraceLoader;"
         "from insight_agent.evidence_streams.tool_issues import detect,to_ia3_trace;"
         f"loader=InsightTraceLoader.from_path({str(CORPUS)!r});"
-        "print(json.dumps(sorted(f['issue_id'] for f in "
-        "detect(to_ia3_trace(t) for t in loader.load().scan()))))"
+        "findings=detect(to_ia3_trace(t) for t in loader.load());"
+        "print(json.dumps(sorted(f['issue_id'] for f in findings)))"
     )
     runs = [
         json.loads(
@@ -126,7 +126,7 @@ def test_dropping_the_catalog_silences_exactly_the_contract_rules(loader, findin
 
     with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
         snapshot = InsightTraceLoader.from_records(stripped).load()
-    without = detect(to_ia3_trace(trace) for trace in snapshot.scan())
+    without = detect(to_ia3_trace(trace) for trace in snapshot)
 
     before = {f["issue_type"] for f in findings}
     after = {f["issue_type"] for f in without}
@@ -152,7 +152,7 @@ def test_a_null_schema_enables_unknown_tool_but_not_argument_checks():
             {"call_id": "c1", "call_index": 1, "tool_name": "GhostTool", "arguments": {}},
         ],
     }
-    trace = next(InsightTraceLoader.from_records([record]).load().scan())
+    trace = next(iter(InsightTraceLoader.from_records([record]).load()))
     fired = {f["issue_type"] for f in detect([to_ia3_trace(trace)])}
     assert "unknown_tool" in fired
     assert not (fired & (CONTRACT_TYPES - {"unknown_tool"}))
@@ -199,7 +199,7 @@ def test_retry_threshold_changes_repeat_detection(loader):
     def repeats(**kwargs):
         return [
             f
-            for f in detect((to_ia3_trace(trace) for trace in loader.load().scan()), **kwargs)
+            for f in detect((to_ia3_trace(trace) for trace in loader.load()), **kwargs)
             if f["issue_type"] == "repeated_identical_failed_call"
         ]
 

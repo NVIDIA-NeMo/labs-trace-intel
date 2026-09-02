@@ -6,15 +6,7 @@ from collections.abc import Iterable, Iterator
 from datetime import datetime
 from enum import Enum
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    FiniteFloat,
-    JsonValue,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 from pydantic.experimental.missing_sentinel import MISSING
 
 # Pydantic's missing sentinel is omitted by ``model_dump`` and JSON Schema, while
@@ -36,20 +28,7 @@ class SpanKind(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-class SpanStatus(str, Enum):
-    SUCCESS = "success"
-    ERROR = "error"
-    CANCELLED = "cancelled"
-    UNKNOWN = "unknown"
-
-
-class ContractModel(BaseModel):
-    """Strict, frozen base for normalized public contracts."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class ToolCall(ContractModel):
+class ToolCall(BaseModel):
     """Normalized metadata specific to a tool invocation."""
 
     call_id: str | None = None
@@ -61,28 +40,36 @@ class ToolCall(ContractModel):
     returned_data: bool | UNSET = UNSET
 
 
-class Span(ContractModel):
-    """One unit of work in an agent trace."""
+class TokenCounts(BaseModel):
+    input_tokens: int = Field(ge=0)
+    cached_input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
 
-    span_id: str = Field(min_length=1)
+
+class Span(BaseModel):
+    """One nested unit of work in an agent trace."""
+
+    id: str = Field(min_length=1)
     kind: SpanKind
-    parent_span_id: str | None = None
-    name: str | None = None
-    subtype: str | None = None
-    summary: str | None = None
-    status: SpanStatus = SpanStatus.UNKNOWN
-    # Source records can preserve order without recording wall-clock timestamps.
-    started_at: datetime | None = None
-    ended_at: datetime | None = None
-    duration_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    children: list[Span] = Field(default_factory=list)
+
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    # UNSET means the value was not recorded; None means it was explicitly
+    # recorded as JSON null. Evidence streams use this to detect missing results.
     input: JsonValue | UNSET = UNSET
     output: JsonValue | UNSET = UNSET
-    tool_name: str | None = None
-    error_type: str | None = None
-    tool_call: ToolCall | None = None
-    source_pointer: dict[str, JsonValue] = Field(default_factory=dict)
+    cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    token_counts: TokenCounts | None = None
+    model: str | None = None
 
-    @field_validator("started_at", "ended_at")
+    tool_name: str | None = None
+    tool_call: ToolCall | None = None
+
+    error: str | None = None
+    attributes: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("start_time", "end_time")
     @classmethod
     def timestamps_include_timezone(cls, value: datetime | None) -> datetime | None:
         if value is not None and (value.tzinfo is None or value.utcoffset() is None):
@@ -90,124 +77,77 @@ class Span(ContractModel):
         return value
 
     @model_validator(mode="after")
-    def end_does_not_precede_start(self) -> Span:
+    def validate_span(self) -> Span:
         if (
-            self.started_at is not None
-            and self.ended_at is not None
-            and self.ended_at < self.started_at
+            self.start_time is not None
+            and self.end_time is not None
+            and self.end_time < self.start_time
         ):
-            raise ValueError(f"span {self.span_id!r} ends before it starts")
+            raise ValueError(f"span {self.id!r} ends before it starts")
         if self.tool_call is not None and self.kind is not SpanKind.TOOL:
             raise ValueError("tool_call metadata requires kind=TOOL")
         return self
 
 
-class Trace(ContractModel):
+class TraceAggregate(BaseModel):
+    cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    latency_ms: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    token_counts: TokenCounts | None = None
+
+
+class Trace(BaseModel):
     """One normalized end-to-end agent run."""
 
     id: str = Field(min_length=1)
-    spans: tuple[Span, ...]
-    input: JsonValue | UNSET = UNSET
-    cost_usd: float | None = Field(default=None, ge=0, allow_inf_nan=False)
-    tool_catalog: dict[str, JsonValue | None] | None = None
-    logical_case_id: str | None = None
-    observed_verdict: str | None = None
-    metrics: dict[str, FiniteFloat] = Field(default_factory=dict)
-    complete_provenance_context: bool = False
-    orphan_results: tuple[dict[str, JsonValue], ...] = ()
-    source_pointer: dict[str, JsonValue] = Field(default_factory=dict)
+    root_spans: list[Span]
+    aggregate: TraceAggregate
+    attributes: dict[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_trace(self) -> Trace:
-        self._validate_span_graph()
-        return self
-
-    def _validate_span_graph(self) -> None:
-        by_id: dict[str, Span] = {}
-        positions: dict[str, int] = {}
-        for position, span in enumerate(self.spans):
-            if span.span_id in by_id:
-                raise ValueError(f"trace {self.id!r} contains duplicate span_id {span.span_id!r}")
-            by_id[span.span_id] = span
-            positions[span.span_id] = position
-
-        for span in self.spans:
-            parent_id = span.parent_span_id
-            if parent_id is not None and parent_id not in by_id:
-                raise ValueError(
-                    f"trace {self.id!r} span {span.span_id!r} references missing parent "
-                    f"{parent_id!r}"
-                )
-
-        # Detect cycles before reporting order so a cycle has one precise error.
-        for span in self.spans:
-            seen = {span.span_id}
-            parent_id = span.parent_span_id
-            while parent_id is not None and parent_id in by_id:
-                if parent_id in seen:
-                    raise ValueError(f"trace {self.id!r} contains a parent cycle")
-                seen.add(parent_id)
-                parent_id = by_id[parent_id].parent_span_id
-
-        for span in self.spans:
-            parent_id = span.parent_span_id
-            if parent_id in positions and positions[parent_id] >= positions[span.span_id]:
-                raise ValueError(
-                    f"trace {self.id!r} is not in canonical order: parent {parent_id!r} "
-                    f"must precede child {span.span_id!r}"
-                )
-
-        previous: Span | None = None
-        for span in self.spans:
-            if span.started_at is None:
-                continue
-            if (
-                previous is not None
-                and previous.started_at is not None
-                and span.started_at < previous.started_at
-            ):
-                raise ValueError(
-                    f"trace {self.id!r} is not in canonical temporal order: "
-                    f"span {span.span_id!r} starts before {previous.span_id!r}"
-                )
-            previous = span
-
-
-class TraceSnapshot(ContractModel):
-    """An in-memory corpus with a fresh iterator for every scan."""
-
-    source: str
-    traces: tuple[Trace, ...] = Field(repr=False, exclude=True)
-
-    @model_validator(mode="after")
-    def trace_ids_are_unique(self) -> TraceSnapshot:
+    def span_ids_are_unique(self) -> Trace:
         seen: set[str] = set()
-        for trace in self.traces:
-            if trace.id in seen:
-                raise ValueError(f"snapshot contains duplicate trace id {trace.id!r}")
-            seen.add(trace.id)
+        pending = list(reversed(self.root_spans))
+        while pending:
+            span = pending.pop()
+            if span.id in seen:
+                raise ValueError(f"trace {self.id!r} contains duplicate span id {span.id!r}")
+            seen.add(span.id)
+            pending.extend(reversed(span.children))
         return self
 
-    @classmethod
-    def from_traces(cls, traces: Iterable[Trace], *, source: str = "<memory>") -> TraceSnapshot:
-        return cls(source=source, traces=tuple(traces))
+
+class TraceSnapshot:
+    """A reiterable in-memory view of normalized traces, indexed by ID."""
+
+    def __init__(self, traces: Iterable[Trace]):
+        traces_by_id: dict[str, Trace] = {}
+        for trace in traces:
+            if trace.id in traces_by_id:
+                raise ValueError(f"snapshot contains duplicate trace id {trace.id!r}")
+            traces_by_id[trace.id] = trace
+        self.traces_by_id = traces_by_id
+
+    def __iter__(self) -> Iterator[Trace]:
+        return iter(self.traces_by_id.values())
+
+    def __len__(self) -> int:
+        return len(self.traces_by_id)
+
+    def get_trace_by_id(self, trace_id: str) -> Trace:
+        return self.traces_by_id[trace_id]
 
     @property
     def trace_count(self) -> int:
-        return len(self.traces)
-
-    def scan(self) -> Iterator[Trace]:
-        return iter(self.traces)
+        return len(self)
 
 
 __all__ = [
-    "ContractModel",
-    "JsonValue",
-    "Span",
     "SpanKind",
-    "SpanStatus",
-    "Trace",
+    "Span",
+    "TokenCounts",
+    "TraceAggregate",
     "TraceSnapshot",
+    "Trace",
     "ToolCall",
     "UNSET",
 ]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from insight_agent.evidence_streams.contracts import EvidenceStream, EvidenceStreamResult
+from insight_agent.evidence_streams.evidence_streams import EvidenceStream, EvidenceStreamResult
 from insight_agent.traces import TraceSnapshot
 
 

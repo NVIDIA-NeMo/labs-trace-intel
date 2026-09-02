@@ -1,6 +1,5 @@
 """Trace loaders normalize source-specific data into ``TraceSnapshot``."""
 
-from insight_agent.trace_loaders.contracts import TraceDescription, TraceLoader
 from insight_agent.trace_loaders.insight_trace import (
     CANONICAL_VERSION,
     Diagnostic,
@@ -24,6 +23,7 @@ from insight_agent.trace_loaders.mlflow import (
     MLflowTraceLoader,
     MLflowTraceLoadError,
 )
+from insight_agent.trace_loaders.trace_loaders import TraceDescription, TraceLoader
 
 __all__ = [
     "CANONICAL_VERSION",

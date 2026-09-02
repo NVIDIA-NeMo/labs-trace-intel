@@ -9,20 +9,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from insight_agent.trace_loaders.contracts import TraceDescription
 from insight_agent.trace_loaders.insight_trace.validation import (
     Diagnostic,
     ValidationReport,
     iter_jsonl,
     validate_records,
 )
+from insight_agent.trace_loaders.trace_loaders import TraceDescription
 from insight_agent.traces import (
     UNSET,
     Span,
     SpanKind,
-    SpanStatus,
     ToolCall,
     Trace,
+    TraceAggregate,
     TraceSnapshot,
 )
 
@@ -86,7 +86,7 @@ def _sorted_steps(record: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return sorted(steps, key=lambda s: s.get("step_index", 0))
 
 
-# -- normalized Trace ------------------------------------------------------
+# -- normalized Trace ----------------------------------------------------
 
 
 def _span_id(source_id: str, used: set[str]) -> str:
@@ -108,40 +108,40 @@ def _tool_span(
     *,
     used_span_ids: set[str],
     step: Mapping[str, Any] | None = None,
+    trace_input: str | None = None,
 ) -> Span:
     call_id = str(call["call_id"])
     explicit_error = call.get("explicit_error")
-    status = (
-        SpanStatus.ERROR
-        if explicit_error is True
-        else SpanStatus.SUCCESS
-        if explicit_error is False
-        else SpanStatus.UNKNOWN
-    )
-    output = UNSET if _result_is_missing(call) else call.get("result")
+    result_is_missing = _result_is_missing(call)
     returned_data = call.get("returned_data", UNSET)
     return Span(
-        span_id=_span_id(call_id, used_span_ids),
+        id=_span_id(call_id, used_span_ids),
         kind=SpanKind.TOOL,
-        status=status,
-        name=str(call["tool_name"]),
-        subtype=str(step["step_type"]) if step is not None else "tool",
-        summary=str(step.get("content") or "") if step is not None else None,
-        duration_ms=call.get("duration_ms"),
         tool_name=str(call["tool_name"]),
         input=call.get("arguments"),
-        output=output,
-        error_type=call.get("outcome_marker"),
+        output=UNSET if result_is_missing else call.get("result"),
+        error=(
+            str(call.get("outcome_marker") or "explicit_error") if explicit_error is True else None
+        ),
+        attributes={
+            "name": str(call["tool_name"]),
+            "subtype": str(step["step_type"]) if step is not None else "tool",
+            "summary": str(step.get("content") or "") if step is not None else None,
+            "explicit_error": explicit_error,
+            "outcome_marker": call.get("outcome_marker"),
+            "duration_ms": call.get("duration_ms"),
+            "source_pointer": dict(call.get("source_pointer") or {}),
+            "extra": dict(call.get("extra") or {}),
+        },
         tool_call=ToolCall(
             call_id=call_id,
             index=int(call["call_index"]),
             result_id=call.get("result_id"),
-            result_count=int(call.get("result_count", 1)),
+            result_count=0 if result_is_missing else int(call.get("result_count", 1)),
             instrumentation_alias_of=call.get("instrumentation_alias_of"),
-            prior_user_text=call.get("prior_user_text"),
+            prior_user_text=call.get("prior_user_text") or trace_input,
             returned_data=returned_data,
         ),
-        source_pointer=dict(call.get("source_pointer") or {}),
     )
 
 
@@ -162,13 +162,16 @@ def _step_span(
     span_id = _span_id(f"{trace_id}#step-{step_index}", used_span_ids)
     content = step.get("content")
     return Span(
-        span_id=span_id,
+        id=span_id,
         kind=kind,
-        name=str(step.get("name") or "") or None,
-        subtype=step_type,
-        summary=str(content or ""),
         output=content if content is not None else UNSET,
-        source_pointer=dict(step.get("source_pointer") or {}),
+        attributes={
+            "name": str(step.get("name") or "") or None,
+            "subtype": step_type,
+            "summary": str(content or ""),
+            "source_pointer": dict(step.get("source_pointer") or {}),
+            "extra": dict(step.get("extra") or {}),
+        },
     )
 
 
@@ -196,6 +199,7 @@ def _normalize_trace(
                     call,
                     used_span_ids=used_span_ids,
                     step=step,
+                    trace_input=record.get("task_text"),
                 )
             )
         else:
@@ -207,6 +211,7 @@ def _normalize_trace(
                 _tool_span(
                     call,
                     used_span_ids=used_span_ids,
+                    trace_input=record.get("task_text"),
                 )
             )
 
@@ -214,20 +219,32 @@ def _normalize_trace(
     if catalog is None:
         catalog = tool_catalog
 
+    attributes: dict[str, Any] = {
+        "complete_provenance_context": bool(record.get("complete_provenance_context", False)),
+        "orphan_results": [
+            dict(item) for item in record.get("orphan_results", ()) if isinstance(item, Mapping)
+        ],
+        "source_pointer": dict(record.get("source_pointer") or {}),
+        "metrics": dict(record.get("metrics") or {}),
+        "extra": dict(record.get("extra") or {}),
+    }
+    for key in ("task_text", "logical_case_id", "observed_verdict"):
+        if key in record:
+            attributes[key] = record[key]
+    if isinstance(catalog, Mapping):
+        attributes["tool_catalog"] = dict(catalog)
+
+    durations = [
+        float(call["duration_ms"]) for call in calls if call.get("duration_ms") is not None
+    ]
     return Trace(
         id=str(record["trace_id"]),
-        spans=tuple(spans),
-        input=record["task_text"] if "task_text" in record else UNSET,
-        cost_usd=record.get("cost"),
-        tool_catalog=dict(catalog) if isinstance(catalog, Mapping) else None,
-        logical_case_id=record.get("logical_case_id"),
-        observed_verdict=record.get("observed_verdict"),
-        metrics=dict(record.get("metrics") or {}),
-        complete_provenance_context=bool(record.get("complete_provenance_context", False)),
-        orphan_results=tuple(
-            dict(item) for item in record.get("orphan_results", ()) if isinstance(item, Mapping)
+        root_spans=spans,
+        aggregate=TraceAggregate(
+            cost_usd=record.get("cost"),
+            latency_ms=sum(durations) if durations else None,
         ),
-        source_pointer=dict(record.get("source_pointer") or {}),
+        attributes=attributes,
     )
 
 
@@ -249,15 +266,9 @@ class InsightTraceLoader:
     def load(self) -> TraceSnapshot:
         """Normalize the validated records into a reiterable snapshot."""
 
-        return TraceSnapshot.from_traces(
-            (
-                _normalize_trace(
-                    record,
-                    tool_catalog=self.options.tool_catalog,
-                )
-                for record in self.records
-            ),
-            source=self.source,
+        return TraceSnapshot(
+            _normalize_trace(record, tool_catalog=self.options.tool_catalog)
+            for record in self.records
         )
 
     @classmethod

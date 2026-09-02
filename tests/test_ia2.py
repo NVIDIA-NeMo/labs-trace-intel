@@ -38,7 +38,7 @@ DIGEST_SECTIONS = (
 def traces():
     with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
         loader = InsightTraceLoader.from_path(CORPUS)
-    return [to_ia2_trace(trace) for trace in loader.load().scan()]
+    return [to_ia2_trace(trace) for trace in loader.load()]
 
 
 @pytest.fixture(scope="module")

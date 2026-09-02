@@ -33,8 +33,8 @@ from typing import Any
 
 import litellm
 
-from insight_agent.evidence_streams.contracts import EvidenceStreamResult
-from insight_agent.traces import Trace, TraceSnapshot
+from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult
+from insight_agent.traces import UNSET, Trace, TraceSnapshot
 
 __all__ = [
     "DEFAULT_MAX_TOKENS",
@@ -388,17 +388,19 @@ def _fetch_traces(
         if normalized is None:
             missing.append(trace_id)
             continue
-        trace = normalized.model_dump(mode="json")
-        if "input" in trace:
-            trace["input"] = _trim(trace["input"], limit)
-        if "output" in trace:
-            trace["output"] = _trim(trace["output"], limit)
-        for span in trace["spans"]:
-            if "input" in span:
-                span["input"] = _trim(span["input"], limit)
-            if "output" in span:
-                span["output"] = _trim(span["output"], limit)
-        rendered = json.dumps(trace, ensure_ascii=False, default=str)
+        trace = normalized.model_copy(deep=True)
+        if "task_text" in trace.attributes:
+            trace.attributes["task_text"] = _trim(trace.attributes["task_text"], limit)
+        pending = list(trace.root_spans)
+        while pending:
+            span = pending.pop()
+            if span.input is not UNSET:
+                span.input = _trim(span.input, limit)
+            if span.output is not UNSET:
+                span.output = _trim(span.output, limit)
+            pending.extend(span.children)
+        serialized = trace.model_dump(mode="json")
+        rendered = json.dumps(serialized, ensure_ascii=False, default=str)
         if len(rendered) > budget:
             found.append(
                 {
@@ -411,7 +413,7 @@ def _fetch_traces(
             )
             break
         budget -= len(rendered)
-        found.append(trace)
+        found.append(serialized)
 
     payload: dict[str, Any] = {"traces": found}
     if missing:
@@ -620,7 +622,7 @@ def _author_insights(
     wants_tools = TRACE_LOOKUP_TOOL in system
     if wants_tools:
         litellm_kwargs["tools"] = [TRACE_LOOKUP_SCHEMA]
-        traces_by_id = {trace.id: trace for trace in snapshot.scan()}
+        traces_by_id = {trace.id: trace for trace in snapshot}
     else:
         traces_by_id = {}
 

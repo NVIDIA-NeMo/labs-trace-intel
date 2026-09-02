@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from insight_agent.evidence_streams.anomaly_and_patterns import to_ia2_trace
+from insight_agent.evidence_streams.tool_issues import MISSING, to_ia3_trace
 from insight_agent.trace_loaders import (
     MLflowFileTraceConfig,
     MLflowFileTraceLoader,
@@ -15,7 +17,7 @@ from insight_agent.trace_loaders import (
     MLflowTraceLoader,
     MLflowTraceLoadError,
 )
-from insight_agent.traces import UNSET, SpanKind, SpanStatus
+from insight_agent.traces import UNSET, SpanKind
 
 MLFLOW_TRACE_FIXTURE = Path(__file__).parent / "data" / "mlflow_trace_v3.json"
 
@@ -118,14 +120,14 @@ def test_file_loader_reads_native_mlflow_search_json_without_conversion(tmp_path
     )
 
     loader = MLflowFileTraceLoader(MLflowFileTraceConfig(path=path, max_traces=10))
-    normalized = next(loader.load().scan())
+    normalized = next(iter(loader.load()))
 
     assert normalized.id == "tr-9df8a4c934051e916458d472ac87ee2a"
-    assert normalized.logical_case_id is None
-    assert normalized.spans[0].kind is SpanKind.TOOL
-    assert normalized.spans[0].input == {"query": "why did the agent retry?"}
-    assert normalized.spans[0].output == {"answer": "The upstream timed out."}
-    assert normalized.source_pointer == {
+    assert "logical_case_id" not in normalized.attributes
+    assert normalized.root_spans[0].kind is SpanKind.TOOL
+    assert normalized.root_spans[0].input == {"query": "why did the agent retry?"}
+    assert normalized.root_spans[0].output == {"answer": "The upstream timed out."}
+    assert normalized.attributes["source_pointer"] == {
         "provider": "mlflow",
         "export_path": str(path.resolve()),
         "trace_id": "tr-9df8a4c934051e916458d472ac87ee2a",
@@ -149,7 +151,7 @@ def test_file_loader_applies_the_trace_bound_and_reports_truncation(tmp_path):
     loader = MLflowFileTraceLoader(MLflowFileTraceConfig(path=path, max_traces=2))
     snapshot = loader.load()
 
-    assert [trace.id for trace in snapshot.scan()] == [
+    assert [trace.id for trace in snapshot] == [
         "tr-11111111111111111111111111111111",
         "tr-22222222222222222222222222222222",
     ]
@@ -175,7 +177,7 @@ def test_file_loader_accepts_native_mlflow_trace_serializations(tmp_path, shape)
 
     snapshot = MLflowFileTraceLoader(MLflowFileTraceConfig(path=path)).load()
 
-    assert [trace.id for trace in snapshot.scan()] == expected
+    assert [trace.id for trace in snapshot] == expected
 
 
 def test_file_loader_rejects_exports_without_span_payloads(tmp_path):
@@ -217,7 +219,7 @@ def test_loader_resolves_experiment_and_pages_complete_traces_through_search():
     )
     snapshot = loader.load()
 
-    assert [item.id for item in snapshot.scan()] == ["tr-0", "tr-1", "tr-2"]
+    assert [item.id for item in snapshot] == ["tr-0", "tr-1", "tr-2"]
     assert client.search_calls == [
         {
             "locations": ["17"],
@@ -278,29 +280,86 @@ def test_loader_normalizes_mlflow_spans_without_flattening_payloads():
     client = FakeClient(pages=[FakePage([full])])
 
     normalized = next(
-        MLflowTraceLoader(MLflowTraceConfig(experiment_name="agent-traces"), client=client)
-        .load()
-        .scan()
+        iter(
+            MLflowTraceLoader(
+                MLflowTraceConfig(experiment_name="agent-traces"), client=client
+            ).load()
+        )
     )
 
-    assert normalized.input == {"messages": [{"role": "user", "content": "find it"}]}
-    assert normalized.logical_case_id == "session-7"
-    assert [item.span_id for item in normalized.spans] == ["root", "llm", "tool"]
-    by_id = {item.span_id: item for item in normalized.spans}
+    assert normalized.root_spans[0].input == {"messages": [{"role": "user", "content": "find it"}]}
+    assert normalized.attributes["logical_case_id"] == "session-7"
+    assert normalized.aggregate.latency_ms == 4000.0
+    assert [item.id for item in normalized.root_spans] == ["root"]
+    assert [item.id for item in normalized.root_spans[0].children] == ["llm", "tool"]
+    by_id = {
+        item.id: item for item in [normalized.root_spans[0], *normalized.root_spans[0].children]
+    }
     assert by_id["root"].kind is SpanKind.AGENT
-    assert by_id["root"].status is SpanStatus.SUCCESS
-    assert by_id["root"].started_at == datetime(1970, 1, 1, 0, 0, 1, tzinfo=timezone.utc)
-    assert by_id["root"].duration_ms == 4000.0
+    assert by_id["root"].attributes["status"] == "OK"
+    assert by_id["root"].start_time == datetime(1970, 1, 1, 0, 0, 1, tzinfo=timezone.utc)
+    assert by_id["root"].attributes["duration_ms"] == 4000.0
     assert by_id["llm"].kind is SpanKind.LLM
-    assert by_id["llm"].subtype == "CHAT_MODEL"
-    assert by_id["llm"].status is SpanStatus.ERROR
-    assert by_id["llm"].error_type == "rate_limit"
+    assert by_id["llm"].attributes["subtype"] == "CHAT_MODEL"
+    assert by_id["llm"].attributes["status"] == "ERROR"
+    assert by_id["llm"].error == "rate_limit"
     assert by_id["llm"].input == {"prompt": ["one", "two"]}
     assert by_id["llm"].output is None
     assert by_id["tool"].kind is SpanKind.TOOL
     assert by_id["tool"].tool_name == "search"
     assert by_id["tool"].input == {"query": "x", "limit": 3}
     assert by_id["tool"].output is UNSET
+    assert by_id["tool"].tool_call is not None
+    assert by_id["tool"].tool_call.index == 0
+    assert by_id["tool"].tool_call.result_count == 0
+
+
+def test_normalized_mlflow_trace_flows_through_both_evidence_streams():
+    root = span(
+        "root",
+        span_type="AGENT",
+        inputs={"messages": [{"role": "user", "content": "find it"}]},
+    )
+    tool = span(
+        "tool",
+        parent_id="root",
+        name="search",
+        span_type="TOOL",
+        status_code="ERROR",
+        status_description="timeout",
+        inputs={"query": "x"},
+    )
+    client = FakeClient(
+        pages=[
+            FakePage(
+                [
+                    trace(
+                        "tr-evidence",
+                        [tool, root],
+                        metadata={"mlflow.trace.session": "session-7"},
+                    )
+                ]
+            )
+        ]
+    )
+    normalized = next(
+        iter(
+            MLflowTraceLoader(
+                MLflowTraceConfig(experiment_name="agent-traces"), client=client
+            ).load()
+        )
+    )
+
+    ia2 = to_ia2_trace(normalized)
+    ia3 = to_ia3_trace(normalized)
+
+    assert ia2.calls[0].call_id == "tool"
+    assert ia2.calls[0].error == "timeout"
+    assert ia2.calls[0].source_pointer["span_id"] == "tool"
+    assert ia3.logical_case_id == "session-7"
+    assert ia3.calls[0].result is MISSING
+    assert ia3.calls[0].explicit_error is True
+    assert ia3.calls[0].outcome_marker == "timeout"
 
 
 def test_otlp_json_null_is_distinct_from_an_absent_output():
@@ -320,11 +379,13 @@ def test_otlp_json_null_is_distinct_from_an_absent_output():
     client = FakeClient(pages=[FakePage([full])])
 
     normalized = next(
-        MLflowTraceLoader(MLflowTraceConfig(experiment_name="agent-traces"), client=client)
-        .load()
-        .scan()
+        iter(
+            MLflowTraceLoader(
+                MLflowTraceConfig(experiment_name="agent-traces"), client=client
+            ).load()
+        )
     )
-    by_id = {item.span_id: item for item in normalized.spans}
+    by_id = {item.id: item for item in normalized.root_spans}
 
     # MLflow 3.15.2 exposes an OTLP JSON null as this string through
     # ``Span.outputs``. Attribute presence is what distinguishes it from missing.
@@ -338,12 +399,14 @@ def test_literal_null_text_is_not_reinterpreted_as_json_null():
     client = FakeClient(pages=[FakePage([full])])
 
     normalized = next(
-        MLflowTraceLoader(MLflowTraceConfig(experiment_name="agent-traces"), client=client)
-        .load()
-        .scan()
+        iter(
+            MLflowTraceLoader(
+                MLflowTraceConfig(experiment_name="agent-traces"), client=client
+            ).load()
+        )
     )
 
-    assert normalized.spans[0].output == "null"
+    assert normalized.root_spans[0].output == "null"
 
 
 def test_default_complete_trace_search_loads_ten_thousand_in_api_sized_pages():
@@ -373,12 +436,14 @@ def test_unresolved_parents_are_detached_but_remain_visible_in_provenance_and_de
     client = FakeClient(pages=[FakePage([full])])
     loader = MLflowTraceLoader(MLflowTraceConfig(experiment_name="partial-traces"), client=client)
 
-    normalized = next(loader.load().scan())
+    normalized = next(iter(loader.load()))
 
-    assert normalized.spans[0].parent_span_id is None
-    assert normalized.spans[0].source_pointer["unresolved_parent_span_id"] == "outside"
-    assert normalized.source_pointer["tracking_uri"] == "http://mlflow.test"
-    assert normalized.spans[0].source_pointer["span_id"] == "child"
+    assert (
+        normalized.root_spans[0].attributes["source_pointer"]["unresolved_parent_span_id"]
+        == "outside"
+    )
+    assert normalized.attributes["source_pointer"]["tracking_uri"] == "http://mlflow.test"
+    assert normalized.root_spans[0].attributes["source_pointer"]["span_id"] == "child"
     assert loader.describe() == {
         "source": "mlflow:http://mlflow.test#experiment/17",
         "trace_count": 1,
@@ -402,13 +467,15 @@ def test_unknown_provider_type_is_not_promoted_to_a_known_kind():
     client = FakeClient(pages=[FakePage([full])])
 
     normalized = next(
-        MLflowTraceLoader(MLflowTraceConfig(experiment_name="agent-traces"), client=client)
-        .load()
-        .scan()
+        iter(
+            MLflowTraceLoader(
+                MLflowTraceConfig(experiment_name="agent-traces"), client=client
+            ).load()
+        )
     )
 
-    assert normalized.spans[0].kind is SpanKind.UNKNOWN
-    assert normalized.spans[0].subtype == "MEMORY"
+    assert normalized.root_spans[0].kind is SpanKind.UNKNOWN
+    assert normalized.root_spans[0].attributes["subtype"] == "MEMORY"
 
 
 def test_missing_experiment_has_an_actionable_error():

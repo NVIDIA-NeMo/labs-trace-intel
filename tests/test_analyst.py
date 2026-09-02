@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sys
 import types
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     TraceFeatures,
     build_evidence_digest,
 )
-from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
+from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult, Problem
 from insight_agent.insights_generation import (
     DEFAULT_MODEL,
     InsightsGeneration,
@@ -39,11 +40,21 @@ from insight_agent.insights_generation.llm import (
     _parse_insights,
     _prompt_template,
 )
-from insight_agent.traces import Span, SpanKind, ToolCall, Trace, TraceSnapshot
+from insight_agent.traces import (
+    Span,
+    SpanKind,
+    TokenCounts,
+    ToolCall,
+    Trace,
+    TraceAggregate,
+    TraceSnapshot,
+)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
-EMPTY_SNAPSHOT = TraceSnapshot.from_traces(())
+EMPTY_SNAPSHOT = TraceSnapshot(())
+NOW = datetime(2026, 8, 26, tzinfo=timezone.utc)
+TOKENS = TokenCounts(input_tokens=0, cached_input_tokens=0, output_tokens=0)
 
 
 def generate(request: _AnalystRequest, *, snapshot: TraceSnapshot = EMPTY_SNAPSHOT, **kwargs):
@@ -317,34 +328,49 @@ def test_litellm_is_imported_at_module_scope():
 # -- trace lookup ----------------------------------------------------------
 
 
-SNAPSHOT = TraceSnapshot.from_traces(
+SNAPSHOT = TraceSnapshot(
     (
         Trace(
             id="t1",
-            logical_case_id="case-a",
-            input="do the thing",
-            spans=(
+            root_spans=[
                 Span(
-                    span_id="c0",
+                    id="c0",
                     kind=SpanKind.TOOL,
+                    children=[],
+                    start_time=NOW,
+                    end_time=NOW,
                     tool_name="Search",
                     input={"q": "x"},
                     output={"content": "y" * 5000},
+                    cost_usd=0.0,
+                    token_counts=TOKENS,
+                    model=None,
                     tool_call=ToolCall(call_id="c0", index=0),
                 ),
                 Span(
-                    span_id="c1",
+                    id="c1",
                     kind=SpanKind.TOOL,
+                    children=[],
+                    start_time=NOW,
+                    end_time=NOW,
                     tool_name="Read",
                     input={},
-                    tool_call=ToolCall(call_id="c1", index=1),
+                    cost_usd=0.0,
+                    token_counts=TOKENS,
+                    model=None,
+                    tool_call=ToolCall(call_id="c1", index=1, result_count=0),
                 ),
-            ),
+            ],
+            aggregate=TraceAggregate(cost_usd=0.0, latency_ms=0.0, token_counts=TOKENS),
         ),
-        Trace(id="t2", spans=()),
+        Trace(
+            id="t2",
+            root_spans=[],
+            aggregate=TraceAggregate(cost_usd=0.0, latency_ms=0.0, token_counts=TOKENS),
+        ),
     )
 )
-TRACE_INDEX = {trace.id: trace for trace in SNAPSHOT.scan()}
+TRACE_INDEX = {trace.id: trace for trace in SNAPSHOT}
 
 
 def test_fetch_returns_the_requested_traces():
@@ -355,24 +381,24 @@ def test_fetch_returns_the_requested_traces():
 
 def test_fetch_truncates_large_results_but_says_so():
     """The traces worth opening are the ones flagged for huge outputs."""
-    result = _fetch_traces(TRACE_INDEX, ["t1"], max_chars_per_result=100)["traces"][0]["spans"][0][
-        "output"
-    ]
+    result = _fetch_traces(TRACE_INDEX, ["t1"], max_chars_per_result=100)["traces"][0][
+        "root_spans"
+    ][0]["output"]
     assert "truncated" in result
     assert "5,0" in result  # reports the true size
 
 
 def test_fetch_honours_a_raised_cap():
-    result = _fetch_traces(TRACE_INDEX, ["t1"], max_chars_per_result=50_000)["traces"][0]["spans"][
-        0
-    ]["output"]
+    result = _fetch_traces(TRACE_INDEX, ["t1"], max_chars_per_result=50_000)["traces"][0][
+        "root_spans"
+    ][0]["output"]
     assert result == {"content": "y" * 5000}
 
 
-def test_fetch_preserves_the_missing_result_distinction():
-    """`result` absent must stay absent — it is what missing_tool_result means."""
-    spans = _fetch_traces(TRACE_INDEX, ["t1"])["traces"][0]["spans"]
-    assert "output" in spans[0]
+def test_fetch_preserves_result_count_for_missing_results():
+    spans = _fetch_traces(TRACE_INDEX, ["t1"])["traces"][0]["root_spans"]
+    assert spans[0]["tool_call"]["result_count"] == 1
+    assert spans[1]["tool_call"]["result_count"] == 0
     assert "output" not in spans[1]
 
 

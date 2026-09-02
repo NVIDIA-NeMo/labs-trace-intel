@@ -39,7 +39,7 @@ from insight_agent.evidence_streams.builtins import (
     TOOL_ISSUES,
     registered_builtin_streams,
 )
-from insight_agent.evidence_streams.contracts import EvidenceStreamResult
+from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult
 from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
 from insight_agent.evidence_streams.tool_issues import (
     ToolIssueCard,
@@ -327,7 +327,7 @@ def cmd_coverage(args) -> int:
     findings = None
     if args.with_findings:
         findings = detect(
-            (to_ia3_trace(trace) for trace in loader.load().scan()),
+            (to_ia3_trace(trace) for trace in loader.load()),
         )
 
     report = corpus_coverage(loader, findings=findings)
@@ -349,10 +349,10 @@ def cmd_explain_failures(args) -> int:
     """
     loader = _trace_loader(args)
     snapshot = loader.load()
-    ia2_traces = {trace.id: to_ia2_trace(trace) for trace in snapshot.scan()}
+    ia2_traces = {trace.id: to_ia2_trace(trace) for trace in snapshot}
     rows = []
 
-    for trace in (to_ia3_trace(item) for item in snapshot.scan()):
+    for trace in (to_ia3_trace(item) for item in snapshot):
         ia2_calls = {c.call_id: c for c in ia2_traces[trace.trace_id].calls}
         for call in trace.calls:
             ia3_failed, ia3_marker = strict_failure(call)
@@ -555,25 +555,16 @@ def _write_tool_issues(
         print(f"  eligible for analyst  : {len(eligible)}")
         print(f"  cards                 : {target / 'cards.md'}")
         if cards and not eligible:
-            traces = tuple(snapshot.scan())
-            distinct = len({trace.logical_case_id or trace.id for trace in traces})
-            populated = any(trace.logical_case_id for trace in traces)
+            distinct = loader.describe()["distinct_logical_cases"]
             print(
                 f"  note: no card reached {artifacts.config.minimum_independent_cases} "
                 "independent logical "
                 "cases, i.e. no single issue type recurred across that many distinct cases."
             )
-            if not populated:
-                print(
-                    "        No record sets logical_case_id, so every trace counts as its own "
-                    "case. Populating it makes this count meaningful."
-                )
-            else:
-                print(
-                    f"        logical_case_id is populated ({distinct} distinct cases), so this "
-                    "is most likely correct: nothing recurred often enough yet. Do not merge "
-                    "distinct tasks under one case id to clear the threshold."
-                )
+            print(
+                f"        The loader reports {distinct} distinct logical cases. Verify the "
+                "source's case identity before changing the threshold."
+            )
     return EXIT_OK
 
 
@@ -925,7 +916,7 @@ def _run_insights(
         unknown = sorted(result.cited_trace_ids - known) if known else []
         if unknown:
             # Distinguish "read it but did not show us" from "does not exist".
-            available = {trace.id for trace in snapshot.scan()}
+            available = {trace.id for trace in snapshot}
             fabricated = sorted(t for t in unknown if t not in available)
             print(
                 f"  note: {len(unknown)} cited trace id(s) are not in the evidence or the "
@@ -1329,8 +1320,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return EXIT_SCHEMA
         if isinstance(exc, MLflowTraceLoadError):
             print(f"error: {exc}", file=sys.stderr)
-            if isinstance(exc.__cause__, ImportError) or "not installed" in str(exc).lower():
-                print("       install it with: uv sync --extra mlflow", file=sys.stderr)
             return EXIT_ERROR
         print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_ERROR

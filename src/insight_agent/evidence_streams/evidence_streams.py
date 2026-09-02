@@ -1,22 +1,22 @@
-"""Shared evidence-stream contracts."""
+"""Shared evidence-stream interfaces and models."""
 
 from __future__ import annotations
 
 from typing import Any, Protocol
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
-from insight_agent.traces import ContractModel, TraceSnapshot
+from insight_agent.traces import TraceSnapshot
 
 
-class Problem(ContractModel):
+class Problem(BaseModel):
     """A potential issue surfaced by one evidence stream."""
 
     description: str = Field(min_length=1)
     supporting_trace_ids: tuple[str, ...] = Field(min_length=1)
 
 
-class EvidenceStreamResult(ContractModel):
+class EvidenceStreamResult(BaseModel):
     stream_name: str = Field(min_length=1)
     problems: tuple[Problem, ...]
     artifacts: Any = None

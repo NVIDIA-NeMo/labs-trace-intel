@@ -45,6 +45,7 @@ fields were not captured.
 ## Implementation boundary
 
 - `to_ia3_trace()` owns projection from the shared normalized trace model.
+- `walk_spans()` is the private shared depth-first traversal of nested spans.
 - `detect()` owns individual rule evaluation.
 - `build_cards()` owns recurrence grouping and promotion.
 - `ToolIssueEvidenceStream.analyze()` owns the shared evidence-stream handoff.

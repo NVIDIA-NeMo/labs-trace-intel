@@ -17,10 +17,11 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from jsonschema import validators
-from pydantic import Field
+from pydantic import BaseModel, Field
 
-from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
-from insight_agent.traces import UNSET, ContractModel, SpanKind, SpanStatus, Trace, TraceSnapshot
+from insight_agent.evidence_streams._trace import walk_spans
+from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult, Problem
+from insight_agent.traces import UNSET, SpanKind, Trace, TraceSnapshot
 
 DETECTOR_VERSION = "tid-v1"
 CARD_MINIMUM_CASES = 3
@@ -552,7 +553,7 @@ def detect(
     )
 
 
-class RepresentativeEvidence(ContractModel):
+class RepresentativeEvidence(BaseModel):
     trace_id: str = Field(min_length=1)
     call_id: str = Field(min_length=1)
     call_index: int = Field(
@@ -564,7 +565,7 @@ class RepresentativeEvidence(ContractModel):
     observation: str
 
 
-class ToolIssueCard(ContractModel):
+class ToolIssueCard(BaseModel):
     card_id: str = Field(min_length=1)
     issue_type: str = Field(min_length=1)
     issue_family: str = Field(min_length=1)
@@ -637,7 +638,7 @@ class ToolIssueEvidenceArtifacts:
     config: ToolIssueConfig
 
 
-class ToolIssueConfig(ContractModel):
+class ToolIssueConfig(BaseModel):
     """Typed configuration owned by tool-issue analysis."""
 
     minimum_independent_cases: int = Field(default=CARD_MINIMUM_CASES, ge=1)
@@ -678,16 +679,16 @@ def problems_from_cards(
     return tuple(problems)
 
 
-def _trace_input_text(trace: Trace) -> str:
-    if isinstance(trace.input, str):
-        return trace.input
+def _input_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
 
     values: Sequence[Any]
-    if isinstance(trace.input, Mapping):
-        messages = trace.input.get("messages")
+    if isinstance(value, Mapping):
+        messages = value.get("messages")
         values = messages if isinstance(messages, Sequence) else ()
-    elif isinstance(trace.input, Sequence) and trace.input is not UNSET:
-        values = trace.input
+    elif isinstance(value, Sequence):
+        values = value
     else:
         values = ()
     for message in reversed(values):
@@ -702,51 +703,67 @@ def _trace_input_text(trace: Trace) -> str:
 def to_ia3_trace(trace: Trace) -> TraceRecord:
     """Project one normalized trace into the tool-issue analysis model."""
 
-    task_text = _trace_input_text(trace)
-    tool_spans = [span for span in trace.spans if span.kind is SpanKind.TOOL]
     calls: list[CallRecord] = []
-    for index, span in enumerate(tool_spans):
+    prior_user_text = _input_text(trace.attributes.get("task_text"))
+    for visit in walk_spans(trace):
+        span = visit.span
+        attributes = span.attributes
+        observed_user_text = _input_text(span.input)
+        if observed_user_text:
+            prior_user_text = observed_user_text
+        if span.kind is not SpanKind.TOOL:
+            continue
+
         details = span.tool_call
         result_count = details.result_count if details is not None else 1
-        if result_count < 1:
-            result_count = 1
-        explicit_error = (
-            True
-            if span.status is SpanStatus.ERROR
-            else False
-            if span.status is SpanStatus.SUCCESS
-            else None
-        )
-        prior_user_text = details.prior_user_text if details is not None else None
+        call_user_text = details.prior_user_text if details is not None else None
+        explicit_error = attributes.get("explicit_error")
+        outcome_marker = attributes.get("outcome_marker")
         calls.append(
             CallRecord(
                 trace_id=trace.id,
                 call_index=(
-                    details.index if details is not None and details.index is not None else index
+                    details.index
+                    if details is not None and details.index is not None
+                    else len(calls)
                 ),
-                call_id=str(details.call_id if details and details.call_id else span.span_id),
-                tool_name=str(span.tool_name or span.name or ""),
-                arguments=None if span.input is UNSET else span.input,
-                result=MISSING if span.output is UNSET else span.output,
-                source_pointer=dict(span.source_pointer),
+                call_id=str(details.call_id if details and details.call_id else span.id),
+                tool_name=str(span.tool_name or attributes.get("name") or ""),
+                arguments=span.input,
+                result=MISSING if result_count == 0 or span.output is UNSET else span.output,
+                source_pointer=visit.source_pointer,
                 result_id=details.result_id if details is not None else None,
                 result_count=result_count,
-                explicit_error=explicit_error,
-                outcome_marker=span.error_type,
+                explicit_error=(
+                    explicit_error
+                    if isinstance(explicit_error, bool)
+                    else True
+                    if span.error is not None
+                    else None
+                ),
+                outcome_marker=(str(outcome_marker) if outcome_marker is not None else span.error),
                 instrumentation_alias_of=(
                     details.instrumentation_alias_of if details is not None else None
                 ),
-                prior_user_text=str(prior_user_text or task_text),
+                prior_user_text=str(call_user_text or prior_user_text),
             )
         )
 
+    tool_catalog = trace.attributes.get("tool_catalog")
+    orphan_results = trace.attributes.get("orphan_results")
     return TraceRecord(
         trace_id=trace.id,
         calls=tuple(calls),
-        logical_case_id=trace.logical_case_id,
-        tool_catalog=trace.tool_catalog,
-        orphan_results=tuple(dict(item) for item in trace.orphan_results),
-        complete_provenance_context=trace.complete_provenance_context,
+        logical_case_id=(
+            str(trace.attributes["logical_case_id"])
+            if trace.attributes.get("logical_case_id") is not None
+            else None
+        ),
+        tool_catalog=dict(tool_catalog) if isinstance(tool_catalog, Mapping) else None,
+        orphan_results=tuple(dict(item) for item in orphan_results if isinstance(item, Mapping))
+        if isinstance(orphan_results, Sequence)
+        else (),
+        complete_provenance_context=(trace.attributes.get("complete_provenance_context") is True),
     )
 
 
@@ -761,7 +778,7 @@ class ToolIssueEvidenceStream:
             raise TypeError("tool-issues requires ToolIssueConfig")
 
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        traces = tuple(to_ia3_trace(trace) for trace in snapshot.scan())
+        traces = [to_ia3_trace(trace) for trace in snapshot]
         findings = detect(
             traces,
             retry_threshold=self.config.retry_threshold,

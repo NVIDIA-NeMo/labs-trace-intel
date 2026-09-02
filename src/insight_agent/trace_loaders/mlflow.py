@@ -11,8 +11,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from insight_agent.trace_loaders.contracts import TraceDescription
-from insight_agent.traces import UNSET, JsonValue, Span, SpanKind, SpanStatus, Trace, TraceSnapshot
+from pydantic import JsonValue
+
+from insight_agent.trace_loaders.trace_loaders import TraceDescription
+from insight_agent.traces import (
+    UNSET,
+    Span,
+    SpanKind,
+    ToolCall,
+    Trace,
+    TraceAggregate,
+    TraceSnapshot,
+)
 
 if TYPE_CHECKING:
     from mlflow import MlflowClient
@@ -54,6 +64,9 @@ class MLflowLoadReport:
     trace_count: int = 0
     span_count: int = 0
     unresolved_parent_count: int = 0
+    call_count: int = 0
+    traces_with_spans: int = 0
+    distinct_logical_cases: int = 0
 
 
 class MLflowTraceDescription(TraceDescription):
@@ -111,7 +124,6 @@ class MLflowTraceLoader:
     report: MLflowLoadReport = field(default_factory=MLflowLoadReport, init=False)
     _experiment_id: str | None = field(default=None, init=False, repr=False)
     _resolved_tracking_uri: str | None = field(default=None, init=False, repr=False)
-    _last_snapshot: TraceSnapshot | None = field(default=None, init=False, repr=False)
 
     def load(self) -> TraceSnapshot:
         """Fetch and normalize the configured MLflow corpus."""
@@ -128,9 +140,11 @@ class MLflowTraceLoader:
             experiment_id = str(experiment.experiment_id)
             keyed_traces: list[tuple[tuple[int, str], Trace]] = []
             unresolved_parent_count = 0
+            span_count = 0
+            call_count = 0
             for page in self._search_trace_pages(client, experiment_id):
                 for provider_trace in page:
-                    trace, detached = _normalize_trace(
+                    trace, detached, trace_span_count, trace_call_count = _normalize_trace(
                         provider_trace,
                         source_pointer={
                             "provider": "mlflow",
@@ -141,11 +155,12 @@ class MLflowTraceLoader:
                     )
                     keyed_traces.append((_trace_sort_key(provider_trace), trace))
                     unresolved_parent_count += detached
+                    span_count += trace_span_count
+                    call_count += trace_call_count
 
             normalized = [trace for _, trace in sorted(keyed_traces, key=lambda item: item[0])]
-            source = _source_label(tracking_uri, experiment_id)
-            snapshot = TraceSnapshot.from_traces(normalized, source=source)
-        except MLflowTraceLoadError:
+            snapshot = TraceSnapshot(normalized)
+        except (MLflowTraceLoadError, ModuleNotFoundError):
             raise
         except Exception as error:
             raise MLflowTraceLoadError(
@@ -154,11 +169,13 @@ class MLflowTraceLoader:
 
         self._experiment_id = experiment_id
         self._resolved_tracking_uri = tracking_uri
-        self._last_snapshot = snapshot
         self.report = MLflowLoadReport(
             trace_count=snapshot.trace_count,
-            span_count=sum(len(trace.spans) for trace in normalized),
+            span_count=span_count,
             unresolved_parent_count=unresolved_parent_count,
+            call_count=call_count,
+            traces_with_spans=sum(bool(trace.root_spans) for trace in normalized),
+            distinct_logical_cases=len({_logical_case(trace) for trace in normalized}),
         )
         return snapshot
 
@@ -217,21 +234,18 @@ class MLflowTraceLoader:
     def describe(self) -> MLflowTraceDescription:
         """Describe the normalized corpus and its MLflow coordinates."""
 
-        snapshot = self._last_snapshot
-        traces = tuple(snapshot.scan()) if snapshot is not None else ()
-        any_steps = any(trace.spans for trace in traces)
-        all_steps = bool(traces) and all(trace.spans for trace in traces)
         tracking_uri = self._resolved_tracking_uri or self.config.tracking_uri or "<configured>"
         experiment_id = self._experiment_id or "<unresolved>"
         return {
             "source": _source_label(tracking_uri, experiment_id),
             "trace_count": self.report.trace_count,
-            "call_count": sum(
-                span.kind is SpanKind.TOOL for trace in traces for span in trace.spans
+            "call_count": self.report.call_count,
+            "steps_present": bool(self.report.trace_count)
+            and self.report.traces_with_spans == self.report.trace_count,
+            "steps_partially_present": (
+                0 < self.report.traces_with_spans < self.report.trace_count
             ),
-            "steps_present": all_steps,
-            "steps_partially_present": any_steps and not all_steps,
-            "distinct_logical_cases": len({trace.logical_case_id or trace.id for trace in traces}),
+            "distinct_logical_cases": self.report.distinct_logical_cases,
             "span_count": self.report.span_count,
             "unresolved_parent_count": self.report.unresolved_parent_count,
             "experiment_name": self.config.experiment_name,
@@ -264,7 +278,6 @@ class MLflowFileTraceLoader:
     _continuation_token_present: bool = field(default=False, init=False, repr=False)
     _digest: str | None = field(default=None, init=False, repr=False)
     _export_trace_count: int = field(default=0, init=False, repr=False)
-    _last_snapshot: TraceSnapshot | None = field(default=None, init=False, repr=False)
 
     def load(self) -> TraceSnapshot:
         """Parse and normalize the configured native MLflow export."""
@@ -277,6 +290,8 @@ class MLflowFileTraceLoader:
             provider_traces = [_mlflow_trace_from_dict(record) for record in selected]
             keyed_traces: list[tuple[tuple[int, str], Trace]] = []
             unresolved_parent_count = 0
+            span_count = 0
+            call_count = 0
             seen: set[str] = set()
             for provider_trace in provider_traces:
                 trace_id = _trace_id(provider_trace)
@@ -291,7 +306,7 @@ class MLflowFileTraceLoader:
                         f"MLflow export trace {trace_id!r} has no spans; export complete traces "
                         "without --no-include-spans"
                     )
-                trace, detached = _normalize_trace(
+                trace, detached, trace_span_count, trace_call_count = _normalize_trace(
                     provider_trace,
                     source_pointer={
                         "provider": "mlflow",
@@ -300,11 +315,12 @@ class MLflowFileTraceLoader:
                 )
                 keyed_traces.append((_trace_sort_key(provider_trace), trace))
                 unresolved_parent_count += detached
+                span_count += trace_span_count
+                call_count += trace_call_count
 
             normalized = [trace for _, trace in sorted(keyed_traces, key=lambda item: item[0])]
-            source = f"mlflow-export:{resolved_path}"
-            snapshot = TraceSnapshot.from_traces(normalized, source=source)
-        except (MLflowTraceLoadError, FileNotFoundError):
+            snapshot = TraceSnapshot(normalized)
+        except (MLflowTraceLoadError, FileNotFoundError, ModuleNotFoundError):
             raise
         except Exception as error:
             raise MLflowTraceLoadError(
@@ -314,31 +330,30 @@ class MLflowFileTraceLoader:
         self._continuation_token_present = continuation_token_present
         self._digest = hashlib.sha256(contents).hexdigest()
         self._export_trace_count = len(records)
-        self._last_snapshot = snapshot
         self.report = MLflowLoadReport(
             trace_count=snapshot.trace_count,
-            span_count=sum(len(trace.spans) for trace in normalized),
+            span_count=span_count,
             unresolved_parent_count=unresolved_parent_count,
+            call_count=call_count,
+            traces_with_spans=sum(bool(trace.root_spans) for trace in normalized),
+            distinct_logical_cases=len({_logical_case(trace) for trace in normalized}),
         )
         return snapshot
 
     def describe(self) -> MLflowFileTraceDescription:
         """Describe the normalized corpus and its export provenance."""
 
-        snapshot = self._last_snapshot
-        traces = tuple(snapshot.scan()) if snapshot is not None else ()
-        any_steps = any(trace.spans for trace in traces)
-        all_steps = bool(traces) and all(trace.spans for trace in traces)
         resolved_path = self.config.path.resolve()
         return {
             "source": f"mlflow-export:{resolved_path}",
             "trace_count": self.report.trace_count,
-            "call_count": sum(
-                span.kind is SpanKind.TOOL for trace in traces for span in trace.spans
+            "call_count": self.report.call_count,
+            "steps_present": bool(self.report.trace_count)
+            and self.report.traces_with_spans == self.report.trace_count,
+            "steps_partially_present": (
+                0 < self.report.traces_with_spans < self.report.trace_count
             ),
-            "steps_present": all_steps,
-            "steps_partially_present": any_steps and not all_steps,
-            "distinct_logical_cases": len({trace.logical_case_id or trace.id for trace in traces}),
+            "distinct_logical_cases": self.report.distinct_logical_cases,
             "span_count": self.report.span_count,
             "unresolved_parent_count": self.report.unresolved_parent_count,
             "export_path": str(resolved_path),
@@ -351,22 +366,14 @@ class MLflowFileTraceLoader:
 
 
 def _new_mlflow_client(tracking_uri: str | None) -> MlflowClient:
-    try:
-        from mlflow import MlflowClient
-    except ImportError as error:
-        raise MLflowTraceLoadError(
-            "MLflow support is not installed; install the project with the 'mlflow' extra"
-        ) from error
+    from mlflow import MlflowClient
+
     return MlflowClient(tracking_uri=tracking_uri)
 
 
 def _mlflow_trace_from_dict(record: dict[str, Any]) -> MLflowTrace:
-    try:
-        from mlflow.entities import Trace as ProviderTrace
-    except ImportError as error:
-        raise MLflowTraceLoadError(
-            "MLflow support is not installed; install the project with the 'mlflow' extra"
-        ) from error
+    from mlflow.entities import Trace as ProviderTrace
+
     try:
         return ProviderTrace.from_dict(record)
     except Exception as error:
@@ -456,7 +463,7 @@ def _normalize_trace(
     provider_trace: MLflowTrace,
     *,
     source_pointer: dict[str, JsonValue],
-) -> tuple[Trace, int]:
+) -> tuple[Trace, int, int, int]:
     trace_id = _trace_id(provider_trace)
     provider_spans = provider_trace.data.spans
     by_id: dict[str, MLflowSpan] = {}
@@ -480,35 +487,53 @@ def _normalize_trace(
 
     ordered = _canonical_span_order(trace_id, by_id, effective_parents)
     base_pointer: dict[str, JsonValue] = {**source_pointer, "trace_id": trace_id}
-    spans = tuple(
-        _normalize_span(
+    normalized_by_id: dict[str, Span] = {}
+    root_spans: list[Span] = []
+    tool_call_index = 0
+    for provider_span in ordered:
+        span_id = str(provider_span.span_id)
+        normalized = _normalize_span(
             provider_span,
-            parent_span_id=effective_parents[str(provider_span.span_id)],
-            unresolved_parent_id=unresolved.get(str(provider_span.span_id)),
+            unresolved_parent_id=unresolved.get(span_id),
             base_pointer=base_pointer,
         )
-        for provider_span in ordered
-    )
+        if normalized.kind is SpanKind.TOOL:
+            normalized.tool_call = ToolCall(
+                call_id=span_id,
+                index=tool_call_index,
+                result_count=0 if normalized.output is UNSET else 1,
+            )
+            tool_call_index += 1
+        normalized_by_id[span_id] = normalized
+        parent_id = effective_parents[span_id]
+        if parent_id is None:
+            root_spans.append(normalized)
+        else:
+            normalized_by_id[parent_id].children.append(normalized)
 
-    root_input: JsonValue | UNSET = UNSET
-    for provider_span in ordered:
-        if effective_parents[str(provider_span.span_id)] is not None:
-            continue
-        root_input = _span_field(provider_span, _INPUTS_ATTRIBUTE, provider_span.inputs)
-        if root_input is not UNSET:
-            break
-
-    metadata = provider_trace.info.trace_metadata
+    metadata = dict(provider_trace.info.trace_metadata or {})
     logical_case_id = _logical_case_id(metadata, ordered, effective_parents)
+    attributes: dict[str, JsonValue] = {
+        "source_pointer": base_pointer,
+        "mlflow": {
+            "request_time": provider_trace.info.request_time,
+            "trace_metadata": _json_value(metadata),
+        },
+    }
+    if logical_case_id is not None:
+        attributes["logical_case_id"] = logical_case_id
+
+    trace = Trace(
+        id=trace_id,
+        root_spans=root_spans,
+        aggregate=TraceAggregate(latency_ms=_trace_latency_ms(ordered)),
+        attributes=attributes,
+    )
     return (
-        Trace(
-            id=trace_id,
-            spans=spans,
-            input=root_input,
-            logical_case_id=logical_case_id,
-            source_pointer=base_pointer,
-        ),
+        trace,
         len(unresolved),
+        len(normalized_by_id),
+        tool_call_index,
     )
 
 
@@ -546,7 +571,6 @@ def _canonical_span_order(
 def _normalize_span(
     provider_span: MLflowSpan,
     *,
-    parent_span_id: str | None,
     unresolved_parent_id: str | None,
     base_pointer: dict[str, JsonValue],
 ) -> Span:
@@ -562,23 +586,29 @@ def _normalize_span(
     pointer = {**base_pointer, "span_id": span_id}
     if unresolved_parent_id is not None:
         pointer["unresolved_parent_span_id"] = unresolved_parent_id
-    status, error_type = _map_span_status(provider_span.status)
+    status, status_description = _span_status(provider_span.status)
+    error = None
+    if status == "ERROR":
+        error = status_description or "MLflow span status ERROR"
     name = provider_span.name
     return Span(
-        span_id=span_id,
-        parent_span_id=parent_span_id,
+        id=span_id,
         kind=kind,
-        name=name,
-        subtype=subtype,
-        status=status,
-        started_at=started_at,
-        ended_at=ended_at,
-        duration_ms=duration_ms,
+        start_time=started_at,
+        end_time=ended_at,
         input=_span_field(provider_span, _INPUTS_ATTRIBUTE, provider_span.inputs),
         output=_span_field(provider_span, _OUTPUTS_ATTRIBUTE, provider_span.outputs),
         tool_name=name if kind is SpanKind.TOOL else None,
-        error_type=error_type,
-        source_pointer=pointer,
+        error=error,
+        attributes={
+            "name": str(name) if name is not None else None,
+            "subtype": subtype,
+            "duration_ms": duration_ms,
+            "source_pointer": pointer,
+            "status": status,
+            "status_description": status_description,
+            "mlflow": {"attributes": _json_value(provider_span.attributes)},
+        },
     )
 
 
@@ -602,14 +632,31 @@ def _map_span_kind(provider_type: str) -> tuple[SpanKind, str | None]:
         return SpanKind.UNKNOWN, provider_type
 
 
-def _map_span_status(provider_status: MLflowSpanStatus) -> tuple[SpanStatus, str | None]:
-    code = provider_status.status_code.value
+def _span_status(provider_status: MLflowSpanStatus) -> tuple[str, str | None]:
+    code = str(provider_status.status_code.value)
     description = provider_status.description
-    if code == "OK":
-        return SpanStatus.SUCCESS, None
-    if code == "ERROR":
-        return SpanStatus.ERROR, str(description) if description else None
-    return SpanStatus.UNKNOWN, None
+    return code, str(description) if description else None
+
+
+def _trace_latency_ms(provider_spans: list[MLflowSpan]) -> float | None:
+    starts = [
+        started
+        for span in provider_spans
+        if (started := _datetime_from_ns(span.start_time_ns)) is not None
+    ]
+    ends = [
+        ended
+        for span in provider_spans
+        if (ended := _datetime_from_ns(span.end_time_ns)) is not None
+    ]
+    if not starts or not ends:
+        return None
+    return (max(ends) - min(starts)).total_seconds() * 1_000
+
+
+def _logical_case(trace: Trace) -> str:
+    logical_case_id = trace.attributes.get("logical_case_id")
+    return str(logical_case_id) if logical_case_id is not None else trace.id
 
 
 def _span_field(provider_span: MLflowSpan, attribute_key: str, value: Any) -> JsonValue | UNSET:

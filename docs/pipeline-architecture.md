@@ -56,22 +56,22 @@ class TraceLoader(Protocol):
 Source-specific configuration and diagnostics stay on the concrete loader. Evidence streams
 never receive provider records or loader objects.
 
-A `TraceSnapshot` is the frozen, run-scoped view of the normalized corpus. It gives every
+A `TraceSnapshot` is the run-scoped view of the normalized corpus. It gives every
 evidence stream and `InsightsGeneration` the same traces, span trees, source pointers, tool
 definitions, and corpus identity.
 
 ### Normalized Trace
 
 The normalized model is a purpose-built input to the current evidence streams and Analyst. It
-does not mirror a trace-store API. A trace contains one canonically ordered, parent-linked
-array of spans plus the corpus-level fields IA2 and IA3 consume. Each span records one unit of
+does not mirror a trace-store API. A trace contains an ordered tree of spans plus aggregate
+cost, latency, and token counts. Each span records one unit of
 agent work, such as an LLM call, tool call, agent turn, chain, retriever, or evaluator.
 
 Unlike NeMo Platform's storage/API models, this contract keeps `input` and `output` as JSON
 values. An LLM span can therefore preserve complete input and output messages instead of
 flattening them into text.
 
-The contract is implemented as frozen Pydantic v2 models. Its essential shape is:
+The contract is implemented as Pydantic v2 models. Its essential shape is:
 
 ```python
 class SpanKind(StrEnum):
@@ -87,14 +87,7 @@ class SpanKind(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
-class SpanStatus(StrEnum):
-    SUCCESS = "success"
-    ERROR = "error"
-    CANCELLED = "cancelled"
-    UNKNOWN = "unknown"
-
-
-class ToolCall(ContractModel):
+class ToolCall(BaseModel):
     call_id: str | None = None
     index: int | None = None
     result_id: str | None = None
@@ -104,133 +97,60 @@ class ToolCall(ContractModel):
     returned_data: bool | UNSET = UNSET
 
 
-class Span(ContractModel):
-    span_id: str
+class Span(BaseModel):
+    id: str
     kind: SpanKind
-    parent_span_id: str | None = None
-    name: str | None = None
-    subtype: str | None = None
-    summary: str | None = None
-    status: SpanStatus = SpanStatus.UNKNOWN
-    started_at: datetime | None = None
-    ended_at: datetime | None = None
-    duration_ms: float | None = None
+    children: list[Span]
+    start_time: datetime | None = None
+    end_time: datetime | None = None
     input: JsonValue | UNSET = UNSET
     output: JsonValue | UNSET = UNSET
-    tool_name: str | None = None
-    error_type: str | None = None
-    tool_call: ToolCall | None = None
-    source_pointer: dict[str, JsonValue] = Field(default_factory=dict)
-
-
-class Trace(ContractModel):
-    id: str
-    spans: tuple[Span, ...]  # canonical topological-temporal order
-    input: JsonValue | UNSET = UNSET
     cost_usd: float | None = None
-    tool_catalog: dict[str, JsonValue | None] | None = None
-    logical_case_id: str | None = None
-    observed_verdict: str | None = None
-    metrics: dict[str, float] = Field(default_factory=dict)
-    complete_provenance_context: bool = False
-    orphan_results: tuple[dict[str, JsonValue], ...] = ()
-    source_pointer: dict[str, JsonValue] = Field(default_factory=dict)
+    token_counts: TokenCounts | None = None
+    model: str | None = None
+    tool_name: str | None = None
+    tool_call: ToolCall | None = None
+    error: str | None = None
+    attributes: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class Trace(BaseModel):
+    id: str
+    root_spans: list[Span]
+    aggregate: TraceAggregate
+    attributes: dict[str, JsonValue] = Field(default_factory=dict)
 ```
 
-`UNSET` is Pydantic's missing sentinel and is distinct from JSON `null`. For example, an absent tool-span `output` means no result
-was observed, while `"output": null` means the tool returned `null`. IA3 depends on that
-distinction.
+`UNSET` is Pydantic's missing sentinel and is distinct from JSON `null`. An absent tool-span
+`output` means no result was observed, while `"output": null` means the tool returned `null`.
+IA3 depends on that distinction.
 
 Normalizers should populate span timestamps when the source records them. They are nullable
 because a source may preserve authoritative order without wall-clock time; normalization does
 not fabricate timestamps merely to satisfy the model.
 
-`Trace.spans` represents both sequence and nesting:
+`Trace.root_spans` and `Span.children` represent sequence and nesting directly:
 
-- Array order is authoritative for evidence streams. Normalization produces one stable
-  topological-temporal order: a parent always precedes its descendants; otherwise spans are
-  ordered by `started_at`, with stable source order and then `span_id` breaking ties. Evidence
-  streams do not independently re-sort spans.
-- `parent_span_id` represents topology. A flat array can describe arbitrarily deep nesting,
-  such as `AGENT -> CHAIN -> AGENT -> LLM`, without recursively embedding spans. Parent and
-  child spans need not be adjacent in the array.
-- Span IDs must be unique, every parent must resolve inside the same trace, and parent links
-  must be acyclic. Root spans are the spans without a parent; a separate root ID would be
-  redundant and would not represent traces with more than one top-level span.
+- Root and child list order is authoritative.
+- Evidence streams share one private root-first, depth-first traversal and do not independently
+  flatten or sort spans.
+- Span IDs must be unique across the complete tree.
 
-Consumers that need a recursive view can derive `children(span_id)` or `span_tree()` from the
-same array. That view is a convenience and is not a second serialized representation.
+The generic `attributes` mappings preserve optional adapter data without turning evidence-specific
+annotations into core trace fields. Evidence streams interpret the attributes they own, including
+source pointers, catalogs, case IDs, verdicts, and custom metrics.
 
-A normalized record can preserve LLM messages and tool activity in one span tree:
-
-```json
-{
-  "id": "trace-123",
-  "input": [{"role": "user", "content": "Find the latest report"}],
-  "spans": [
-    {
-      "span_id": "agent-1",
-      "parent_span_id": null,
-      "kind": "AGENT",
-      "status": "success",
-      "name": "research-agent",
-      "started_at": "2026-08-26T18:00:00Z",
-      "ended_at": "2026-08-26T18:00:02Z"
-    },
-    {
-      "span_id": "llm-1",
-      "parent_span_id": "agent-1",
-      "kind": "LLM",
-      "status": "success",
-      "name": "reason-and-select-tool",
-      "started_at": "2026-08-26T18:00:00Z",
-      "ended_at": "2026-08-26T18:00:01Z",
-      "input": {
-        "messages": [
-          {"role": "system", "content": "Use tools when needed."},
-          {"role": "user", "content": "Find the latest report"}
-        ]
-      },
-      "output": {
-        "messages": [
-          {
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [
-              {"id": "call-1", "name": "search", "arguments": {"query": "latest report"}}
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "span_id": "call-1",
-      "parent_span_id": "agent-1",
-      "kind": "TOOL",
-      "status": "success",
-      "name": "search",
-      "tool_name": "search",
-      "started_at": "2026-08-26T18:00:01Z",
-      "ended_at": "2026-08-26T18:00:02Z",
-      "input": {"query": "latest report"},
-      "output": {"documents": ["report-2026-08"]}
-    }
-  ]
-}
-```
+A normalized record preserves LLM messages and tool activity directly in its nested span tree.
+For example, an `AGENT` root can contain an `LLM` child whose own child is the resulting `TOOL`
+span. Full structured message payloads remain in each span's `input` and `output`.
 
 The contract deliberately contains only fields consumed by the current system:
 
 - IA2 derives its ordered steps, tool calls, durations, cost, verdicts, and numeric features
-  from spans and trace-level fields.
-- IA3 derives `CallRecord` values from `TOOL` spans and uses the trace's tool catalog and
-  provenance fields.
+  from spans, aggregates, and attributes.
+- IA3 derives `CallRecord` values from `TOOL` spans and evidence-specific attributes.
 - Insights Generation can fetch the same structured trace and inspect its message, tool, and
   result payloads.
-
-Provider, model, token, session, agent, and trace-summary fields are omitted until an evidence
-stream actually consumes them. Future analysis should extend this contract from a concrete
-requirement rather than copying a provider's storage model wholesale.
 
 Concrete example: `InsightTraceLoader` validates `insight-trace/v1` records, maps their
 steps and calls into normalized spans, and returns a snapshot. A future loader for NeMo
@@ -239,30 +159,27 @@ NeMo Platform classes.
 
 ### Snapshot handoff
 
-`TraceSnapshot` is a logical handle to one stable corpus, not a requirement to hold every
-trace in memory. The first implementation exposes one access pattern: a re-iterable scan.
+`TraceSnapshot` is a logical handle to one stable corpus. It is re-iterable and provides
+lookup by trace ID.
 
 Conceptually:
 
 ```python
 class TraceSnapshot(Protocol):
-    source: str
     trace_count: int
 
-    def scan(self) -> Iterator[Trace]:
-        """Return a new iterator over the same canonical traces each time."""
+    def __iter__(self) -> Iterator[Trace]: ...
+    def get_trace_by_id(self, trace_id: str) -> Trace: ...
 ```
 
-Each call to `scan()` must start from the beginning and yield the same normalized traces in the
-same order. It must not return a shared one-shot generator: multiple evidence streams need to
-scan the same snapshot independently, and may eventually do so concurrently.
+Each call to `iter(snapshot)` starts from the beginning and yields the same normalized traces in
+the same order. It does not return a shared one-shot generator.
 
 The first backing implementation is in memory. A JSONL or S3-backed implementation can be
 added later if measurements show it is needed, without changing the evidence-stream interface.
 
-Batch iteration and indexed `get_many(trace_ids)` lookup are deliberately deferred. They can be
-added when scale measurements or Insights generation require them without changing the meaning
-of `TraceSnapshot` or `scan()`.
+Batch iteration can be added when scale measurements require it without changing the snapshot's
+meaning.
 
 ## 2. EvidenceStream(s)
 
@@ -298,12 +215,12 @@ class EvidenceStream(Protocol):
     ) -> EvidenceStreamResult: ...
 
 
-class Problem(ContractModel):
+class Problem(BaseModel):
     description: str
     supporting_trace_ids: tuple[str, ...]
 
 
-class EvidenceStreamResult(ContractModel):
+class EvidenceStreamResult(BaseModel):
     stream_name: str
     problems: tuple[Problem, ...]
     artifacts: Any = None

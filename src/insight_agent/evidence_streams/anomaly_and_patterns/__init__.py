@@ -19,7 +19,7 @@ from statistics import median
 from typing import Any, Literal
 
 import numpy as np
-from pydantic import Field, FiniteFloat, field_validator
+from pydantic import BaseModel, Field, FiniteFloat, field_validator
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.ensemble import IsolationForest
@@ -27,8 +27,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
-from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
-from insight_agent.traces import UNSET, ContractModel, Span, SpanKind, Trace, TraceSnapshot
+from insight_agent.evidence_streams._trace import walk_spans
+from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult, Problem
+from insight_agent.traces import UNSET, Span, SpanKind, Trace, TraceSnapshot
 
 N_ESTIMATORS = 300
 CONTAMINATION = 0.02
@@ -84,6 +85,7 @@ class NormalizedCall:
     tool_name: str
     arguments: Mapping[str, Any] = field(default_factory=dict)
     result: Any = None
+    error: str | None = None
     duration_ms: float | None = None
     source_pointer: Mapping[str, Any] = field(default_factory=dict)
 
@@ -197,10 +199,13 @@ def denoise_output(text: str, *, max_chars: int = 8_000) -> str:
 def decode_explicit_failure(
     tool_name: str,
     result: Any,
+    error: str | None = None,
 ) -> tuple[bool, str | None, str]:
     """Conservatively decode only structured or native explicit failure evidence."""
 
     text = _result_text(result)
+    if error is not None:
+        return True, "span_error", text or error
     if isinstance(result, Mapping):
         if result.get("is_error") is True or result.get("isError") is True:
             return True, "structured_error_flag", text
@@ -271,7 +276,7 @@ def extract_trace_features(trace: NormalizedTrace) -> PreparedTrace:
     failures: list[dict[str, Any]] = []
     returned_false = 0
     for call in calls:
-        failed, marker, text = decode_explicit_failure(call.tool_name, call.result)
+        failed, marker, text = decode_explicit_failure(call.tool_name, call.result, call.error)
         output_sizes.append(len(text.encode("utf-8", "ignore")))
         if call.duration_ms is not None and math.isfinite(float(call.duration_ms)):
             durations.append(max(0.0, float(call.duration_ms)))
@@ -852,7 +857,7 @@ def build_evidence_digest(
     return "\n".join(lines)
 
 
-class Anomaly(ContractModel):
+class Anomaly(BaseModel):
     trace_id: str = Field(min_length=1)
     anomaly_score: FiniteFloat
     is_anomaly: bool
@@ -862,7 +867,7 @@ class Anomaly(ContractModel):
     source_pointer: Mapping[str, Any]
 
 
-class FailureGroup(ContractModel):
+class FailureGroup(BaseModel):
     signature: str = Field(min_length=1)
     event_count: int = Field(ge=1)
     independent_trace_count: int = Field(ge=1)
@@ -871,7 +876,7 @@ class FailureGroup(ContractModel):
     representatives: tuple[Mapping[str, Any], ...] = Field(min_length=1)
 
 
-class CrossToolFailureGroup(ContractModel):
+class CrossToolFailureGroup(BaseModel):
     message_signature: str = Field(min_length=1)
     event_count: int = Field(ge=1)
     independent_trace_count: int = Field(ge=1)
@@ -880,7 +885,7 @@ class CrossToolFailureGroup(ContractModel):
     representatives: tuple[Mapping[str, Any], ...] = Field(min_length=1)
 
 
-class AnomalyAndPatternsAnalysis(ContractModel):
+class AnomalyAndPatternsAnalysis(BaseModel):
     prepared: tuple[PreparedTrace, ...]
     failure_events: tuple[Mapping[str, Any], ...]
     anomalies: tuple[Anomaly, ...]
@@ -1013,11 +1018,12 @@ def problems_from_analysis(result: AnomalyAndPatternsAnalysis) -> tuple[Problem,
 
 
 def _duration_ms(span: Span) -> float | None:
-    if span.duration_ms is not None:
-        return span.duration_ms
-    if span.started_at is None or span.ended_at is None:
+    duration = span.attributes.get("duration_ms")
+    if isinstance(duration, (int, float)):
+        return float(duration)
+    if span.start_time is None or span.end_time is None:
         return None
-    return (span.ended_at - span.started_at).total_seconds() * 1_000
+    return (span.end_time - span.start_time).total_seconds() * 1_000
 
 
 def _span_content(span: Span) -> str:
@@ -1050,9 +1056,12 @@ def to_ia2_trace(trace: Trace) -> NormalizedTrace:
     """Project one normalized trace into the anomaly-and-pattern analysis model."""
 
     calls: list[NormalizedCall] = []
-    tool_spans = [span for span in trace.spans if span.kind is SpanKind.TOOL]
+    visits = tuple(walk_spans(trace))
+    tool_visits = [visit for visit in visits if visit.span.kind is SpanKind.TOOL]
 
-    for call_index, span in enumerate(tool_spans):
+    for call_index, visit in enumerate(tool_visits):
+        span = visit.span
+        attributes = span.attributes
         details = span.tool_call
         result = None if span.output is UNSET else span.output
         returned_data = details.returned_data if details is not None else UNSET
@@ -1062,7 +1071,7 @@ def to_ia2_trace(trace: Trace) -> NormalizedTrace:
                     result = {**result, RETURNED_DATA_KEY: returned_data}
             else:
                 warnings.warn(
-                    f"call {(details.call_id if details else span.span_id)!r} in trace "
+                    f"call {(details.call_id if details else span.id)!r} in trace "
                     f"{trace.id!r} sets 'returned_data' but its result is not a JSON object, "
                     "so anomaly-and-pattern analysis cannot read it; "
                     "returned_data_false_rate will stay 0 for this call. Wrap the result "
@@ -1073,42 +1082,54 @@ def to_ia2_trace(trace: Trace) -> NormalizedTrace:
         arguments = span.input if isinstance(span.input, Mapping) else {}
         calls.append(
             NormalizedCall(
-                call_id=str(details.call_id if details and details.call_id else span.span_id),
+                call_id=str(details.call_id if details and details.call_id else span.id),
                 call_index=(
                     details.index
                     if details is not None and details.index is not None
                     else call_index
                 ),
-                tool_name=str(span.tool_name or span.name or ""),
+                tool_name=str(span.tool_name or attributes.get("name") or ""),
                 arguments=arguments,
                 result=result,
+                error=span.error,
                 duration_ms=_duration_ms(span),
-                source_pointer=dict(span.source_pointer),
+                source_pointer=visit.source_pointer,
             )
         )
 
     steps = tuple(
         NormalizedStep(
             step_index=index,
-            step_type=span.subtype or _native_step_type(span),
-            name=str(span.name or span.tool_name or ""),
-            content=span.summary if span.summary is not None else _span_content(span),
-            source_pointer=dict(span.source_pointer),
+            step_type=str(visit.span.attributes.get("subtype") or _native_step_type(visit.span)),
+            name=str(visit.span.attributes.get("name") or visit.span.tool_name or ""),
+            content=(
+                str(visit.span.attributes["summary"])
+                if visit.span.attributes.get("summary") is not None
+                else _span_content(visit.span)
+            ),
+            source_pointer=visit.source_pointer,
         )
-        for index, span in enumerate(trace.spans)
+        for index, visit in enumerate(visits)
     )
+    trace_source_pointer = trace.attributes.get("source_pointer")
+    observed_verdict = trace.attributes.get("observed_verdict")
+    metrics = trace.attributes.get("metrics")
     return NormalizedTrace(
         trace_id=trace.id,
         calls=tuple(calls),
         steps=steps,
-        source_pointer=dict(trace.source_pointer),
-        observed_verdict=trace.observed_verdict,
-        cost=trace.cost_usd,
-        metrics=dict(trace.metrics),
+        source_pointer=(
+            dict(trace_source_pointer)
+            if isinstance(trace_source_pointer, Mapping)
+            else {"trace_id": trace.id}
+        ),
+        observed_verdict=str(observed_verdict) if observed_verdict is not None else None,
+        cost=trace.aggregate.cost_usd,
+        metrics=dict(metrics) if isinstance(metrics, Mapping) else {},
     )
 
 
-class AnomalyAndPatternsConfig(ContractModel):
+class AnomalyAndPatternsConfig(BaseModel):
     """Typed configuration owned by anomaly-and-pattern analysis."""
 
     contamination: float = CONTAMINATION
@@ -1152,7 +1173,7 @@ class AnomalyAndPatternsEvidenceStream:
             raise TypeError("anomaly-and-patterns requires AnomalyAndPatternsConfig")
 
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        traces = [to_ia2_trace(trace) for trace in snapshot.scan()]
+        traces = [to_ia2_trace(trace) for trace in snapshot]
         result = run_ia2(
             traces,
             feature_names=self.config.feature_names or DEFAULT_FEATURES,

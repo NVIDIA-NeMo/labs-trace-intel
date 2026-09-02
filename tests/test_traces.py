@@ -7,58 +7,108 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
+from insight_agent.evidence_streams._trace import walk_spans
 from insight_agent.trace_loaders import InsightTraceLoader
 from insight_agent.traces import (
     UNSET,
     Span,
     SpanKind,
-    SpanStatus,
+    TokenCounts,
+    ToolCall,
     Trace,
+    TraceAggregate,
     TraceSnapshot,
 )
 
 NOW = datetime(2026, 8, 26, 18, 0, tzinfo=timezone.utc)
+TOKENS = TokenCounts(input_tokens=1, cached_input_tokens=0, output_tokens=2)
 
 
 def _span(
     span_id: str,
     *,
-    parent: str | None = None,
+    children: list[Span] | None = None,
     seconds: int = 0,
     kind: SpanKind = SpanKind.AGENT,
+    input: object = None,
+    output: object = None,
+    **values: object,
 ) -> Span:
     started = NOW + timedelta(seconds=seconds)
     return Span(
-        span_id=span_id,
-        parent_span_id=parent,
+        id=span_id,
         kind=kind,
-        status=SpanStatus.SUCCESS,
-        started_at=started,
-        ended_at=started + timedelta(milliseconds=500),
+        children=children or [],
+        start_time=started,
+        end_time=started + timedelta(milliseconds=500),
+        input=input,
+        output=output,
+        cost_usd=0.0,
+        token_counts=TOKENS,
+        model=None,
+        **values,
     )
 
 
-def test_deep_flat_span_topology_is_valid_and_serializable():
-    trace = Trace(
-        id="trace-1",
-        input=[{"role": "user", "content": "Find the report"}],
-        spans=(
-            _span("agent-root"),
-            _span("chain", parent="agent-root", seconds=1, kind=SpanKind.CHAIN),
-            _span("agent-child", parent="chain", seconds=2),
-            _span("llm", parent="agent-child", seconds=3, kind=SpanKind.LLM),
-        ),
+def _trace(trace_id: str, root_spans: list[Span]) -> Trace:
+    return Trace(
+        id=trace_id,
+        root_spans=root_spans,
+        aggregate=TraceAggregate(cost_usd=0.0, latency_ms=0.0, token_counts=TOKENS),
     )
 
-    assert [span.parent_span_id for span in trace.spans] == [
-        None,
+
+def test_nested_span_topology_is_valid_and_serializable():
+    trace = _trace(
+        "trace-1",
+        [
+            _span(
+                "agent-root",
+                children=[
+                    _span(
+                        "chain",
+                        seconds=1,
+                        kind=SpanKind.CHAIN,
+                        children=[
+                            _span(
+                                "agent-child",
+                                seconds=2,
+                                children=[_span("llm", seconds=3, kind=SpanKind.LLM)],
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+
+    dumped = trace.model_dump(mode="json")
+    assert dumped["root_spans"][0]["children"][0]["kind"] == "CHAIN"
+    assert [visit.span.id for visit in walk_spans(trace)] == [
         "agent-root",
         "chain",
         "agent-child",
+        "llm",
     ]
-    dumped = trace.model_dump(mode="json")
-    assert dumped["input"] == [{"role": "user", "content": "Find the report"}]
-    assert dumped["spans"][3]["kind"] == "LLM"
+
+
+def test_shared_traversal_exposes_stable_depth_first_paths():
+    trace = _trace(
+        "trace-paths",
+        [
+            _span("root-0", children=[_span("child-0"), _span("child-1")]),
+            _span("root-1"),
+        ],
+    )
+
+    visits = list(walk_spans(trace))
+    assert [visit.index for visit in visits] == [0, 1, 2, 3]
+    assert [visit.path for visit in visits] == [(0,), (0, 0), (0, 1), (1,)]
+    assert visits[1].source_pointer == {
+        "trace_id": "trace-paths",
+        "span_id": "child-0",
+        "span_path": [0, 0],
+    }
 
 
 def test_full_llm_messages_remain_structured():
@@ -77,160 +127,112 @@ def test_full_llm_messages_remain_structured():
             }
         ]
     }
-    trace = Trace(
-        id="trace-messages",
-        spans=(
-            Span(
-                span_id="llm-1",
-                kind=SpanKind.LLM,
-                input=messages,
-                output=response,
-            ),
-        ),
+    trace = _trace(
+        "trace-messages",
+        [_span("llm-1", kind=SpanKind.LLM, input=messages, output=response)],
     )
 
     dumped = trace.model_dump(mode="json")
-    assert dumped["spans"][0]["input"] == messages
-    assert dumped["spans"][0]["output"] == response
+    assert dumped["root_spans"][0]["input"] == messages
+    assert dumped["root_spans"][0]["output"] == response
 
 
-def test_absent_and_explicit_null_are_distinct():
-    absent = Span(span_id="absent", kind=SpanKind.TOOL)
-    explicit_null = Span(span_id="null", kind=SpanKind.TOOL, output=None)
-
-    assert absent.output is UNSET
-    assert explicit_null.output is None
-    assert "output" not in absent.model_dump(mode="json")
-    assert explicit_null.model_dump(mode="json")["output"] is None
+def test_duplicate_span_ids_fail_loudly_across_the_tree():
+    with pytest.raises(ValidationError, match="duplicate span id"):
+        _trace("invalid", [_span("duplicate", children=[_span("duplicate")])])
 
 
-@pytest.mark.parametrize(
-    ("spans", "message"),
-    [
-        (
-            (
-                _span("duplicate"),
-                _span("duplicate", seconds=1),
-            ),
-            "duplicate span_id",
-        ),
-        (
-            (_span("child", parent="missing"),),
-            "references missing parent",
-        ),
-        (
-            (
-                _span("child", parent="parent"),
-                _span("parent", seconds=1),
-            ),
-            "parent 'parent' must precede child 'child'",
-        ),
-        (
-            (
-                _span("a", parent="b"),
-                _span("b", parent="a", seconds=1),
-            ),
-            "parent cycle",
-        ),
-    ],
-)
-def test_invalid_span_graphs_fail_loudly(spans, message):
-    with pytest.raises(ValidationError, match=message):
-        Trace(id="invalid", spans=spans)
-
-
-def test_spans_must_be_in_temporal_order_when_timestamps_exist():
-    with pytest.raises(ValidationError, match="canonical temporal order"):
-        Trace(
-            id="invalid-time",
-            spans=(
-                _span("later", seconds=2),
-                _span("earlier", seconds=1),
-            ),
+def test_end_must_not_precede_start():
+    with pytest.raises(ValidationError, match="ends before it starts"):
+        Span(
+            id="invalid",
+            kind=SpanKind.AGENT,
+            children=[],
+            start_time=NOW,
+            end_time=NOW - timedelta(seconds=1),
+            input=None,
+            output=None,
+            cost_usd=0.0,
+            token_counts=TOKENS,
+            model=None,
         )
 
 
-def test_models_reject_unknown_fields_and_field_reassignment():
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        Span(span_id="s", kind=SpanKind.AGENT, made_up=True)
-
-    span = Span(span_id="s", kind=SpanKind.AGENT, source_pointer={"nested": {"value": 1}})
-    with pytest.raises(ValidationError, match="Instance is frozen"):
-        span.source_pointer = {}  # type: ignore[misc]
+def test_tool_call_metadata_requires_tool_kind():
+    with pytest.raises(ValidationError, match="tool_call metadata requires kind=TOOL"):
+        _span("invalid", tool_call=ToolCall(call_id="call-1"))
 
 
-def test_snapshot_scans_are_stable_and_independent():
-    traces = tuple(Trace(id=f"trace-{index}", spans=()) for index in range(3))
-    snapshot = TraceSnapshot.from_traces(traces, source="fixture")
+def test_snapshot_iteration_is_stable_and_independent():
+    traces = tuple(_trace(f"trace-{index}", []) for index in range(3))
+    snapshot = TraceSnapshot(traces)
 
-    first = snapshot.scan()
-    second = snapshot.scan()
+    first = iter(snapshot)
+    second = iter(snapshot)
     assert next(first) is traces[0]
     assert next(first) is traces[1]
     assert next(second) is traces[0]
     assert [trace.id for trace in first] == ["trace-2"]
     assert [trace.id for trace in second] == ["trace-1", "trace-2"]
     assert snapshot.trace_count == 3
-    assert snapshot.source == "fixture"
 
 
 def test_snapshot_rejects_duplicate_trace_ids():
-    traces = (Trace(id="same", spans=()), Trace(id="same", spans=()))
-    with pytest.raises(ValidationError, match="duplicate trace id"):
-        TraceSnapshot.from_traces(traces)
+    with pytest.raises(ValueError, match="duplicate trace id"):
+        TraceSnapshot((_trace("same", []), _trace("same", [])))
 
 
 def test_timestamp_must_be_timezone_aware():
     with pytest.raises(ValidationError, match="timestamp must include a timezone"):
-        Span(span_id="s", kind=SpanKind.AGENT, started_at=datetime(2026, 8, 26))
+        Span(
+            id="s",
+            kind=SpanKind.AGENT,
+            children=[],
+            start_time=datetime(2026, 8, 26),
+            end_time=datetime(2026, 8, 26),
+            input=None,
+            output=None,
+            cost_usd=0.0,
+            token_counts=TOKENS,
+            model=None,
+        )
 
 
 def test_input_normalization_preserves_missing_null_and_duplicate_source_ids():
     with pytest.warns(UserWarning, match=r"WARNING\[duplicate_call_id\].*duplicate-source-ids"):
         trace = next(
-            InsightTraceLoader.from_records(
-                [
-                    {
-                        "schema_version": "insight-trace/v1",
-                        "trace_id": "duplicate-source-ids",
-                        "calls": [
-                            {
-                                "call_id": "duplicate",
-                                "call_index": 0,
-                                "tool_name": "search",
-                                "arguments": {"query": "first"},
-                            },
-                            {
-                                "call_id": "duplicate",
-                                "call_index": 1,
-                                "tool_name": "search",
-                                "arguments": {"query": "second"},
-                                "result": None,
-                            },
-                        ],
-                        "steps": [
-                            {
-                                "step_index": 0,
-                                "step_type": "planning",
-                                "content": "search twice",
-                            },
-                            {"step_index": 1, "step_type": "tool", "name": "search"},
-                            {"step_index": 2, "step_type": "tool", "name": "search"},
-                        ],
-                        "tool_catalog": {"search": {"type": "object"}},
-                    }
-                ]
+            iter(
+                InsightTraceLoader.from_records(
+                    [
+                        {
+                            "schema_version": "insight-trace/v1",
+                            "trace_id": "duplicate-source-ids",
+                            "calls": [
+                                {
+                                    "call_id": "duplicate",
+                                    "call_index": 0,
+                                    "tool_name": "search",
+                                    "arguments": {"query": "first"},
+                                },
+                                {
+                                    "call_id": "duplicate",
+                                    "call_index": 1,
+                                    "tool_name": "search",
+                                    "arguments": {"query": "second"},
+                                    "result": None,
+                                },
+                            ],
+                        }
+                    ]
+                ).load()
             )
-            .load()
-            .scan()
         )
 
-    tool_spans = [span for span in trace.spans if span.kind is SpanKind.TOOL]
-    assert [span.span_id for span in tool_spans] == ["duplicate", "duplicate#2"]
+    tool_spans = [visit.span for visit in walk_spans(trace) if visit.span.kind is SpanKind.TOOL]
+    assert [span.id for span in tool_spans] == ["duplicate", "duplicate#2"]
     assert [span.tool_call.call_id for span in tool_spans if span.tool_call] == [
         "duplicate",
         "duplicate",
     ]
-    assert tool_spans[0].output is UNSET
-    assert tool_spans[1].output is None
-    assert trace.tool_catalog == {"search": {"type": "object"}}
+    assert [span.tool_call.result_count for span in tool_spans if span.tool_call] == [0, 1]
+    assert [span.output for span in tool_spans] == [UNSET, None]

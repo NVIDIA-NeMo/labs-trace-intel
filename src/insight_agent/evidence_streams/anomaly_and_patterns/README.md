@@ -42,6 +42,7 @@ failure groups, projected problems, and run metadata.
 ## Implementation boundary
 
 - `to_ia2_trace()` owns projection from the shared normalized trace model.
+- `walk_spans()` is the private shared depth-first traversal of nested spans.
 - `run_ia2()` owns the native analysis.
 - `AnomalyAndPatternsEvidenceStream.analyze()` owns the shared evidence-stream handoff.
 - `decode_explicit_failure()` is intentionally independent from the tool-issue decoder; their

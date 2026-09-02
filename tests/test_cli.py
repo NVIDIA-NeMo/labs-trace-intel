@@ -259,8 +259,9 @@ def test_run_all_accepts_mlflow_as_an_alternative_to_the_positional_file(monkeyp
                 "trace.status = 'ERROR'",
                 "--max-traces",
                 "25",
+                "--min-independent-cases",
+                "100",
                 "--no-analyst",
-                "--quiet",
                 "-o",
                 str(out),
             ]

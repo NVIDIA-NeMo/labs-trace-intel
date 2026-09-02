@@ -12,7 +12,7 @@ from insight_agent.evidence_streams.builtins import (
     TOOL_ISSUES,
     registered_builtin_streams,
 )
-from insight_agent.evidence_streams.contracts import EvidenceStreamResult, Problem
+from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult, Problem
 from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
 from insight_agent.evidence_streams.tool_issues import ToolIssueConfig
 from insight_agent.traces import TraceSnapshot
@@ -78,7 +78,7 @@ def test_registry_analyzes_registered_streams_in_registration_order():
     registry = EvidenceStreamRegistry()
     registry.register(_ExampleStream("first"))
     registry.register(_ExampleStream("second"))
-    snapshot = TraceSnapshot.from_traces((), source="test")
+    snapshot = TraceSnapshot(())
 
     results = registry.analyze_all(snapshot)
 
