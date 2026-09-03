@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from mlflow.entities import Feedback
 
 from insight_agent.evidence_streams.anomaly_and_patterns import to_ia2_trace
 from insight_agent.evidence_streams.tool_issues import MISSING, to_ia3_trace
@@ -89,12 +90,13 @@ def span(
     )
 
 
-def trace(trace_id, spans=(), *, request_time=0, metadata=None):
+def trace(trace_id, spans=(), *, request_time=0, metadata=None, assessments=()):
     return SimpleNamespace(
         info=SimpleNamespace(
             trace_id=trace_id,
             request_time=request_time,
             trace_metadata=dict(metadata or {}),
+            assessments=list(assessments),
         ),
         data=SimpleNamespace(spans=list(spans)),
     )
@@ -112,10 +114,29 @@ def native_trace_dict(trace_id="tr-9df8a4c934051e916458d472ac87ee2a"):
     return record
 
 
+def test_loader_preserves_mlflow_assessments():
+    assessment = Feedback(name="quality", value=0.25)
+    expected = assessment.to_dictionary()
+    provider_trace = trace(
+        "tr-1",
+        assessments=[assessment],
+    )
+    loader = MLflowTraceLoader(
+        MLflowTraceConfig(experiment_name="experiment"),
+        client=FakeClient(pages=[FakePage([provider_trace])]),
+    )
+    normalized = next(iter(loader.load()))
+
+    assert normalized.attributes["mlflow"]["assessments"] == [expected]
+
+
 def test_file_loader_reads_native_mlflow_search_json_without_conversion(tmp_path):
+    record = native_trace_dict()
+    assessment = Feedback(name="quality", value=0.25).to_dictionary()
+    record["info"]["assessments"] = [assessment]
     path = tmp_path / "traces.json"
     path.write_text(
-        json.dumps({"traces": [native_trace_dict()], "next_page_token": "more"}),
+        json.dumps({"traces": [record], "next_page_token": "more"}),
         encoding="utf-8",
     )
 
@@ -132,6 +153,7 @@ def test_file_loader_reads_native_mlflow_search_json_without_conversion(tmp_path
         "export_path": str(path.resolve()),
         "trace_id": "tr-9df8a4c934051e916458d472ac87ee2a",
     }
+    assert normalized.attributes["mlflow"]["assessments"] == [assessment]
     assert loader.describe()["continuation_token_present"] is True
 
 

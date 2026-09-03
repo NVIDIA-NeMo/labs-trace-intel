@@ -505,6 +505,9 @@ def _normalize_trace(
         "mlflow": {
             "request_time": provider_trace.info.request_time,
             "trace_metadata": _json_value(metadata),
+            "assessments": _json_value(
+                [a.to_dictionary() for a in provider_trace.info.assessments]
+            ),
         },
     }
     if logical_case_id is not None:
