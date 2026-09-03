@@ -448,8 +448,6 @@ def test_unresolved_parents_are_detached_but_remain_visible_in_provenance_and_de
         "source": "mlflow:http://mlflow.test#experiment/17",
         "trace_count": 1,
         "call_count": 1,
-        "steps_present": True,
-        "steps_partially_present": False,
         "distinct_logical_cases": 1,
         "span_count": 1,
         "unresolved_parent_count": 1,

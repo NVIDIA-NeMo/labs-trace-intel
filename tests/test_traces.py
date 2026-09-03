@@ -8,7 +8,6 @@ import pytest
 from pydantic import ValidationError
 
 from insight_agent.evidence_streams._trace import walk_spans
-from insight_agent.trace_loaders import InsightTraceLoader
 from insight_agent.traces import (
     UNSET,
     Span,
@@ -198,35 +197,28 @@ def test_timestamp_must_be_timezone_aware():
         )
 
 
-def test_input_normalization_preserves_missing_null_and_duplicate_source_ids():
-    with pytest.warns(UserWarning, match=r"WARNING\[duplicate_call_id\].*duplicate-source-ids"):
-        trace = next(
-            iter(
-                InsightTraceLoader.from_records(
-                    [
-                        {
-                            "schema_version": "insight-trace/v1",
-                            "trace_id": "duplicate-source-ids",
-                            "calls": [
-                                {
-                                    "call_id": "duplicate",
-                                    "call_index": 0,
-                                    "tool_name": "search",
-                                    "arguments": {"query": "first"},
-                                },
-                                {
-                                    "call_id": "duplicate",
-                                    "call_index": 1,
-                                    "tool_name": "search",
-                                    "arguments": {"query": "second"},
-                                    "result": None,
-                                },
-                            ],
-                        }
-                    ]
-                ).load()
-            )
-        )
+def test_trace_preserves_missing_null_and_duplicate_source_call_ids():
+    trace = Trace(
+        id="duplicate-source-ids",
+        root_spans=[
+            Span(
+                id="duplicate",
+                kind=SpanKind.TOOL,
+                tool_name="search",
+                input={"query": "first"},
+                tool_call=ToolCall(call_id="duplicate", index=0, result_count=0),
+            ),
+            Span(
+                id="duplicate#2",
+                kind=SpanKind.TOOL,
+                tool_name="search",
+                input={"query": "second"},
+                output=None,
+                tool_call=ToolCall(call_id="duplicate", index=1),
+            ),
+        ],
+        aggregate=TraceAggregate(),
+    )
 
     tool_spans = [visit.span for visit in walk_spans(trace) if visit.span.kind is SpanKind.TOOL]
     assert [span.id for span in tool_spans] == ["duplicate", "duplicate#2"]

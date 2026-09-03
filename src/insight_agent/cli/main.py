@@ -4,7 +4,6 @@ Exit codes:
     0  success
     1  usage or runtime error
     2  schema (structural) validation errors
-    3  lint errors in strict mode
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ import argparse
 import importlib.util
 import json
 import sys
-import warnings as _warnings
 from collections.abc import Sequence
 from importlib.resources import files
 from pathlib import Path
@@ -23,7 +21,6 @@ import numpy
 import sklearn
 
 from insight_agent import __version__
-from insight_agent.adapters.messages import adapt_file
 from insight_agent.cli.artifacts import prepared_features, write_json
 from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsAnalysis,
@@ -69,49 +66,27 @@ from insight_agent.insights_generation.config import (
 )
 from insight_agent.trace_loaders import (
     MLFLOW_DEFAULT_MAX_TRACES,
-    InsightTraceLoader,
-    InsightTraceOptions,
+    FSDataLoader,
+    FSDataLoadError,
     MLflowFileTraceConfig,
     MLflowFileTraceLoader,
     MLflowTraceConfig,
     MLflowTraceLoader,
     MLflowTraceLoadError,
     TraceLoader,
-    TraceLoadError,
-    load_tool_catalog,
-    trace_schema,
-    validate_corpus,
 )
-from insight_agent.traces import TraceSnapshot
+from insight_agent.traces import Trace, TraceSnapshot
 
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_SCHEMA = 2
-EXIT_LINT = 3
-
-STRUCTURAL_CODES = {"invalid_json", "not_an_object", "schema_violation", "unknown_field"}
 
 
 # -- shared plumbing -------------------------------------------------------
 
 
-def _add_corpus_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--tool-catalog",
-        type=Path,
-        default=None,
-        help="corpus-wide tool catalog JSON, used for records that carry none of their own",
-    )
-    parser.add_argument(
-        "--allow-metric-shadowing",
-        action="store_true",
-        help="permit metrics that overwrite a built-in IA2 feature",
-    )
-
-
 def _add_file_corpus_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("traces", type=Path, help="canonical JSONL corpus")
-    _add_corpus_options(parser)
 
 
 def _add_trace_source_arguments(parser: argparse.ArgumentParser) -> None:
@@ -149,7 +124,6 @@ def _add_trace_source_arguments(parser: argparse.ArgumentParser) -> None:
             "https://mlflow.org/docs/latest/api_reference/rest-api.html#searchtracesv3"
         ),
     )
-    _add_corpus_options(parser)
 
 
 def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
@@ -186,22 +160,10 @@ def _add_tool_issue_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--all-cards", action="store_true")
 
 
-#: Loader warnings already shown this process.
-_REPORTED_WARNINGS: set[str] = set()
-
-
 def _trace_loader(args: argparse.Namespace) -> TraceLoader:
     """Construct the selected trace source without leaking it downstream."""
     experiment = getattr(args, "mlflow_experiment", None)
     export_path = getattr(args, "mlflow_export", None)
-    if experiment or export_path:
-        if getattr(args, "tool_catalog", None) is not None:
-            raise ValueError("--tool-catalog is only supported with a canonical JSONL corpus")
-        if getattr(args, "allow_metric_shadowing", False):
-            raise ValueError(
-                "--allow-metric-shadowing is only supported with a canonical JSONL corpus"
-            )
-
     if experiment:
         return MLflowTraceLoader(
             MLflowTraceConfig(
@@ -239,22 +201,7 @@ def _trace_loader(args: argparse.Namespace) -> TraceLoader:
         options = ", ".join(mlflow_only)
         raise ValueError(f"{options} require --mlflow-experiment")
 
-    options = InsightTraceOptions(
-        tool_catalog=load_tool_catalog(args.tool_catalog),
-        allow_metric_shadowing=getattr(args, "allow_metric_shadowing", False),
-        strict=True,
-    )
-
-    with _warnings.catch_warnings(record=True) as caught:
-        _warnings.simplefilter("always")
-        loader = InsightTraceLoader.from_path(args.traces, options)
-
-    for warning in caught:
-        message = str(warning.message)
-        if message not in _REPORTED_WARNINGS:
-            _REPORTED_WARNINGS.add(message)
-            print(f"note: {message}", file=sys.stderr)
-    return loader
+    return FSDataLoader(args.traces)
 
 
 def _run_metadata(
@@ -264,8 +211,7 @@ def _run_metadata(
     """Provenance recorded beside every result.
 
     Records the library versions because scikit-learn minor releases can change
-    IsolationForest and KMeans output, and records whether steps were present
-    because that changes IA2's feature vector.
+    IsolationForest and KMeans output.
     """
 
     payload = {
@@ -284,7 +230,7 @@ def _run_metadata(
 
 
 def cmd_schema(args) -> int:
-    text = json.dumps(trace_schema(), indent=2, ensure_ascii=False) + "\n"
+    text = json.dumps(Trace.model_json_schema(), indent=2, ensure_ascii=False) + "\n"
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
         print(f"wrote {args.out}")
@@ -294,31 +240,21 @@ def cmd_schema(args) -> int:
 
 
 def cmd_validate(args) -> int:
-    report = validate_corpus(args.traces, allow_metric_shadowing=args.allow_metric_shadowing)
+    try:
+        snapshot = FSDataLoader(args.traces).load()
+    except FSDataLoadError as error:
+        payload = {"ok": False, "trace_count": 0, "errors": [str(error)]}
+        if args.json:
+            sys.stdout.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+        else:
+            print(f"error: {error}")
+        return EXIT_SCHEMA
 
+    payload = {"ok": True, "trace_count": snapshot.trace_count, "errors": []}
     if args.json:
-        sys.stdout.write(json.dumps(report.to_dict(), indent=2, ensure_ascii=False) + "\n")
+        sys.stdout.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     else:
-        shown = report.diagnostics[: args.max_errors] if args.max_errors else report.diagnostics
-        for diagnostic in shown:
-            print(diagnostic.format())
-        hidden = len(report.diagnostics) - len(shown)
-        if hidden > 0:
-            print(f"... and {hidden} more (raise --max-errors to see them)")
-
-        counts = {s: len(report.of(s)) for s in ("error", "warning", "info")}
-        print(
-            f"\n{report.record_count} record(s): "
-            f"{counts['error']} error(s), {counts['warning']} warning(s), {counts['info']} info"
-        )
-        if report.ok:
-            print("OK — this corpus can be loaded.")
-            if counts["warning"]:
-                print("Warnings do not block a run, but each one names a real downstream effect.")
-
-    if not report.ok:
-        structural = any(d.code in STRUCTURAL_CODES for d in report.errors)
-        return EXIT_SCHEMA if structural else EXIT_LINT
+        print(f"OK — loaded {snapshot.trace_count} trace(s).")
     return EXIT_OK
 
 
@@ -946,155 +882,11 @@ def cmd_run_analyst(args: argparse.Namespace) -> int:
     return _run_insights(args, loader, snapshot, evidence)
 
 
-def cmd_adapt_messages(args) -> int:
-    records = adapt_file(
-        args.input,
-        fmt=args.format,
-        tool_catalog_path=args.tool_catalog,
-        trace_id_prefix=args.trace_id_prefix,
-    )
-    text = "".join(
-        json.dumps(r, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
-        for r in records
-    )
-    if str(args.out) == "-":
-        sys.stdout.write(text)
-    else:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(text, encoding="utf-8")
-        print(f"wrote {len(records)} trace(s) to {args.out}")
-        print(f"next: uv run insight-agent validate {args.out}")
-    return EXIT_OK
-
-
 def _bundled_data_dir() -> Path:
     # Resolve from the parent package: `data/` has no __init__.py, so
     # files("insight_agent.data") would return a MultiplexedPath that does not
     # stringify into a usable filesystem path.
     return Path(str(files("insight_agent"))) / "data"
-
-
-ADAPTER_TEMPLATE = '''#!/usr/bin/env -S uv run
-"""Adapter: {name} -> Insight Agent canonical JSONL (insight-trace/v1).
-
-Verify loop — run these after every change, never batch them:
-
-    {run_path} > traces.jsonl
-    uv run insight-agent validate traces.jsonl     # must exit 0
-    uv run insight-agent coverage traces.jsonl     # what can actually fire?
-    uv run insight-agent run-ia3 traces.jsonl -o out
-
-Then open out/ia3/cards.json and check three findings against the raw source by
-hand. A rule that fires on 100% of calls is an adapter bug, not a discovery.
-"""
-
-from __future__ import annotations
-
-import json
-import sys
-from collections.abc import Iterator
-from typing import Any
-
-SCHEMA_VERSION = "insight-trace/v1"
-
-
-def load_corpus_context(path: str) -> dict[str, Any]:
-    """Corpus-level data that individual records need.
-
-    Tool definitions often live once at the top of an export rather than on
-    every record, so they are read here and threaded into `to_canonical`.
-    """
-    with open(path, encoding="utf-8") as handle:
-        data = json.load(handle)
-    tools = data.get("tools") if isinstance(data, dict) else None
-    return {{"tool_catalog": {{t["name"]: t.get("parameters") for t in tools}} if tools else None}}
-
-
-def iter_source_records(path: str) -> Iterator[Any]:
-    """Yield one source record per trace. Adjust to your input format."""
-    with open(path, encoding="utf-8") as handle:
-        data = json.load(handle)
-    yield from (data if isinstance(data, list) else [data])
-
-
-def to_canonical(source: Any, index: int, context: dict[str, Any]) -> dict[str, Any]:
-    """Map one source record to one canonical trace.
-
-    Start with the required fields only, get `validate` to exit 0, then add one
-    optional field at a time and re-check `coverage`.
-    """
-    trace_id = str(source.get("id") or f"trace-{{index:05d}}")
-
-    calls = []
-    for position, raw in enumerate(source.get("tool_calls", [])):
-        call: dict[str, Any] = {{
-            # Required four:
-            "call_id": str(raw.get("id") or f"{{trace_id}}#{{position}}"),
-            "call_index": position,
-            "tool_name": str(raw["name"]),
-            "arguments": raw.get("arguments"),   # emit RAW, do not re-parse
-        }}
-        # Omit "result" entirely when no result was recorded: absence is what
-        # fires missing_tool_result. "result": None means the tool returned null.
-        # Textual results go under "content" -- IA3 unwraps nothing else.
-        if "result" in raw:
-            found = raw["result"]
-            call["result"] = {{"content": found}} if isinstance(found, str) else found
-        calls.append(call)
-
-    record: dict[str, Any] = {{
-        "schema_version": SCHEMA_VERSION,
-        "trace_id": trace_id,
-        "calls": calls,
-        # Add next, in this order:
-        #   "logical_case_id": "...",       makes card eligibility honest
-        #   "source_pointer": {{...}},        makes evidence reopenable
-        #   "steps": [...],                 real IA2 trajectory tokens
-    }}
-    # Highest-value optional field: unlocks six argument-contract rules.
-    if context.get("tool_catalog"):
-        record["tool_catalog"] = context["tool_catalog"]
-    return record
-
-
-def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(f"usage: {{argv[0]}} SOURCE", file=sys.stderr)
-        return 2
-    context = load_corpus_context(argv[1])
-    for index, source in enumerate(iter_source_records(argv[1])):
-        record = to_canonical(source, index, context)
-        print(json.dumps(record, ensure_ascii=False))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
-'''
-
-
-def cmd_init_adapter(args) -> int:
-    args.dir.mkdir(parents=True, exist_ok=True)
-    path = args.dir / f"{args.name}.py"
-    if path.exists() and not args.force:
-        print(f"{path} already exists; pass --force to overwrite.")
-        return EXIT_ERROR
-
-    run_path = str(path) if path.is_absolute() else f"./{path}"
-    path.write_text(
-        ADAPTER_TEMPLATE.format(name=args.name, path=path, run_path=run_path), encoding="utf-8"
-    )
-    path.chmod(path.stat().st_mode | 0o111)
-    print(f"wrote {path}\n")
-    print("The verify loop — run every iteration, never batch it:")
-    print("  1. uv run insight-agent schema                  # read the contract")
-    print("  2. inspect 2-3 raw source records; find where the call->result link lives")
-    print(f"  3. {run_path} SOURCE > traces.jsonl   # required fields only, first")
-    print("  4. uv run insight-agent validate traces.jsonl   # until it exits 0")
-    print("  5. uv run insight-agent coverage traces.jsonl   # see which rules abstain")
-    print("  6. add ONE optional field, then repeat 3-5")
-    print("  7. uv run insight-agent run-ia3 traces.jsonl -o out, then check 3 findings by hand")
-    return EXIT_OK
 
 
 def cmd_demo(args) -> int:
@@ -1105,14 +897,8 @@ def cmd_demo(args) -> int:
     print(f"Using the bundled sample corpus: {corpus}\n")
 
     args.traces = corpus
-    args.tool_catalog = None
-    args.allow_metric_shadowing = False
-
     loaded = _trace_loader(args)
-    print(
-        f"validate: {loaded.report.record_count} records, "
-        f"{len(loaded.report.errors)} error(s), {len(loaded.report.warnings)} warning(s)"
-    )
+    print(f"validate: {loaded.load().trace_count} trace(s), 0 error(s)")
 
     cov = corpus_coverage(loaded)
     print(f"coverage: {cov['rules']['evaluable']}/{cov['rules']['total']} IA3 rules evaluable\n")
@@ -1140,11 +926,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_schema)
 
     # validate
-    p = sub.add_parser("validate", help="check a corpus against the schema and the lints")
+    p = sub.add_parser("validate", help="parse a canonical Trace JSONL corpus")
     p.add_argument("traces", type=Path)
-    p.add_argument("--allow-metric-shadowing", action="store_true")
     p.add_argument("--json", action="store_true")
-    p.add_argument("--max-errors", type=int, default=50)
     p.set_defaults(func=cmd_validate)
 
     # coverage
@@ -1252,24 +1036,6 @@ def build_parser() -> argparse.ArgumentParser:
     _add_tool_issue_arguments(p)
     p.set_defaults(func=cmd_run_analyst)
 
-    # adapt-messages
-    p = sub.add_parser(
-        "adapt-messages", help="convert Anthropic/OpenAI message lists to canonical JSONL"
-    )
-    p.add_argument("input", type=Path)
-    p.add_argument("--format", choices=("anthropic", "openai", "auto"), default="auto")
-    p.add_argument("-o", "--out", type=Path, default=Path("traces.jsonl"))
-    p.add_argument("--tool-catalog", type=Path, default=None)
-    p.add_argument("--trace-id-prefix", default="trace")
-    p.set_defaults(func=cmd_adapt_messages)
-
-    # init-adapter
-    p = sub.add_parser("init-adapter", help="scaffold a new adapter and print the verify loop")
-    p.add_argument("name")
-    p.add_argument("--dir", type=Path, default=Path("adapters"))
-    p.add_argument("--force", action="store_true")
-    p.set_defaults(func=cmd_init_adapter)
-
     # demo
     p = sub.add_parser("demo", help="run everything on the bundled sample data")
     _add_output_arguments(p)
@@ -1313,10 +1079,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_ERROR
     except Exception as exc:  # noqa: BLE001 - CLI boundary
-        if isinstance(exc, TraceLoadError):
+        if isinstance(exc, FSDataLoadError):
             print(f"error: {exc}", file=sys.stderr)
-            for diagnostic in exc.report.errors[:20]:
-                print(f"  {diagnostic.format()}", file=sys.stderr)
             return EXIT_SCHEMA
         if isinstance(exc, MLflowTraceLoadError):
             print(f"error: {exc}", file=sys.stderr)

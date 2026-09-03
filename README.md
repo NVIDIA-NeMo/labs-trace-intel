@@ -82,7 +82,6 @@ TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insig
 
 ```text
 src/insight_agent/
-├── adapters/             # source-specific conversion helpers
 ├── traces.py             # normalized Trace, Span, and TraceSnapshot contracts
 ├── trace_loaders/        # loader contracts and source-specific trace loaders
 ├── evidence_streams/     # evidence-stream contracts and implementations
@@ -98,7 +97,7 @@ implementation modules live with the stage or interface that owns them.
 The [anomaly-and-pattern](src/insight_agent/evidence_streams/anomaly_and_patterns/README.md)
 and [tool-issue](src/insight_agent/evidence_streams/tool_issues/README.md) packages document
 their own configuration, analysis, and outputs. The canonical input format is documented with
-the [InsightTrace loader](src/insight_agent/trace_loaders/insight_trace/README.md).
+the public [`Trace` model](src/insight_agent/traces.py).
 
 ### Reading the outputs
 ./out/analyst contains the final output in insights.json. It also contains a prompt.md which is the full interpolated prompt sent to the Analyst Agent. 
@@ -111,7 +110,7 @@ out/ia3 contains the artifacts from the tool-issue evidence stream.
 
 ## Running the agent on your own traces
 
-Evidence streams consume a normalized `TraceSnapshot`. Choose the source adapter that matches
+Evidence streams consume a normalized `TraceSnapshot`. Choose the source loader that matches
 where your traces already live; neither path changes the downstream analysis.
 
 ### Read an MLflow experiment directly
@@ -146,8 +145,7 @@ sequential pages of at most 500 traces, matching MLflow's documented
 Large or span-heavy traces may exhaust local memory before the trace-count limit, so production
 runs should use a coherent time window plus stable tags or metadata rather than an unbounded query.
 
-If the traces are already exported from MLflow, pass the native JSON directly instead of converting
-it to `insight-trace/v1` JSONL:
+If the traces are already exported from MLflow, pass the native JSON directly:
 
 ```bash
 uv sync --locked --extra mlflow
@@ -165,16 +163,11 @@ apply MLflow filters or follow a continuation token, and it reads the complete f
 
 ### Read traces from the filesystem
 
-Source traces from other systems need to be converted to the `insight-trace/v1` JSONL contract
-first.
+Filesystem input is JSONL with one serialized `Trace` per non-empty line. `FSDataLoader`
+parses each line directly with the Pydantic model; it does not normalize or remap fields.
 
-If your traces are already in OpenAI or Anthropic message format you can use the built-in adapter:
-
-```bash
-uv run insight-agent adapt-messages my-conversations.json -o traces.jsonl
-```
-
-If your traces are not in a compatible format, the repo ships with a skill for writing a custom adapter. Find it at .claude/skills/insight-trace-adapter/SKILL.md
+If your traces are not in a compatible format, the repo ships with a skill for implementing a
+source-specific loader: [`.claude/skills/trace-loader/SKILL.md`](.claude/skills/trace-loader/SKILL.md).
 
 After converting your traces, validate the format:
 

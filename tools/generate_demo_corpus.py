@@ -23,10 +23,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from insight_agent.traces import UNSET, Span, SpanKind, ToolCall, Trace, TraceAggregate
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "src" / "insight_agent" / "data"
-
-SCHEMA_VERSION = "insight-trace/v1"
 
 TIMEOUT = "Error: connection timed out after 30s"
 
@@ -68,49 +68,87 @@ TOOL_CATALOG: dict[str, Any] = {
 
 VERDICT_DEAD_END = "dead_end: no artifact produced"
 VERDICT_COMPLETED = "completed"
+MISSING_RESULT = object()
 
 
 class TraceBuilder:
-    """Accumulates calls and the matching trajectory steps for one trace."""
+    """Build one canonical trace for the bundled synthetic corpus."""
 
     def __init__(self, trace_id: str, logical_case_id: str, task_text: str):
         self.trace_id = trace_id
         self.logical_case_id = logical_case_id
         self.task_text = task_text
-        self.calls: list[dict[str, Any]] = []
-        self.steps: list[dict[str, Any]] = []
+        self.spans: list[Span] = []
         self.orphans: list[dict[str, Any]] = []
         self.extras: dict[str, Any] = {}
+        self.call_count = 0
+        self.duration_ms = 0.0
+        self._span_ids: set[str] = set()
+
+    def _span_id(self, source_id: str) -> str:
+        if source_id not in self._span_ids:
+            self._span_ids.add(source_id)
+            return source_id
+        occurrence = 2
+        while f"{source_id}#{occurrence}" in self._span_ids:
+            occurrence += 1
+        span_id = f"{source_id}#{occurrence}"
+        self._span_ids.add(span_id)
+        return span_id
 
     def call(
         self,
         tool_name: str,
         arguments: Any,
         *,
-        result: Any = "__omit__",
+        result: Any = MISSING_RESULT,
         call_id: str | None = None,
         duration_ms: float = 120.0,
-        step: bool = True,
         **fields: Any,
     ) -> TraceBuilder:
-        index = len(self.calls)
-        entry: dict[str, Any] = {
-            "call_id": call_id or f"{self.trace_id}#{index}",
-            "call_index": index,
-            "tool_name": tool_name,
-            "arguments": arguments,
-            "duration_ms": duration_ms,
-            "source_pointer": {"trace_id": self.trace_id, "call_index": index},
-        }
-        # "__omit__" is how a caller says "no result was ever recorded"; the
-        # canonical format expresses that by leaving the key out entirely.
-        if result != "__omit__":
-            entry["result"] = result
-        entry.update(fields)
-        self.calls.append(entry)
+        index = self.call_count
+        self.call_count += 1
+        resolved_call_id = call_id or f"{self.trace_id}#{index}"
+        result_is_missing = result is MISSING_RESULT or fields.get("result_missing") is True
+        if fields.get("result_count") == 0:
+            result_is_missing = True
+        result_count = 0 if result_is_missing else int(fields.get("result_count", 1))
+        explicit_error = fields.get("explicit_error")
+        self.duration_ms += duration_ms
 
-        if step:
-            self.step("tool", tool_name)
+        span_fields: dict[str, Any] = {
+            "id": self._span_id(resolved_call_id),
+            "kind": SpanKind.TOOL,
+            "tool_name": tool_name,
+            "input": arguments,
+            "error": (
+                str(fields.get("outcome_marker") or "explicit_error")
+                if explicit_error is True
+                else None
+            ),
+            "attributes": {
+                "name": tool_name,
+                "subtype": "tool",
+                "summary": "",
+                "explicit_error": explicit_error,
+                "outcome_marker": fields.get("outcome_marker"),
+                "duration_ms": duration_ms,
+                "source_pointer": {"trace_id": self.trace_id, "call_index": index},
+                "extra": dict(fields.get("extra") or {}),
+            },
+            "tool_call": ToolCall(
+                call_id=resolved_call_id,
+                index=index,
+                result_id=fields.get("result_id"),
+                result_count=result_count,
+                instrumentation_alias_of=fields.get("instrumentation_alias_of"),
+                prior_user_text=fields.get("prior_user_text") or self.task_text,
+                returned_data=fields.get("returned_data", UNSET),
+            ),
+        }
+        if not result_is_missing:
+            span_fields["output"] = result
+        self.spans.append(Span(**span_fields))
         return self
 
     def step(
@@ -120,14 +158,28 @@ class TraceBuilder:
         *,
         content: str = "",
     ) -> TraceBuilder:
-        entry: dict[str, Any] = {
-            "step_index": len(self.steps),
-            "step_type": step_type,
-            "name": name,
+        step_index = len(self.spans)
+        kind = (
+            SpanKind.EVALUATOR
+            if step_type == "evaluation"
+            else SpanKind.AGENT
+            if step_type in {"agent", "agent_step", "planning", "user"}
+            else SpanKind.UNKNOWN
+        )
+        span_fields: dict[str, Any] = {
+            "id": self._span_id(f"{self.trace_id}#step-{step_index}"),
+            "kind": kind,
+            "attributes": {
+                "name": name or None,
+                "subtype": step_type,
+                "summary": content,
+                "source_pointer": {},
+                "extra": {},
+            },
         }
         if content:
-            entry["content"] = content
-        self.steps.append(entry)
+            span_fields["output"] = content
+        self.spans.append(Span(**span_fields))
         return self
 
     def build(
@@ -138,29 +190,25 @@ class TraceBuilder:
         metrics: dict[str, float] | None = None,
         complete_provenance_context: bool = False,
         include_catalog: bool = True,
-    ) -> dict[str, Any]:
-        record: dict[str, Any] = {
-            "schema_version": SCHEMA_VERSION,
-            "trace_id": self.trace_id,
-            "logical_case_id": self.logical_case_id,
+    ) -> Trace:
+        attributes: dict[str, Any] = {
+            "complete_provenance_context": complete_provenance_context,
+            "orphan_results": self.orphans,
             "source_pointer": {"dataset": "docops-sample", "run_id": self.trace_id},
-            "observed_verdict": verdict,
-            "cost": cost,
+            "metrics": metrics or {},
+            "extra": self.extras,
             "task_text": self.task_text,
-            "calls": self.calls,
-            "steps": self.steps,
+            "logical_case_id": self.logical_case_id,
+            "observed_verdict": verdict,
         }
-        if metrics:
-            record["metrics"] = metrics
-        if complete_provenance_context:
-            record["complete_provenance_context"] = True
-        if self.orphans:
-            record["orphan_results"] = self.orphans
         if include_catalog:
-            record["tool_catalog"] = TOOL_CATALOG
-        if self.extras:
-            record["extra"] = self.extras
-        return record
+            attributes["tool_catalog"] = TOOL_CATALOG
+        return Trace(
+            id=self.trace_id,
+            root_spans=self.spans,
+            aggregate=TraceAggregate(cost_usd=cost, latency_ms=self.duration_ms or None),
+            attributes=attributes,
+        )
 
 
 def _plan(builder: TraceBuilder, text: str) -> TraceBuilder:
@@ -174,7 +222,7 @@ def _close(builder: TraceBuilder, text: str) -> TraceBuilder:
 # -- the traces ------------------------------------------------------------
 
 
-def search_trace(suffix: str, case: str) -> dict[str, Any]:
+def search_trace(suffix: str, case: str) -> Trace:
     """Search-shaped work. Recurs three times to qualify two card types.
 
     Contributes ``explicit_tool_failure`` (error_prefix) and ``unknown_tool``
@@ -207,7 +255,7 @@ def search_trace(suffix: str, case: str) -> dict[str, Any]:
     return b.build(verdict=VERDICT_DEAD_END, cost=0.42, metrics={"turn_count": 5.0})
 
 
-def contract_trace() -> dict[str, Any]:
+def contract_trace() -> Trace:
     """One trace covering all six argument-contract findings."""
     task = "Search the archive and run the mesh check."
     b = TraceBuilder("docops-contract", "case-contract", task)
@@ -245,7 +293,7 @@ def contract_trace() -> dict[str, Any]:
     return b.build(verdict=VERDICT_DEAD_END, cost=0.31, metrics={"turn_count": 8.0})
 
 
-def instrumentation_trace() -> dict[str, Any]:
+def instrumentation_trace() -> Trace:
     """The five instrumentation-integrity findings."""
     task = "Read the changelog and summarise it."
     b = TraceBuilder("docops-instrumentation", "case-instrumentation", task)
@@ -293,7 +341,7 @@ def instrumentation_trace() -> dict[str, Any]:
     return b.build(verdict=VERDICT_COMPLETED, cost=0.55, metrics={"turn_count": 9.0})
 
 
-def repeated_retry_trace() -> dict[str, Any]:
+def repeated_retry_trace() -> Trace:
     """Three byte-identical failing calls: repeated_identical_failed_call."""
     task = "Pull the release table from the docs database."
     b = TraceBuilder("docops-retry-identical", "case-retry-identical", task)
@@ -309,7 +357,7 @@ def repeated_retry_trace() -> dict[str, Any]:
     return b.build(verdict=VERDICT_DEAD_END, cost=0.90, metrics={"turn_count": 6.0})
 
 
-def modified_retry_trace() -> dict[str, Any]:
+def modified_retry_trace() -> Trace:
     """Three different argument sets, same failure class: modified_retry_same_failure."""
     task = "Open the design document."
     b = TraceBuilder("docops-retry-modified", "case-retry-modified", task)
@@ -322,7 +370,7 @@ def modified_retry_trace() -> dict[str, Any]:
     return b.build(verdict=VERDICT_DEAD_END, cost=0.22, metrics={"turn_count": 5.0})
 
 
-def placeholder_trace() -> dict[str, Any]:
+def placeholder_trace() -> Trace:
     """A failed call whose argument was never substituted."""
     task = "Export the report to the configured output directory."
     b = TraceBuilder("docops-placeholder", "case-placeholder", task)
@@ -339,7 +387,7 @@ def placeholder_trace() -> dict[str, Any]:
     return b.build(verdict=VERDICT_DEAD_END, cost=0.18, metrics={"turn_count": 4.0})
 
 
-def provenance_trace() -> dict[str, Any]:
+def provenance_trace() -> Trace:
     """An identifier the agent invented, explicitly rejected by the tool.
 
     Requires complete_provenance_context: the conclusion "ungrounded" is only
@@ -368,7 +416,7 @@ def provenance_trace() -> dict[str, Any]:
     )
 
 
-def state_trace(suffix: str, case: str) -> dict[str, Any]:
+def state_trace(suffix: str, case: str) -> Trace:
     """A tool refusing to act because a precondition is unmet."""
     task = f"Append the {suffix} note to the active document."
     b = TraceBuilder(f"docops-state-{suffix}", case, task)
@@ -387,7 +435,7 @@ def state_trace(suffix: str, case: str) -> dict[str, Any]:
     return b.build(verdict=VERDICT_DEAD_END, cost=0.14, metrics={"turn_count": 4.0})
 
 
-def code_trace() -> dict[str, Any]:
+def code_trace() -> Trace:
     """A Python traceback, decoded only because the tool is a code runner."""
     task = "Run the mesh verification script."
     b = TraceBuilder("docops-code", "case-code", task)
@@ -412,7 +460,7 @@ def code_trace() -> dict[str, Any]:
     return b.build(verdict=VERDICT_COMPLETED, cost=1.10, metrics={"turn_count": 6.0})
 
 
-def stagnation_trace(suffix: str, case: str) -> dict[str, Any]:
+def stagnation_trace(suffix: str, case: str) -> Trace:
     """The same failing search repeated with no progress between attempts.
 
     Fires ``repeated_identical_failed_call``, and gives IA2 a trajectory whose
@@ -436,7 +484,7 @@ def stagnation_trace(suffix: str, case: str) -> dict[str, Any]:
     return b.build(verdict=VERDICT_DEAD_END, cost=0.35, metrics={"turn_count": 7.0})
 
 
-def outlier_trace() -> dict[str, Any]:
+def outlier_trace() -> Trace:
     """One deliberately extreme trace so the 2% contamination default flags something.
 
     Long, repetitive, and one very large output — the shape IA2's feature
@@ -456,7 +504,7 @@ def outlier_trace() -> dict[str, Any]:
     return b.build(verdict=VERDICT_DEAD_END, cost=9.90, metrics={"turn_count": 30.0})
 
 
-def clean_trace(suffix: str, case: str) -> dict[str, Any]:
+def clean_trace(suffix: str, case: str) -> Trace:
     """A trace with nothing wrong, so 'no findings' is represented too."""
     task = f"Summarise the {suffix} guide."
     b = TraceBuilder(f"docops-clean-{suffix}", case, task)
@@ -478,7 +526,7 @@ def clean_trace(suffix: str, case: str) -> dict[str, Any]:
     return b.build(verdict=VERDICT_COMPLETED, cost=0.20, metrics={"turn_count": 4.0})
 
 
-def build_corpus() -> list[dict[str, Any]]:
+def build_corpus() -> list[Trace]:
     """Fourteen traces over twelve logical cases.
 
     Two cases (``case-search-a`` and ``case-state-a``) cover two traces each,
@@ -512,8 +560,13 @@ def write_outputs(data_dir: Path) -> dict[str, Path]:
 
     corpus_path = data_dir / "sample_corpus.jsonl"
     lines = [
-        json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        for record in build_corpus()
+        json.dumps(
+            trace.model_dump(mode="json", exclude_unset=True),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        for trace in build_corpus()
     ]
     corpus_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -530,8 +583,11 @@ def main() -> int:
     written = write_outputs(args.out)
     corpus = build_corpus()
     print(f"traces           : {len(corpus)}")
-    print(f"calls            : {sum(len(t['calls']) for t in corpus)}")
-    print(f"logical cases    : {len({t['logical_case_id'] for t in corpus})}")
+    print(
+        "calls            : "
+        f"{sum(span.kind is SpanKind.TOOL for trace in corpus for span in trace.root_spans)}"
+    )
+    print(f"logical cases    : {len({t.attributes['logical_case_id'] for t in corpus})}")
     for name, path in written.items():
         print(
             f"{name:17}: {path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path}"

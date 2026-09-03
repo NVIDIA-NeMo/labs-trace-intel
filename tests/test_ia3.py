@@ -2,7 +2,7 @@
 
 The headline test is the parametrised one: every single one of the nineteen
 finding types must fire on shipped data. That is what makes the sample corpus a
-usable reference — someone writing an adapter can compare their own coverage
+usable reference — someone writing a loader can compare their own coverage
 against a corpus that is known to exercise everything.
 """
 
@@ -26,11 +26,11 @@ from insight_agent.evidence_streams.tool_issues import (
     detect,
     to_ia3_trace,
 )
-from insight_agent.trace_loaders import InsightTraceLoader
+from insight_agent.trace_loaders import FSDataLoader
+from insight_agent.traces import Span, SpanKind, ToolCall, Trace, TraceAggregate, TraceSnapshot
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
-DUPLICATE_CALL_ID_WARNING = r"WARNING\[duplicate_call_id\].*docops-instrumentation"
 
 CONTRACT_TYPES = {
     "unknown_tool",
@@ -44,8 +44,7 @@ CONTRACT_TYPES = {
 
 @pytest.fixture(scope="module")
 def loader():
-    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        return InsightTraceLoader.from_path(CORPUS)
+    return FSDataLoader(CORPUS)
 
 
 @pytest.fixture(scope="module")
@@ -62,7 +61,7 @@ def test_every_finding_type_fires_on_the_sample_corpus(findings, issue_type):
     fired = {f["issue_type"] for f in findings}
     assert issue_type in fired, (
         f"{issue_type} never fires on the bundled corpus, so nobody can use the sample to "
-        "check their own adapter's coverage of this rule. Extend tools/generate_demo_corpus.py."
+        "check their own loader's coverage of this rule. Extend tools/generate_demo_corpus.py."
     )
 
 
@@ -94,9 +93,9 @@ def test_issue_ids_are_stable_across_processes():
     """
     script = (
         "import json;"
-        "from insight_agent.trace_loaders import InsightTraceLoader;"
+        "from insight_agent.trace_loaders import FSDataLoader;"
         "from insight_agent.evidence_streams.tool_issues import detect,to_ia3_trace;"
-        f"loader=InsightTraceLoader.from_path({str(CORPUS)!r});"
+        f"loader=FSDataLoader({str(CORPUS)!r});"
         "findings=detect(to_ia3_trace(t) for t in loader.load());"
         "print(json.dumps(sorted(f['issue_id'] for f in findings)))"
     )
@@ -122,10 +121,16 @@ def test_catalog_coverage_reports_all_nineteen_keys(findings):
 
 
 def test_dropping_the_catalog_silences_exactly_the_contract_rules(loader, findings):
-    stripped = [{k: v for k, v in r.items() if k != "tool_catalog"} for r in loader.records]
-
-    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        snapshot = InsightTraceLoader.from_records(stripped).load()
+    snapshot = TraceSnapshot(
+        trace.model_copy(
+            update={
+                "attributes": {
+                    key: value for key, value in trace.attributes.items() if key != "tool_catalog"
+                }
+            }
+        )
+        for trace in loader.load()
+    )
     without = detect(to_ia3_trace(trace) for trace in snapshot)
 
     before = {f["issue_type"] for f in findings}
@@ -138,21 +143,27 @@ def test_dropping_the_catalog_silences_exactly_the_contract_rules(loader, findin
 
 
 def test_a_null_schema_enables_unknown_tool_but_not_argument_checks():
-    record = {
-        "schema_version": "insight-trace/v1",
-        "trace_id": "t",
-        "tool_catalog": {"SessionTool": None},
-        "calls": [
-            {
-                "call_id": "c0",
-                "call_index": 0,
-                "tool_name": "SessionTool",
-                "arguments": {"anything": 1},
-            },
-            {"call_id": "c1", "call_index": 1, "tool_name": "GhostTool", "arguments": {}},
+    trace = Trace(
+        id="t",
+        root_spans=[
+            Span(
+                id="c0",
+                kind=SpanKind.TOOL,
+                tool_name="SessionTool",
+                input={"anything": 1},
+                tool_call=ToolCall(call_id="c0", index=0, result_count=0),
+            ),
+            Span(
+                id="c1",
+                kind=SpanKind.TOOL,
+                tool_name="GhostTool",
+                input={},
+                tool_call=ToolCall(call_id="c1", index=1, result_count=0),
+            ),
         ],
-    }
-    trace = next(iter(InsightTraceLoader.from_records([record]).load()))
+        aggregate=TraceAggregate(),
+        attributes={"tool_catalog": {"SessionTool": None}},
+    )
     fired = {f["issue_type"] for f in detect([to_ia3_trace(trace)])}
     assert "unknown_tool" in fired
     assert not (fired & (CONTRACT_TYPES - {"unknown_tool"}))

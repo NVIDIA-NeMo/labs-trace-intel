@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
-
 from insight_agent.evidence_streams.tool_issues import (
     FINDING_TYPES,
     MISSING,
@@ -15,45 +13,50 @@ from insight_agent.evidence_streams.tool_issues import (
     ToolIssueEvidenceStream,
     to_ia3_trace,
 )
-from insight_agent.trace_loaders import InsightTraceLoader
-from insight_agent.traces import Span, SpanKind, TokenCounts, Trace, TraceAggregate
+from insight_agent.trace_loaders import FSDataLoader
+from insight_agent.traces import Span, SpanKind, TokenCounts, ToolCall, Trace, TraceAggregate
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
-DUPLICATE_CALL_ID_WARNING = r"WARNING\[duplicate_call_id\].*docops-instrumentation"
 NOW = datetime(2026, 8, 26, tzinfo=timezone.utc)
 TOKENS = TokenCounts(input_tokens=0, cached_input_tokens=0, output_tokens=0)
 
 
 def test_input_normalization_preserves_every_field_ia3_uses():
-    record = {
-        "schema_version": "insight-trace/v1",
-        "trace_id": "trace-1",
-        "logical_case_id": "case-1",
-        "task_text": "Find document DOC-1",
-        "complete_provenance_context": True,
-        "tool_catalog": {"search": {"type": "object"}},
-        "orphan_results": [{"result_id": "orphan"}],
-        "calls": [
-            {
-                "call_id": "call-1",
-                "call_index": 4,
-                "tool_name": "search_alias",
-                "arguments": {"document_id": "DOC-1"},
-                "result": {"content": "Error: not found"},
-                "result_id": "result-1",
-                "result_count": 2,
-                "explicit_error": True,
-                "outcome_marker": "not_found",
-                "instrumentation_alias_of": "search",
-                "prior_user_text": "Use DOC-1",
-                "source_pointer": {"call": 4},
-            }
+    trace = Trace(
+        id="trace-1",
+        root_spans=[
+            Span(
+                id="call-1",
+                kind=SpanKind.TOOL,
+                tool_name="search_alias",
+                input={"document_id": "DOC-1"},
+                output={"content": "Error: not found"},
+                error="not_found",
+                attributes={
+                    "explicit_error": True,
+                    "outcome_marker": "not_found",
+                    "source_pointer": {"call": 4},
+                },
+                tool_call=ToolCall(
+                    call_id="call-1",
+                    index=4,
+                    result_id="result-1",
+                    result_count=2,
+                    instrumentation_alias_of="search",
+                    prior_user_text="Use DOC-1",
+                ),
+            )
         ],
-    }
-
-    with pytest.warns(UserWarning, match=r"WARNING\[result_id_mostly_mismatched\]"):
-        trace = next(iter(InsightTraceLoader.from_records([record]).load()))
+        aggregate=TraceAggregate(),
+        attributes={
+            "logical_case_id": "case-1",
+            "task_text": "Find document DOC-1",
+            "complete_provenance_context": True,
+            "tool_catalog": {"search": {"type": "object"}},
+            "orphan_results": [{"result_id": "orphan"}],
+        },
+    )
     projected = to_ia3_trace(trace)
     call = projected.calls[0]
     assert projected.trace_id == "trace-1"
@@ -76,32 +79,26 @@ def test_input_normalization_preserves_every_field_ia3_uses():
 
 
 def test_missing_output_uses_ia3_singleton_but_json_null_remains_none():
-    trace = next(
-        iter(
-            InsightTraceLoader.from_records(
-                [
-                    {
-                        "schema_version": "insight-trace/v1",
-                        "trace_id": "missing-null",
-                        "calls": [
-                            {
-                                "call_id": "missing",
-                                "call_index": 0,
-                                "tool_name": "search",
-                                "arguments": {},
-                            },
-                            {
-                                "call_id": "null",
-                                "call_index": 1,
-                                "tool_name": "search",
-                                "arguments": {},
-                                "result": None,
-                            },
-                        ],
-                    }
-                ]
-            ).load()
-        )
+    trace = Trace(
+        id="missing-null",
+        root_spans=[
+            Span(
+                id="missing",
+                kind=SpanKind.TOOL,
+                tool_name="search",
+                input={},
+                tool_call=ToolCall(call_id="missing", index=0, result_count=0),
+            ),
+            Span(
+                id="null",
+                kind=SpanKind.TOOL,
+                tool_name="search",
+                input={},
+                output=None,
+                tool_call=ToolCall(call_id="null", index=1),
+            ),
+        ],
+        aggregate=TraceAggregate(),
     )
 
     projected = to_ia3_trace(trace)
@@ -152,8 +149,7 @@ def test_full_trace_input_supplies_prior_user_context():
 
 
 def test_tool_issue_stream_retains_all_findings_and_cards():
-    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        loader = InsightTraceLoader.from_path(CORPUS)
+    loader = FSDataLoader(CORPUS)
     snapshot = loader.load()
     evidence = ToolIssueEvidenceStream().analyze(snapshot)
 
@@ -164,12 +160,11 @@ def test_tool_issue_stream_retains_all_findings_and_cards():
     assert len(evidence.problems) == sum(
         card.eligible_for_analyst for card in evidence.artifacts.cards
     )
-    assert [trace.id for trace in snapshot] == [record["trace_id"] for record in loader.records]
+    assert [trace.id for trace in snapshot] == list(snapshot.traces_by_id)
 
 
 def test_tool_issue_stream_can_expose_audit_cards_as_problems():
-    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        snapshot = InsightTraceLoader.from_path(CORPUS).load()
+    snapshot = FSDataLoader(CORPUS).load()
     evidence = ToolIssueEvidenceStream(config=ToolIssueConfig(include_audit_problems=True)).analyze(
         snapshot
     )

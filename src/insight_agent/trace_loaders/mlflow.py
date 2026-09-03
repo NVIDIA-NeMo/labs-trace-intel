@@ -65,7 +65,6 @@ class MLflowLoadReport:
     span_count: int = 0
     unresolved_parent_count: int = 0
     call_count: int = 0
-    traces_with_spans: int = 0
     distinct_logical_cases: int = 0
 
 
@@ -174,7 +173,6 @@ class MLflowTraceLoader:
             span_count=span_count,
             unresolved_parent_count=unresolved_parent_count,
             call_count=call_count,
-            traces_with_spans=sum(bool(trace.root_spans) for trace in normalized),
             distinct_logical_cases=len({_logical_case(trace) for trace in normalized}),
         )
         return snapshot
@@ -240,11 +238,6 @@ class MLflowTraceLoader:
             "source": _source_label(tracking_uri, experiment_id),
             "trace_count": self.report.trace_count,
             "call_count": self.report.call_count,
-            "steps_present": bool(self.report.trace_count)
-            and self.report.traces_with_spans == self.report.trace_count,
-            "steps_partially_present": (
-                0 < self.report.traces_with_spans < self.report.trace_count
-            ),
             "distinct_logical_cases": self.report.distinct_logical_cases,
             "span_count": self.report.span_count,
             "unresolved_parent_count": self.report.unresolved_parent_count,
@@ -335,7 +328,6 @@ class MLflowFileTraceLoader:
             span_count=span_count,
             unresolved_parent_count=unresolved_parent_count,
             call_count=call_count,
-            traces_with_spans=sum(bool(trace.root_spans) for trace in normalized),
             distinct_logical_cases=len({_logical_case(trace) for trace in normalized}),
         )
         return snapshot
@@ -348,11 +340,6 @@ class MLflowFileTraceLoader:
             "source": f"mlflow-export:{resolved_path}",
             "trace_count": self.report.trace_count,
             "call_count": self.report.call_count,
-            "steps_present": bool(self.report.trace_count)
-            and self.report.traces_with_spans == self.report.trace_count,
-            "steps_partially_present": (
-                0 < self.report.traces_with_spans < self.report.trace_count
-            ),
             "distinct_logical_cases": self.report.distinct_logical_cases,
             "span_count": self.report.span_count,
             "unresolved_parent_count": self.report.unresolved_parent_count,

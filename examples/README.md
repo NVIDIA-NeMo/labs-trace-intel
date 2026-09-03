@@ -3,8 +3,8 @@
 ## `tau_bench_traces.jsonl`
 
 200 real agent traces (1,003 tool calls) from [τ-bench](https://github.com/sierra-research/tau-bench),
-the public tool-agent benchmark, already converted to canonical
-`insight-trace/v1`. Nothing to adapt — point the CLI at it and run:
+the public tool-agent benchmark, already serialized as canonical `Trace` JSONL.
+Nothing to adapt — point the CLI at it and run:
 
 ```bash
 uv run insight-agent validate examples/tau_bench_traces.jsonl
@@ -62,12 +62,9 @@ Reading that list is the point of `coverage`. Compare it against the bundled
 sample corpus (`uv run insight-agent demo`), which is synthesised specifically to make
 all nineteen rules fire.
 
-### Known warnings
-
-`validate` reports 14 `tool_catalog_disagreement` warnings. These are real: the
-schemas were recovered from the runtime, and a few tools genuinely present a
-different shape in different traces. They are left in rather than normalised
-away, because that disagreement is itself evidence about the source.
+The schemas were recovered from the runtime, and a few tools genuinely present
+a different shape in different traces. Those per-trace catalogs are preserved
+rather than normalized away.
 
 ### Provenance and two deliberate departures from the raw export
 
@@ -75,13 +72,11 @@ Converted from the τ-bench runtime state with the trace-level `source_pointer`
 rewritten to `{"dataset": "tau-bench", ...}`. Two changes were made to the raw
 export, both measured rather than assumed:
 
-- **`explicit_error: false` was dropped** where the source asserted it
+- **`Span.attributes["explicit_error"]: false` was dropped** where the source asserted it
   corpus-wide (945 calls); the 58 genuine `true` values are kept. A blanket
   false is a success *assertion* that disables all text-based failure decoding
-  — trap 2 in the bundled adapter skill. Ablation confirmed IA2 and IA3 output
+  as documented by the canonical trace contract. Ablation confirmed IA2 and IA3 output
   is byte-identical either way, so nothing is lost and ~180 spurious warnings
   go away.
-- **Synthesised per-call `steps` were omitted.** τ-bench has no step model
-  beyond the calls themselves, and the IA2 digest is identical with or without
-  them, so inventing a trajectory would have added structure the source does
-  not have.
+- **Only observed tool spans are present.** τ-bench has no additional step model
+  beyond the calls themselves, so the converted traces do not invent one.

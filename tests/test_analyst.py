@@ -610,7 +610,7 @@ def test_a_fabricated_trace_id_is_reported_loudly(tmp_path, mock_litellm, capsys
 
 def test_a_fetched_trace_id_is_not_reported_as_unknown(tmp_path, mock_litellm, capsys):
     """With trace lookup, a trace the model opened itself is legitimate."""
-    real = json.loads(CORPUS.read_text(encoding="utf-8").splitlines()[0])["trace_id"]
+    real = json.loads(CORPUS.read_text(encoding="utf-8").splitlines()[0])["id"]
     mock_litellm(f'[{{"name":"N","description":"D","trace_ids":["{real}"]}}]')
 
     main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(tmp_path / "out")])

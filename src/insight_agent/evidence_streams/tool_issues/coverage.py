@@ -1,11 +1,11 @@
 """Report which tool-issue rules a corpus can support.
 
-This is the feedback loop for anyone writing an adapter. Validation answers
+This is the feedback loop for anyone writing a source loader. Validation answers
 "is my JSON well formed"; coverage answers the far more useful question "given
 what I populated, which of the nineteen IA3 rules can fire at all, and what
 would I have to add to unlock the rest?"
 
-Without it the failure mode is silent and demoralising: the adapter validates,
+Without it the failure mode is silent and demoralising: the normalized trace validates,
 the run completes, no findings appear, and there is nothing to tell you that
 six rules abstained because ``tool_catalog`` was missing.
 """
@@ -16,8 +16,10 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from insight_agent.evidence_streams._trace import walk_spans
 from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
-from insight_agent.trace_loaders import InsightTraceLoader
+from insight_agent.trace_loaders import TraceLoader
+from insight_agent.traces import UNSET, SpanKind, Trace
 
 __all__ = ["RULE_REQUIREMENTS", "corpus_coverage", "format_coverage"]
 
@@ -87,7 +89,7 @@ RULE_REQUIREMENTS: tuple[RuleRequirement, ...] = (
         "result-key discipline",
         "evidence_streams/tool_issues/__init__.py:304",
         "Fires only when the 'result' key is absent (or result_missing / "
-        "result_count:0). An adapter that always emits a result, even null, "
+        "result_count:0). A loader that always emits a result, even null, "
         "silences this rule.",
     ),
     RuleRequirement(
@@ -106,13 +108,13 @@ RULE_REQUIREMENTS: tuple[RuleRequirement, ...] = (
         "orphan_tool_result",
         "orphan_results",
         "evidence_streams/tool_issues/__init__.py:417",
-        "Needs the adapter to capture results with no matching call.",
+        "Needs the loader to capture results with no matching call.",
     ),
     RuleRequirement(
         "mapped_instrumentation_alias",
         "instrumentation_alias_of",
         "evidence_streams/tool_issues/__init__.py:330",
-        "Needs the adapter to know the real tool behind an alias.",
+        "Needs the loader to know the real tool behind an alias.",
     ),
     RuleRequirement(
         "explicit_tool_failure",
@@ -153,8 +155,8 @@ RULE_REQUIREMENTS: tuple[RuleRequirement, ...] = (
 )
 
 
-def _field_presence(records: Sequence[Mapping[str, Any]]) -> dict[str, int]:
-    """Count how many records/calls populate each optional field."""
+def _field_presence(traces: Sequence[Trace]) -> dict[str, int]:
+    """Count how many traces and tool spans populate each optional field."""
 
     counts = {
         "tool_catalog": 0,
@@ -187,66 +189,71 @@ def _field_presence(records: Sequence[Mapping[str, Any]]) -> dict[str, int]:
         "total_steps": 0,
     }
 
-    for record in records:
+    for trace in traces:
         for key in (
             "tool_catalog",
-            "steps",
             "logical_case_id",
             "source_pointer",
             "observed_verdict",
-            "cost",
             "metrics",
             "task_text",
             "orphan_results",
         ):
-            if record.get(key):
+            if trace.attributes.get(key):
                 counts[key] += 1
-        if record.get("complete_provenance_context") is True:
+        if trace.aggregate.cost_usd is not None:
+            counts["cost"] += 1
+        if trace.attributes.get("complete_provenance_context") is True:
             counts["complete_provenance_context"] += 1
 
-        steps = record.get("steps") or []
-        counts["total_steps"] += len(steps)
+        visits = tuple(walk_spans(trace))
+        if visits:
+            counts["steps"] += 1
+        counts["total_steps"] += len(visits)
 
-        for call in record.get("calls", []):
+        for visit in visits:
+            span = visit.span
+            if span.kind is not SpanKind.TOOL:
+                continue
+            details = span.tool_call
             counts["total_calls"] += 1
-            missing = (
-                "result" not in call
-                or call.get("result_missing") is True
-                or call.get("result_count") == 0
-            )
+            missing = span.output is UNSET or (details is not None and details.result_count == 0)
             counts["result_absent" if missing else "result_present"] += 1
             if not missing:
-                result = call.get("result")
+                result = span.output
                 if result is None or result == "" or result == {} or result == []:
                     counts["result_empty"] += 1
 
-            arguments = call.get("arguments")
+            arguments = span.input
             # `{}` carries nothing, and a lone key such as `_unparsed_input`
-            # is an adapter's placeholder for "the source had no arguments".
-            if arguments in ({}, None, ""):
+            # is a loader's placeholder for "the source had no arguments".
+            if arguments is UNSET or arguments in ({}, None, ""):
                 counts["arguments_empty"] += 1
             elif isinstance(arguments, Mapping) and len(arguments) == 1:
                 only = next(iter(arguments))
                 if str(only).startswith("_") and arguments[only] in (None, "", {}, []):
                     counts["arguments_empty"] += 1
 
-            if call.get("result_id") is not None:
+            if details is not None and details.result_id is not None:
                 counts["result_id"] += 1
-            if isinstance(call.get("result_count"), int) and call["result_count"] > 1:
+            if details is not None and details.result_count > 1:
                 counts["result_count_gt_1"] += 1
-            if call.get("duration_ms") is not None:
+            if span.attributes.get("duration_ms") is not None or (
+                span.start_time is not None and span.end_time is not None
+            ):
                 counts["duration_ms"] += 1
-            if call.get("explicit_error") is True:
+            explicit_error = span.attributes.get("explicit_error")
+            if explicit_error is True or span.error is not None:
                 counts["explicit_error_true"] += 1
-            if call.get("explicit_error") is False:
+            if explicit_error is False:
                 counts["explicit_error_false"] += 1
-            if call.get("instrumentation_alias_of"):
+            if details is not None and details.instrumentation_alias_of:
                 counts["instrumentation_alias_of"] += 1
-            if call.get("prior_user_text"):
+            if details is not None and details.prior_user_text:
                 counts["prior_user_text"] += 1
-            if "returned_data" in call:
+            if details is not None and details.returned_data is not UNSET:
                 counts["returned_data"] += 1
-            if call.get("source_pointer"):
+            if span.attributes.get("source_pointer"):
                 counts["call_source_pointer"] += 1
 
     return counts
@@ -256,16 +263,15 @@ def _rule_status(
     requirement: RuleRequirement,
     presence: Mapping[str, int],
     fired: Iterable[str],
-    has_corpus_catalog: bool,
 ) -> dict[str, Any]:
     fired = set(fired)
     evaluable = True
     reason = ""
 
     if requirement.needs == "tool_catalog":
-        evaluable = bool(presence["tool_catalog"]) or has_corpus_catalog
+        evaluable = bool(presence["tool_catalog"])
         if not evaluable:
-            reason = "no tool_catalog on any record and none supplied with --tool-catalog"
+            reason = "no tool_catalog in Trace.attributes"
     elif requirement.needs == "result_id":
         evaluable = presence["result_id"] > 0
         if not evaluable:
@@ -310,22 +316,23 @@ def _rule_status(
 
 
 def corpus_coverage(
-    loader: InsightTraceLoader,
+    loader: TraceLoader,
     *,
     findings: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the full capability report for a loaded corpus."""
 
-    records = list(loader.records)
-    presence = _field_presence(records)
-    has_corpus_catalog = loader.options.tool_catalog is not None
+    traces = list(loader.load())
+    presence = _field_presence(traces)
     fired = {f["issue_type"] for f in (findings or [])}
 
-    rules = [_rule_status(r, presence, fired, has_corpus_catalog) for r in RULE_REQUIREMENTS]
+    rules = [_rule_status(r, presence, fired) for r in RULE_REQUIREMENTS]
     evaluable = [r for r in rules if r["evaluable"]]
 
-    trace_count = len(records)
-    distinct_cases = len({r.get("logical_case_id") or r["trace_id"] for r in records})
+    trace_count = len(traces)
+    distinct_cases = len(
+        {str(trace.attributes.get("logical_case_id") or trace.id) for trace in traces}
+    )
 
     notes: list[str] = []
 
@@ -358,7 +365,7 @@ def corpus_coverage(
         notes.append(
             f"{presence['arguments_empty']}/{presence['total_calls']} calls have empty or "
             "placeholder arguments, so no argument-contract rule can find anything even with a "
-            "tool_catalog supplied. Check that the adapter is reading the right field."
+            "tool_catalog supplied. Check that the loader is reading the right field."
         )
 
     if presence["total_calls"] and presence["explicit_error_false"] > presence["total_calls"] * 0.9:
@@ -380,7 +387,7 @@ def corpus_coverage(
         )
 
     return {
-        "source": loader.source,
+        "source": loader.describe()["source"],
         "trace_count": trace_count,
         "call_count": presence["total_calls"],
         "step_count": presence["total_steps"],
@@ -390,7 +397,6 @@ def corpus_coverage(
         "logical_case_id_populated": presence["logical_case_id"] > 0,
         "tool_catalog": {
             "records_with_catalog": presence["tool_catalog"],
-            "corpus_wide_catalog_supplied": has_corpus_catalog,
         },
         "rules": {
             "total": len(FINDING_TYPES),

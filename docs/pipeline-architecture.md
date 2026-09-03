@@ -10,7 +10,7 @@ TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insig
 ```mermaid
 flowchart TB
     source["Structured traces<br/>S3, filesystem, or provider export"]
-    loader["TraceLoader<br/>read, validate, normalize"]
+    loader["TraceLoader<br/>read and produce canonical traces"]
     snapshot["TraceSnapshot<br/>normalized Trace + Span records"]
 
     stream1["EvidenceStream<br/>anomaly and pattern analysis"]
@@ -30,18 +30,17 @@ flowchart TB
     generation --> insights
 ```
 
-`TraceLoader` is the input boundary, not a generic pipeline phase. Each loader owns the I/O,
-validation, and normalization for one source and returns the local normalized contract. The
-current `InsightTraceLoader` reads the repository's `insight-trace/v1` JSONL format. A future
-LangSmith, OpenTelemetry, ATIF, or NeMo Platform loader would emit the same `Trace` values
-directly; it would not translate through `insight-trace/v1` first.
+`TraceLoader` is the input boundary, not a generic pipeline phase. `FSDataLoader` reads one
+serialized `Trace` per JSONL line and validates it directly with Pydantic; it performs no
+mapping. Provider-native loaders such as the MLflow loader own only the source-specific
+conversion needed to produce the same public `Trace` values.
 
 ## 1. TraceLoader and TraceSnapshot
 
 ```mermaid
 flowchart TB
-    input["Input<br/>provider-native, OTel, ATIF,<br/>NeMo Intake, or insight-trace/v1"]
-    normalize["Concrete example<br/>InsightTraceLoader"]
+    input["Input<br/>canonical JSONL or<br/>provider-native traces"]
+    normalize["Concrete examples<br/>FSDataLoader / MLflowTraceLoader"]
     output["Output<br/>validated TraceSnapshot<br/>containing Trace + Span records"]
     input --> normalize --> output
 ```
@@ -125,7 +124,7 @@ class Trace(BaseModel):
 `output` means no result was observed, while `"output": null` means the tool returned `null`.
 IA3 depends on that distinction.
 
-Normalizers should populate span timestamps when the source records them. They are nullable
+Source loaders should populate span timestamps when the source records them. They are nullable
 because a source may preserve authoritative order without wall-clock time; normalization does
 not fabricate timestamps merely to satisfy the model.
 
@@ -136,7 +135,7 @@ not fabricate timestamps merely to satisfy the model.
   flatten or sort spans.
 - Span IDs must be unique across the complete tree.
 
-The generic `attributes` mappings preserve optional adapter data without turning evidence-specific
+The generic `attributes` mappings preserve optional source data without turning evidence-specific
 annotations into core trace fields. Evidence streams interpret the attributes they own, including
 source pointers, catalogs, case IDs, verdicts, and custom metrics.
 
@@ -152,10 +151,8 @@ The contract deliberately contains only fields consumed by the current system:
 - Insights Generation can fetch the same structured trace and inspect its message, tool, and
   result payloads.
 
-Concrete example: `InsightTraceLoader` validates `insight-trace/v1` records, maps their
-steps and calls into normalized spans, and returns a snapshot. A future loader for NeMo
-Platform would map its API objects into these local models; it would not return or import
-NeMo Platform classes.
+Concrete example: `FSDataLoader` parses canonical JSONL directly. `MLflowTraceLoader` maps
+MLflow API objects into these local models; it does not return or expose MLflow classes.
 
 ### Snapshot handoff
 

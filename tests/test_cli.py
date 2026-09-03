@@ -12,7 +12,7 @@ import pytest
 from insight_agent.cli import EXIT_ERROR, EXIT_OK, EXIT_SCHEMA, build_parser, main
 from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
 from insight_agent.trace_loaders import (
-    InsightTraceLoader,
+    FSDataLoader,
     MLflowFileTraceConfig,
     MLflowTraceConfig,
 )
@@ -24,7 +24,7 @@ CORPUS = DATA_DIR / "sample_corpus.jsonl"
 
 @pytest.fixture
 def corpus_without(tmp_path):
-    """A copy of the sample corpus with chosen top-level fields removed."""
+    """A copy of the sample corpus with chosen trace attributes removed."""
 
     def _make(*fields: str) -> Path:
         path = tmp_path / "stripped.jsonl"
@@ -34,7 +34,7 @@ def corpus_without(tmp_path):
                 continue
             record = json.loads(line)
             for field in fields:
-                record.pop(field, None)
+                record["attributes"].pop(field, None)
             lines.append(json.dumps(record))
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
@@ -48,8 +48,8 @@ def corpus_without(tmp_path):
 def test_schema_command_emits_the_canonical_schema(capsys):
     assert main(["schema"]) == EXIT_OK
     schema = json.loads(capsys.readouterr().out)
-    assert schema["$id"].endswith("insight-trace/v1")
-    assert set(schema["required"]) == {"schema_version", "trace_id", "calls"}
+    assert schema["title"] == "Trace"
+    assert set(schema["required"]) == {"id", "root_spans", "aggregate"}
 
 
 def test_validate_exits_zero_on_the_sample_corpus(capsys):
@@ -59,17 +59,17 @@ def test_validate_exits_zero_on_the_sample_corpus(capsys):
 
 def test_validate_exits_two_on_a_corrupt_corpus(tmp_path, capsys):
     bad = tmp_path / "bad.jsonl"
-    bad.write_text('{"schema_version": "insight-trace/v1"}\n{not json\n', encoding="utf-8")
+    bad.write_text('{"id": "incomplete"}\n{not json\n', encoding="utf-8")
     assert main(["validate", str(bad)]) == EXIT_SCHEMA
     out = capsys.readouterr().out
-    assert "invalid_json" in out or "ERROR" in out
+    assert "invalid trace" in out
 
 
 def test_validate_json_output_is_machine_readable(capsys):
     assert main(["validate", str(CORPUS), "--json"]) == EXIT_OK
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
-    assert payload["record_count"] == 18
+    assert payload["trace_count"] == 18
 
 
 # -- coverage --------------------------------------------------------------
@@ -127,7 +127,7 @@ def test_run_ia2_writes_a_digest_and_run_metadata(tmp_path, capsys):
     # Version capture matters: sklearn minor releases change IsolationForest output.
     assert run["scikit_learn_version"]
     assert run["numpy_version"]
-    assert run["corpus"]["steps_present"] is True
+    assert run["corpus"]["trace_count"] == 18
 
 
 def test_run_ia2_digest_is_deterministic(tmp_path):
@@ -207,8 +207,8 @@ def test_run_all_writes_an_index(tmp_path):
 
 def test_run_all_refuses_an_invalid_corpus(tmp_path, capsys):
     bad = tmp_path / "bad.jsonl"
-    bad.write_text('{"schema_version": "insight-trace/v1", "trace_id": "t"}\n', encoding="utf-8")
-    assert main(["run-all", str(bad), "-o", str(tmp_path / "out")]) == EXIT_SCHEMA
+    bad.write_text('{"id": "t"}\n', encoding="utf-8")
+    assert main(["run-all", str(bad), "--no-analyst", "-o", str(tmp_path / "out")]) == EXIT_SCHEMA
 
 
 def test_run_all_help_cites_the_mlflow_search_page_limit(capsys):
@@ -233,7 +233,7 @@ def test_run_all_accepts_mlflow_as_an_alternative_to_the_positional_file(monkeyp
             seen["config"] = config
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                self.delegate = InsightTraceLoader.from_path(CORPUS)
+                self.delegate = FSDataLoader(CORPUS)
 
         def load(self):
             return self.delegate.load()
@@ -290,7 +290,7 @@ def test_run_all_accepts_a_native_mlflow_export_without_conversion(monkeypatch, 
             seen["config"] = config
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                self.delegate = InsightTraceLoader.from_path(CORPUS)
+                self.delegate = FSDataLoader(CORPUS)
 
         def load(self):
             return self.delegate.load()
@@ -440,17 +440,17 @@ def test_explain_failures_surfaces_the_content_vs_output_trap(tmp_path, capsys):
     path.write_text(
         json.dumps(
             {
-                "schema_version": "insight-trace/v1",
-                "trace_id": "t1",
-                "calls": [
+                "id": "t1",
+                "root_spans": [
                     {
-                        "call_id": "c0",
-                        "call_index": 0,
+                        "id": "c0",
+                        "kind": "TOOL",
                         "tool_name": "Search",
-                        "arguments": {},
-                        "result": {"output": "Error: boom"},
+                        "input": {},
+                        "output": {"output": "Error: boom"},
                     }
                 ],
+                "aggregate": {},
             }
         )
         + "\n",
@@ -461,26 +461,3 @@ def test_explain_failures_surfaces_the_content_vs_output_trap(tmp_path, capsys):
     assert len(rows) == 1
     assert rows[0]["ia2_failed"] is True
     assert rows[0]["ia3_failed"] is False
-
-
-# -- scaffolding -----------------------------------------------------------
-
-
-def test_init_adapter_scaffolds_a_runnable_template(tmp_path, capsys):
-    assert main(["init-adapter", "mytool", "--dir", str(tmp_path)]) == EXIT_OK
-    adapter = tmp_path / "mytool.py"
-    source = adapter.read_text(encoding="utf-8")
-
-    compile(source, "mytool.py", "exec")  # must be valid Python
-    assert source.startswith("#!/usr/bin/env -S uv run\n")
-    assert adapter.stat().st_mode & 0o111
-    assert "insight-agent validate" in source
-    assert "missing_tool_result" in source  # the result-absence trap is documented
-    output = capsys.readouterr().out
-    assert "verify loop" in output.lower()
-    assert f"3. {adapter} SOURCE" in output
-
-
-def test_init_adapter_refuses_to_clobber(tmp_path, capsys):
-    main(["init-adapter", "mytool", "--dir", str(tmp_path)])
-    assert main(["init-adapter", "mytool", "--dir", str(tmp_path)]) != EXIT_OK

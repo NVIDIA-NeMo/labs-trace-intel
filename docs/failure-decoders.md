@@ -6,7 +6,7 @@ because unifying them would mean changing measured algorithm behaviour. Instead
 the divergence is documented here and made observable with
 `uv run insight-agent explain-failures`.
 
-This matters to anyone writing an adapter, because a result payload that reads
+This matters to anyone writing a source loader, because a result payload that reads
 as a failure in one engine can read as a success in the other.
 
 ## Where each decoder lives
@@ -57,10 +57,11 @@ object never matches:
   → **no finding at all**.
 
 The result is a corpus where IA2 reports failures that IA3 never saw, which
-looks like a detector bug and is actually an adapter bug.
+looks like a detector bug and is actually a source-normalization bug.
 
-**Always put textual results under `content`.** The validator warns when it
-sees text under `output`, `message` or `summary` with no `content` key.
+**Put textual result payloads under `content` when the source format uses an
+object wrapper.** The canonical schema preserves raw JSON and does not rewrite
+provider-specific wrapper keys.
 
 ## Checking your own corpus
 

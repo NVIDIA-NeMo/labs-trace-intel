@@ -1,17 +1,6 @@
-"""Trace loaders normalize source-specific data into ``TraceSnapshot``."""
+"""Trace loaders produce normalized ``TraceSnapshot`` objects."""
 
-from insight_agent.trace_loaders.insight_trace import (
-    CANONICAL_VERSION,
-    Diagnostic,
-    InsightTraceLoader,
-    InsightTraceOptions,
-    TraceLoadError,
-    ValidationReport,
-    load_tool_catalog,
-    trace_schema,
-    validate_corpus,
-    validate_record,
-)
+from insight_agent.trace_loaders.fs import FSDataLoader, FSDataLoadError
 from insight_agent.trace_loaders.mlflow import (
     MLFLOW_DEFAULT_MAX_TRACES,
     MLflowFileTraceConfig,
@@ -26,10 +15,8 @@ from insight_agent.trace_loaders.mlflow import (
 from insight_agent.trace_loaders.trace_loaders import TraceDescription, TraceLoader
 
 __all__ = [
-    "CANONICAL_VERSION",
-    "Diagnostic",
-    "InsightTraceLoader",
-    "InsightTraceOptions",
+    "FSDataLoadError",
+    "FSDataLoader",
     "MLFLOW_DEFAULT_MAX_TRACES",
     "MLflowFileTraceConfig",
     "MLflowFileTraceDescription",
@@ -39,12 +26,6 @@ __all__ = [
     "MLflowTraceDescription",
     "MLflowTraceLoader",
     "MLflowTraceLoadError",
-    "TraceLoadError",
     "TraceDescription",
     "TraceLoader",
-    "ValidationReport",
-    "load_tool_catalog",
-    "trace_schema",
-    "validate_corpus",
-    "validate_record",
 ]

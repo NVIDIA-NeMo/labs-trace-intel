@@ -17,11 +17,10 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     run_ia2,
     to_ia2_trace,
 )
-from insight_agent.trace_loaders import InsightTraceLoader
+from insight_agent.trace_loaders import FSDataLoader
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
-DUPLICATE_CALL_ID_WARNING = r"WARNING\[duplicate_call_id\].*docops-instrumentation"
 
 DIGEST_SECTIONS = (
     "## Reader contract",
@@ -36,8 +35,7 @@ DIGEST_SECTIONS = (
 
 @pytest.fixture(scope="module")
 def traces():
-    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        loader = InsightTraceLoader.from_path(CORPUS)
+    loader = FSDataLoader(CORPUS)
     return [to_ia2_trace(trace) for trace in loader.load()]
 
 

@@ -1,370 +1,143 @@
-"""Input loading and normalization."""
+"""Filesystem loading of canonical Trace JSONL."""
 
 from __future__ import annotations
 
-import copy
 import json
 
 import pytest
 
-from insight_agent.evidence_streams.anomaly_and_patterns import extract_trace_features, to_ia2_trace
-from insight_agent.evidence_streams.tool_issues import MISSING, detect, to_ia3_trace
-from insight_agent.trace_loaders import (
-    CANONICAL_VERSION,
-    InsightTraceLoader,
-    InsightTraceOptions,
-    TraceLoadError,
-)
-
-BASE = {
-    "schema_version": CANONICAL_VERSION,
-    "trace_id": "t1",
-    "calls": [
-        {
-            "call_id": "c0",
-            "call_index": 0,
-            "tool_name": "FileSearchTool",
-            "arguments": {"query": "x"},
-            "result": {"content": "2 matches"},
-        }
-    ],
-}
+from insight_agent.evidence_streams.tool_issues import MISSING, to_ia3_trace
+from insight_agent.trace_loaders import FSDataLoader, FSDataLoadError
+from insight_agent.traces import UNSET, Span, SpanKind, ToolCall, Trace, TraceAggregate
 
 
-def record(**overrides):
-    return {**copy.deepcopy(BASE), **overrides}
-
-
-def one_call(**call_overrides):
-    rec = copy.deepcopy(BASE)
-    rec["calls"][0].update(call_overrides)
-    return rec
-
-
-def ia2_trace(rec, *, tool_catalog=None):
-    options = InsightTraceOptions(tool_catalog=tool_catalog)
-    trace = next(iter(InsightTraceLoader.from_records([rec], options).load()))
-    return to_ia2_trace(trace)
-
-
-def ia3_trace(rec, *, tool_catalog=None):
-    options = InsightTraceOptions(tool_catalog=tool_catalog)
-    trace = next(iter(InsightTraceLoader.from_records([rec], options).load()))
-    return to_ia3_trace(trace)
-
-
-def first_ia3_call(rec):
-    return ia3_trace(rec).calls[0]
-
-
-# -- MISSING invariants ----------------------------------------------------
-
-
-def test_absent_result_key_becomes_the_missing_sentinel():
-    rec = copy.deepcopy(BASE)
-    del rec["calls"][0]["result"]
-    assert first_ia3_call(rec).result is MISSING
-
-
-def test_explicit_json_null_is_none_and_is_not_missing():
-    """ "result": null means the tool genuinely returned null."""
-    call = first_ia3_call(one_call(result=None))
-    assert call.result is None
-    assert call.result is not MISSING
-
-
-def test_result_missing_flag_forces_the_sentinel():
-    assert first_ia3_call(one_call(result_missing=True)).result is MISSING
-
-
-def test_result_count_zero_forces_the_sentinel():
-    assert first_ia3_call(one_call(result_count=0)).result is MISSING
-
-
-def test_result_count_zero_does_not_leak_into_the_duplicate_check():
-    """0 means 'missing', not 'a count worth reporting'."""
-    call = first_ia3_call(one_call(result_count=0))
-    assert call.result_count == 0
-
-
-def test_missing_sentinel_reaches_the_engine_and_fires_missing_tool_result():
-    rec = copy.deepcopy(BASE)
-    del rec["calls"][0]["result"]
-    findings = detect([ia3_trace(rec)])
-    assert "missing_tool_result" in {f["issue_type"] for f in findings}
-
-
-def test_explicit_null_result_does_not_fire_missing_tool_result():
-    findings = detect([ia3_trace(one_call(result=None))])
-    assert "missing_tool_result" not in {f["issue_type"] for f in findings}
-
-
-# -- IA2 conversion --------------------------------------------------------
-
-
-def test_ia2_conversion_carries_every_canonical_field():
-    rec = record(
-        source_pointer={"uri": "s3://x"},
-        observed_verdict="completed",
-        cost=1.25,
-        metrics={"turn_count": 7.0},
-        steps=[{"step_index": 0, "step_type": "planning", "name": "plan", "content": "go"}],
-    )
-    trace = ia2_trace(rec)
-
-    assert trace.trace_id == "t1"
-    assert trace.source_pointer == {"uri": "s3://x"}
-    assert trace.observed_verdict == "completed"
-    assert trace.cost == 1.25
-    assert trace.metrics == {"turn_count": 7.0}
-    assert [s.step_type for s in trace.steps] == ["planning", "tool"]
-
-    call = trace.calls[0]
-    assert (call.call_id, call.call_index, call.tool_name) == ("c0", 0, "FileSearchTool")
-    assert call.arguments == {"query": "x"}
-
-
-def test_ia2_sees_none_for_an_unrecorded_result():
-    """IA2 has no MISSING concept; it must not receive the sentinel."""
-    rec = copy.deepcopy(BASE)
-    del rec["calls"][0]["result"]
-    assert ia2_trace(rec).calls[0].result is None
-
-
-def test_calls_are_ordered_by_call_index_regardless_of_input_order():
-    rec = record(
-        calls=[
-            {"call_id": "c2", "call_index": 2, "tool_name": "B", "arguments": {}},
-            {"call_id": "c0", "call_index": 0, "tool_name": "A", "arguments": {}},
-            {"call_id": "c1", "call_index": 1, "tool_name": "C", "arguments": {}},
-        ]
-    )
-    assert [c.call_index for c in ia2_trace(rec).calls] == [0, 1, 2]
-    assert [c.call_index for c in ia3_trace(rec).calls] == [0, 1, 2]
-
-
-# -- steps vs calls --------------------------------------------------------
-
-
-def test_with_steps_ia2_tokens_follow_the_trajectory():
-    rec = record(
-        steps=[
-            {"step_index": 0, "step_type": "planning", "name": "plan"},
-            {"step_index": 1, "step_type": "tool", "name": "FileSearchTool"},
-            {"step_index": 2, "step_type": "evaluation", "name": "boundary", "content": "done"},
-        ]
-    )
-    features = extract_trace_features(ia2_trace(rec)).features
-    assert list(features.sequence_tokens) == [
-        "planning:plan",
-        "tool:FileSearchTool",
-        "evaluation:boundary",
-    ]
-    assert features.numeric["trajectory_step_count"] == 3.0
-
-
-def test_without_steps_ia2_falls_back_to_one_token_per_call():
-    rec = record(
-        calls=[
-            {"call_id": "c0", "call_index": 0, "tool_name": "Alpha", "arguments": {}},
-            {"call_id": "c1", "call_index": 1, "tool_name": "Beta", "arguments": {}},
-        ]
-    )
-    features = extract_trace_features(ia2_trace(rec)).features
-    assert list(features.sequence_tokens) == ["tool:Alpha", "tool:Beta"]
-    assert features.numeric["trajectory_step_count"] == 2.0
-
-
-# -- IA3 specifics ---------------------------------------------------------
-
-
-def test_prior_user_text_falls_back_to_task_text():
-    rec = record(task_text="the original request")
-    assert first_ia3_call(rec).prior_user_text == "the original request"
-
-    rec = record(task_text="trace level")
-    rec["calls"][0]["prior_user_text"] = "call level"
-    assert first_ia3_call(rec).prior_user_text == "call level"
-
-
-def test_tool_catalog_precedence_record_then_option_then_none():
-    corpus_wide = {"FileSearchTool": {"type": "object"}}
-    record_level = {"FileSearchTool": {"type": "object", "required": ["query"]}}
-
-    assert ia3_trace(record()).tool_catalog is None
-    assert ia3_trace(record(), tool_catalog=corpus_wide).tool_catalog == corpus_wide
-    assert (
-        ia3_trace(record(tool_catalog=record_level), tool_catalog=corpus_wide).tool_catalog
-        == record_level
-    )
-
-
-def test_dropping_the_tool_catalog_makes_the_contract_rules_abstain():
-    catalog = {
-        "FileSearchTool": {
-            "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"],
-            "additionalProperties": False,
-        }
+def trace(trace_id: str = "t1", *, output=UNSET, logical_case_id: str | None = None) -> Trace:
+    span_fields = {
+        "id": f"{trace_id}:call",
+        "kind": SpanKind.TOOL,
+        "tool_name": "search",
+        "input": {"query": "x"},
+        "tool_call": ToolCall(
+            call_id=f"{trace_id}:call",
+            index=0,
+            result_count=0 if output is UNSET else 1,
+        ),
     }
-    bad = one_call(arguments={"query": "x", "recursive": True})
-
-    with_catalog = detect([ia3_trace({**bad, "tool_catalog": catalog})])
-    without = detect([ia3_trace(bad)])
-
-    assert "unknown_argument" in {f["issue_type"] for f in with_catalog}
-    assert "unknown_argument" not in {f["issue_type"] for f in without}
-
-
-def test_arguments_are_passed_through_raw_including_non_objects():
-    """A string argument blob is evidence, and IA3 reports it as malformed."""
-    rec = one_call(arguments="query=foo")
-    assert ia3_trace(rec).calls[0].arguments == "query=foo"
-    # IA2's contract wants a Mapping, so it degrades to {} rather than crashing.
-    assert ia2_trace(rec).calls[0].arguments == {}
-
-
-def test_orphan_results_and_provenance_flag_are_forwarded():
-    rec = record(
-        orphan_results=[{"result_id": "r1", "tool_name": "X"}],
-        complete_provenance_context=True,
+    if output is not UNSET:
+        span_fields["output"] = output
+    attributes = {"logical_case_id": logical_case_id} if logical_case_id else {}
+    return Trace(
+        id=trace_id,
+        root_spans=[Span(**span_fields)],
+        aggregate=TraceAggregate(cost_usd=0.1, latency_ms=2.0),
+        attributes=attributes,
     )
-    trace = ia3_trace(rec)
-    assert trace.complete_provenance_context is True
-    assert trace.orphan_results[0]["result_id"] == "r1"
-    assert "orphan_tool_result" in {f["issue_type"] for f in detect([trace])}
 
 
-def test_logical_case_id_defaults_to_none_so_the_engine_can_fall_back():
-    assert ia3_trace(record()).logical_case_id is None
-    assert ia3_trace(record(logical_case_id="case-9")).logical_case_id == "case-9"
-
-
-# -- returned_data injection ----------------------------------------------
-
-
-def test_returned_data_is_injected_into_a_mapping_result():
-    rec = one_call(result={"content": "none"}, returned_data=False)
-    trace = ia2_trace(rec)
-    assert trace.calls[0].result["returned_data"] is False
-    assert extract_trace_features(trace).features.numeric["returned_data_false_rate"] == 1.0
-
-
-def test_returned_data_on_a_string_result_warns_and_does_not_wrap():
-    """Wrapping would change output-size features and break the error anchor."""
-    rec = one_call(result="plain text", returned_data=False)
-    with pytest.warns(UserWarning, match="not a JSON object"):
-        trace = ia2_trace(rec)
-    assert trace.calls[0].result == "plain text"
-
-
-def test_existing_returned_data_key_is_not_overwritten():
-    rec = one_call(result={"content": "x", "returned_data": True}, returned_data=False)
-    assert ia2_trace(rec).calls[0].result["returned_data"] is True
-
-
-# -- corpus loading --------------------------------------------------------
-
-
-def test_load_records_validates_and_raises_in_strict_mode():
-    with pytest.raises(TraceLoadError) as excinfo:
-        InsightTraceLoader.from_records([{"schema_version": CANONICAL_VERSION, "trace_id": "t"}])
-    assert excinfo.value.report.errors
-
-
-def test_metric_shadowing_is_an_error_unless_allowed():
-    bad = record(metrics={"tool_call_count": 5.0})
-    with pytest.raises(TraceLoadError):
-        InsightTraceLoader.from_records([bad])
-
-    loader = InsightTraceLoader.from_records(
-        [bad], InsightTraceOptions(allow_metric_shadowing=True)
-    )
-    assert len(loader) == 1
-
-
-def test_non_strict_mode_drops_bad_records_and_keeps_the_rest():
-    good = record()
-    bad = {"schema_version": CANONICAL_VERSION, "trace_id": "t2"}  # no calls
-    with pytest.warns(UserWarning):
-        loader = InsightTraceLoader.from_records([good, bad], InsightTraceOptions(strict=False))
-    assert [r["trace_id"] for r in loader.records] == ["t1"]
-    assert loader.report.errors
-
-
-def test_loader_builds_a_reiterable_snapshot():
-    loader = InsightTraceLoader.from_records([record(trace_id=f"t{i}") for i in range(3)])
-    snapshot = loader.load()
-    assert snapshot.trace_count == 3
-    assert [trace.id for trace in snapshot] == ["t0", "t1", "t2"]
-    assert [trace.id for trace in snapshot] == ["t0", "t1", "t2"]
-
-
-def test_loader_describe_reports_provenance_relevant_facts():
-    loader = InsightTraceLoader.from_records(
-        [
-            record(trace_id="t1", logical_case_id="case-a"),
-            record(trace_id="t2", logical_case_id="case-a"),
-            record(trace_id="t3", logical_case_id="case-b"),
-        ]
-    )
-    described = loader.describe()
-    assert described["trace_count"] == 3
-    assert described["distinct_logical_cases"] == 2
-    assert described["steps_present"] is False
-
-
-def test_loader_reads_jsonl_from_disk(tmp_path):
-    path = tmp_path / "corpus.jsonl"
+def write_jsonl(path, traces: list[Trace]) -> None:
     path.write_text(
-        "\n".join(json.dumps(record(trace_id=f"t{i}")) for i in range(3)) + "\n",
+        "".join(
+            json.dumps(item.model_dump(mode="json", exclude_unset=True)) + "\n" for item in traces
+        ),
         encoding="utf-8",
     )
-    loader = InsightTraceLoader.from_path(path)
-    assert len(loader) == 3
-    assert loader.source == str(path)
 
 
-def test_loader_rejects_malformed_json_lines(tmp_path):
-    path = tmp_path / "corpus.jsonl"
-    path.write_text(json.dumps(record()) + "\n{oops\n", encoding="utf-8")
-    with pytest.raises(TraceLoadError, match="malformed JSON"):
-        InsightTraceLoader.from_path(path)
+def test_loader_parses_each_jsonl_record_directly_as_a_trace(tmp_path):
+    path = tmp_path / "traces.jsonl"
+    expected = [trace("t1", output={"content": "found"}), trace("t2", output=None)]
+    write_jsonl(path, expected)
+
+    actual = list(FSDataLoader(path).load())
+
+    assert actual == expected
 
 
-def test_duplicate_trace_ids_are_rejected():
-    with pytest.raises(TraceLoadError):
-        InsightTraceLoader.from_records([record(), record()])
+def test_missing_output_and_explicit_null_remain_distinct(tmp_path):
+    path = tmp_path / "traces.jsonl"
+    write_jsonl(path, [trace("missing"), trace("null", output=None)])
+
+    projected = [to_ia3_trace(item).calls[0].result for item in FSDataLoader(path).load()]
+
+    assert projected[0] is MISSING
+    assert projected[1] is None
 
 
-# -- structural round trip -------------------------------------------------
+def test_loader_preserves_nested_spans(tmp_path):
+    nested = trace("nested", output="ok")
+    child = nested.root_spans.pop()
+    nested.root_spans.append(Span(id="agent", kind=SpanKind.AGENT, children=[child]))
+    path = tmp_path / "traces.jsonl"
+    write_jsonl(path, [nested])
+
+    loaded = next(iter(FSDataLoader(path).load()))
+
+    assert loaded.root_spans[0].children[0].id == "nested:call"
 
 
-def test_round_trip_preserves_identity_fields():
-    rec = record(
-        calls=[
-            {
-                "call_id": "c0",
-                "call_index": 0,
-                "tool_name": "Alpha",
-                "arguments": {"a": 1, "nested": {"b": [1, 2]}},
-                "result": {"content": "ok"},
-            },
-            {
-                "call_id": "c1",
-                "call_index": 1,
-                "tool_name": "Beta",
-                "arguments": {},
-            },
-        ]
+def test_snapshot_is_cached_and_reiterable(tmp_path):
+    path = tmp_path / "traces.jsonl"
+    write_jsonl(path, [trace("t1"), trace("t2")])
+    loader = FSDataLoader(path)
+
+    first = loader.load()
+
+    assert loader.load() is first
+    assert [item.id for item in first] == ["t1", "t2"]
+    assert [item.id for item in first] == ["t1", "t2"]
+
+
+def test_describe_reports_typed_corpus_facts(tmp_path):
+    path = tmp_path / "traces.jsonl"
+    write_jsonl(
+        path,
+        [
+            trace("t1", logical_case_id="case-a"),
+            trace("t2", logical_case_id="case-a"),
+            trace("t3", logical_case_id="case-b"),
+        ],
     )
-    trace = next(iter(InsightTraceLoader.from_records([rec]).load()))
-    ia2 = to_ia2_trace(trace)
-    ia3 = to_ia3_trace(trace)
 
-    for source, converted2, converted3 in zip(rec["calls"], ia2.calls, ia3.calls, strict=False):
-        assert source["call_id"] == converted2.call_id == converted3.call_id
-        assert source["call_index"] == converted2.call_index == converted3.call_index
-        assert source["tool_name"] == converted2.tool_name == converted3.tool_name
-        assert source["arguments"] == converted2.arguments == converted3.arguments
+    description = FSDataLoader(path).describe()
+
+    assert description["trace_count"] == 3
+    assert description["call_count"] == 3
+    assert description["distinct_logical_cases"] == 2
+    assert description["source"] == f"fs:{path.resolve()}"
+
+
+def test_loader_rejects_malformed_json_with_a_line_number(tmp_path):
+    path = tmp_path / "traces.jsonl"
+    path.write_text("\n{oops\n", encoding="utf-8")
+
+    with pytest.raises(FSDataLoadError, match=r":2: malformed JSON"):
+        FSDataLoader(path).load()
+
+
+def test_loader_preserves_extra_trace_and_span_fields(tmp_path):
+    path = tmp_path / "traces.jsonl"
+    value = trace().model_dump(mode="json", exclude_unset=True)
+    value["future_trace_field"] = {"version": 3}
+    value["root_spans"][0]["future_span_field"] = [1, 2]
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    loaded = next(iter(FSDataLoader(path).load())).model_dump(mode="json", exclude_unset=True)
+
+    assert loaded["future_trace_field"] == {"version": 3}
+    assert loaded["root_spans"][0]["future_span_field"] == [1, 2]
+
+
+def test_loader_rejects_duplicate_trace_ids(tmp_path):
+    path = tmp_path / "traces.jsonl"
+    write_jsonl(path, [trace(), trace()])
+
+    with pytest.raises(FSDataLoadError, match="duplicate trace id 't1'"):
+        FSDataLoader(path).load()
+
+
+def test_loader_rejects_an_empty_corpus(tmp_path):
+    path = tmp_path / "traces.jsonl"
+    path.write_text("\n", encoding="utf-8")
+
+    with pytest.raises(FSDataLoadError, match="contains no traces"):
+        FSDataLoader(path).load()

@@ -1,8 +1,8 @@
 """Tool-issue evidence stream package.
 
 The implementation follows the current seven-category, nineteen-finding
-catalog. It is deterministic, capability-gated, and independent of dataset
-adapters. Missing evidence produces no finding. Every finding retains the
+catalog. It is deterministic, capability-gated, and independent of source
+loaders. Missing evidence produces no finding. Every finding retains the
 original pointer supplied by the caller.
 """
 

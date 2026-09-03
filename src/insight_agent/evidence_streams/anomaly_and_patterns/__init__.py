@@ -103,7 +103,7 @@ class NormalizedStep:
 
 @dataclass(frozen=True)
 class NormalizedTrace:
-    """Complete IA2 input unit after a dataset adapter maps source records."""
+    """Complete IA2 input unit projected from one canonical trace."""
 
     trace_id: str
     calls: Sequence[NormalizedCall]
@@ -842,7 +842,7 @@ def build_evidence_digest(
             "",
         ]
     )
-    # Guards against an adapter error silently dropping cited traces. This was
+    # Guards against normalization silently dropping cited traces. This was
     # a bare `assert`, which disappears entirely under `python -O` — precisely
     # when a long batch run would be least likely to notice the corruption.
     uncited = sorted(

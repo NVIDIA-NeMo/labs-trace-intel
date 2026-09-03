@@ -13,8 +13,6 @@ class TraceDescription(TypedDict):
     source: str
     trace_count: int
     call_count: int
-    steps_present: bool
-    steps_partially_present: bool
     distinct_logical_cases: int
 
 

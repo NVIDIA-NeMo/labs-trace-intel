@@ -1,39 +1,13 @@
-"""Keep the bundled skill honest.
-
-A skill that documents fields the schema no longer has, or misses rules that
-were added, is worse than no skill: an agent will follow it confidently into
-the wrong shape. These tests cannot check prose accuracy, but they can check
-that every field name and every finding type is at least mentioned.
-"""
+"""Keep the bundled loader-authoring skill tied to executable contracts."""
 
 from __future__ import annotations
 
-import json
 import re
-import warnings
 from pathlib import Path
 
-import pytest
-
-from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
-from insight_agent.evidence_streams.tool_issues.coverage import RULE_REQUIREMENTS, corpus_coverage
-from insight_agent.trace_loaders import (
-    InsightTraceLoader,
-    trace_schema,
-)
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "insight-trace-adapter"
+SKILL_DIR = REPO_ROOT / ".claude" / "skills" / "trace-loader"
 SKILL_MD = SKILL_DIR / "SKILL.md"
-REFERENCE = SKILL_DIR / "reference"
-
-
-def schema_property_names() -> set[str]:
-    schema = trace_schema()
-    names = set(schema["properties"])
-    for definition in schema["$defs"].values():
-        names |= set(definition["properties"])
-    return names
 
 
 def test_skill_exists_with_required_frontmatter():
@@ -41,127 +15,33 @@ def test_skill_exists_with_required_frontmatter():
     assert text.startswith("---\n")
 
     frontmatter = text.split("---", 2)[1]
-    assert re.search(r"^name:\s*insight-trace-adapter\s*$", frontmatter, re.M)
+    assert re.search(r"^name:\s*trace-loader\s*$", frontmatter, re.M)
     description = re.search(r"^description:\s*(.+)$", frontmatter, re.M)
-    assert description and len(description.group(1)) > 80
+    assert description and "TraceLoader" in description.group(1)
 
 
-def test_description_carries_literal_trigger_phrases():
-    """The description is the only thing in context when deciding to load."""
-    frontmatter = SKILL_MD.read_text(encoding="utf-8").split("---", 2)[1]
-    for phrase in ('"write an adapter"', '"convert my traces"', '"onboard a new'):
-        assert phrase in frontmatter, phrase
-
-
-def test_every_bundled_file_referenced_by_the_skill_exists():
+def test_skill_points_to_live_loader_contracts():
     text = SKILL_MD.read_text(encoding="utf-8")
-    for link in re.findall(r"\]\((?!https?:)([^)#]+)\)", text):
-        if link.startswith("../"):
-            continue  # repo-relative links are checked separately
-        assert (SKILL_DIR / link).exists(), link
-
-
-@pytest.mark.parametrize("issue_type", sorted(FINDING_TYPES))
-def test_every_finding_type_appears_in_the_capability_matrix(issue_type):
-    text = (REFERENCE / "capability-matrix.md").read_text(encoding="utf-8")
-    assert issue_type in text, (
-        f"{issue_type} is missing from the capability matrix. Regenerate it so adapter "
-        "authors can see what gates it."
+    paths = (
+        "src/insight_agent/trace_loaders/trace_loaders.py",
+        "src/insight_agent/trace_loaders/mlflow.py",
+        "src/insight_agent/trace_loaders/fs.py",
+        "src/insight_agent/traces.py",
     )
+    for path in paths:
+        assert path in text
+        assert (REPO_ROOT / path).exists()
 
 
-@pytest.mark.parametrize("name", sorted(schema_property_names()))
-def test_every_schema_field_appears_in_the_canonical_schema_reference(name):
-    text = (REFERENCE / "canonical-schema.md").read_text(encoding="utf-8")
-    assert f"`{name}`" in text, (
-        f"schema field {name!r} is undocumented in the skill's reference. Regenerate "
-        "the canonical input README and copy it into the skill."
-    )
+def test_skill_has_no_guessed_source_template_or_copied_schema():
+    bundled_files = {
+        path.relative_to(SKILL_DIR).as_posix() for path in SKILL_DIR.rglob("*") if path.is_file()
+    }
+    assert bundled_files == {"SKILL.md"}
 
-
-def test_capability_matrix_covers_exactly_the_known_rules():
-    assert {r.issue_type for r in RULE_REQUIREMENTS} == set(FINDING_TYPES)
-
-
-def test_the_tool_catalog_uplift_claim_is_the_measured_number():
-    """The skill tells people `tool_catalog` unlocks N rules. Measure N.
-
-    An earlier draft claimed 7 (counting the schema half of malformed_tool_call,
-    which fires with or without a catalog). Adapter authors prioritise work off
-    this number, so it is pinned here rather than left to prose.
-    """
-    corpus_path = REPO_ROOT / "src" / "insight_agent" / "data" / "sample_corpus.jsonl"
-    records = [
-        json.loads(line)
-        for line in corpus_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    stripped = [{k: v for k, v in r.items() if k != "tool_catalog"} for r in records]
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        full = corpus_coverage(InsightTraceLoader.from_records(records))
-        without = corpus_coverage(InsightTraceLoader.from_records(stripped))
-
-    uplift = full["rules"]["evaluable"] - without["rules"]["evaluable"]
-    gated = sum(1 for r in RULE_REQUIREMENTS if r.needs == "tool_catalog")
-
-    assert uplift == gated == 6
-    assert f"**{uplift} rules at once**" in SKILL_MD.read_text(encoding="utf-8")
-
-
-def test_skill_reference_matches_the_repo_documentation():
-    """The skill's schema reference is a copy; it must not drift."""
-    assert (REFERENCE / "canonical-schema.md").read_text(encoding="utf-8") == (
-        REPO_ROOT / "src" / "insight_agent" / "trace_loaders" / "insight_trace" / "README.md"
-    ).read_text(encoding="utf-8")
-
-
-def test_the_seven_traps_are_all_documented():
-    text = (REFERENCE / "traps.md").read_text(encoding="utf-8")
-    headings = re.findall(r"^## \d+\.", text, re.M)
-    assert len(headings) == 7
-
-    for marker in (
-        "result_missing",
-        "explicit_error",
-        "content",
-        "result_id",
-        "call_id",
-        "arguments",
-        "complete_provenance_context",
-        "logical_case_id",
-    ):
-        assert marker in text, marker
-
-
-def test_skill_documents_the_required_fields_exactly():
     text = SKILL_MD.read_text(encoding="utf-8")
-    schema = trace_schema()
-    for name in schema["required"] + schema["$defs"]["call"]["required"]:
-        assert name in text, name
-
-
-def test_skill_names_the_verify_loop_commands():
-    text = SKILL_MD.read_text(encoding="utf-8")
-    for command in (
-        "insight-agent schema",
-        "insight-agent validate",
-        "insight-agent coverage",
-        "insight-agent explain-failures",
-        "insight-agent init-adapter",
-    ):
-        assert command in text, command
-
-
-def test_bundled_template_is_valid_python_and_teaches_the_loop():
-    template = SKILL_DIR / "assets" / "adapter_template.py"
-    source = template.read_text(encoding="utf-8")
-    compile(source, "adapter_template.py", "exec")
-    assert source.startswith("#!/usr/bin/env -S uv run\n")
-    assert template.stat().st_mode & 0o111
-    assert "insight-agent validate" in source
-    assert "missing_tool_result" in source
+    assert "Do not guess fields" in text
+    assert "sole canonical definition" in text
 
 
 def test_readme_links_resolve():

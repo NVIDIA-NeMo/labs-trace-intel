@@ -7,67 +7,109 @@ from pathlib import Path
 
 import pytest
 
+from insight_agent.evidence_streams._trace import walk_spans
 from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsArtifacts,
     AnomalyAndPatternsEvidenceStream,
+    extract_trace_features,
     to_ia2_trace,
 )
-from insight_agent.trace_loaders import InsightTraceLoader
-from insight_agent.traces import Span, SpanKind, TokenCounts, Trace, TraceAggregate
+from insight_agent.trace_loaders import FSDataLoader
+from insight_agent.traces import Span, SpanKind, TokenCounts, ToolCall, Trace, TraceAggregate
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "src" / "insight_agent" / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
-DUPLICATE_CALL_ID_WARNING = r"WARNING\[duplicate_call_id\].*docops-instrumentation"
 NOW = datetime(2026, 8, 26, tzinfo=timezone.utc)
 TOKENS = TokenCounts(input_tokens=0, cached_input_tokens=0, output_tokens=0)
 
 
 def test_input_normalization_preserves_every_field_ia2_uses():
-    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        loader = InsightTraceLoader.from_path(CORPUS)
-    record = loader.records[0]
+    loader = FSDataLoader(CORPUS)
     trace = next(iter(loader.load()))
     projected = to_ia2_trace(trace)
+    visits = tuple(walk_spans(trace))
+    calls = [visit.span for visit in visits if visit.span.kind is SpanKind.TOOL]
 
-    assert projected.trace_id == record["trace_id"]
+    assert projected.trace_id == trace.id
     assert [call.call_id for call in projected.calls] == [
-        call["call_id"] for call in record["calls"]
+        span.tool_call.call_id for span in calls if span.tool_call is not None
     ]
-    assert [call.arguments for call in projected.calls] == [
-        call["arguments"] for call in record["calls"]
-    ]
-    assert [call.result for call in projected.calls] == [call["result"] for call in record["calls"]]
+    assert [call.arguments for call in projected.calls] == [span.input for span in calls]
+    assert [call.result for call in projected.calls] == [span.output for span in calls]
     assert [step.step_type for step in projected.steps] == [
-        step["step_type"] for step in record["steps"]
+        visit.span.attributes["subtype"] for visit in visits
     ]
     assert [step.content for step in projected.steps] == [
-        step.get("content", "") for step in record["steps"]
+        visit.span.attributes["summary"] for visit in visits
     ]
-    assert projected.source_pointer == record["source_pointer"]
-    assert projected.observed_verdict == record["observed_verdict"]
-    assert projected.cost == record["cost"]
-    assert projected.metrics == record["metrics"]
+    assert projected.source_pointer == trace.attributes["source_pointer"]
+    assert projected.observed_verdict == trace.attributes["observed_verdict"]
+    assert projected.cost == trace.aggregate.cost_usd
+    assert projected.metrics == trace.attributes["metrics"]
 
 
 def test_tool_calls_are_a_valid_trajectory_when_no_other_spans_exist():
-    record = {
-        "schema_version": "insight-trace/v1",
-        "trace_id": "no-steps",
-        "calls": [
-            {
-                "call_id": "call-1",
-                "call_index": 0,
-                "tool_name": "search",
-                "arguments": {"query": "report"},
-                "result": {"content": "found"},
-            }
+    trace = Trace(
+        id="no-steps",
+        root_spans=[
+            Span(
+                id="call-1",
+                kind=SpanKind.TOOL,
+                tool_name="search",
+                input={"query": "report"},
+                output={"content": "found"},
+                tool_call=ToolCall(call_id="call-1", index=0),
+            )
         ],
-    }
-
-    trace = next(iter(InsightTraceLoader.from_records([record]).load()))
+        aggregate=TraceAggregate(),
+    )
     projected = to_ia2_trace(trace)
     assert len(projected.calls) == 1
     assert [(step.step_type, step.name) for step in projected.steps] == [("tool", "search")]
+
+
+def test_returned_data_is_projected_into_mapping_results():
+    trace = Trace(
+        id="returned-data",
+        root_spans=[
+            Span(
+                id="call-1",
+                kind=SpanKind.TOOL,
+                tool_name="search",
+                input={},
+                output={"content": "no matches"},
+                tool_call=ToolCall(call_id="call-1", returned_data=False),
+            )
+        ],
+        aggregate=TraceAggregate(),
+    )
+
+    projected = to_ia2_trace(trace)
+
+    assert projected.calls[0].result == {"content": "no matches", "returned_data": False}
+    assert extract_trace_features(projected).features.numeric["returned_data_false_rate"] == 1.0
+
+
+def test_returned_data_does_not_rewrite_string_results():
+    trace = Trace(
+        id="string-result",
+        root_spans=[
+            Span(
+                id="call-1",
+                kind=SpanKind.TOOL,
+                tool_name="search",
+                input={},
+                output="no matches",
+                tool_call=ToolCall(call_id="call-1", returned_data=False),
+            )
+        ],
+        aggregate=TraceAggregate(),
+    )
+
+    with pytest.warns(UserWarning, match="result is not a JSON object"):
+        projected = to_ia2_trace(trace)
+
+    assert projected.calls[0].result == "no matches"
 
 
 def test_native_projection_uses_canonical_spans_for_steps_and_tool_calls():
@@ -139,8 +181,7 @@ def test_native_projection_uses_canonical_spans_for_steps_and_tool_calls():
 
 
 def test_ia2_stream_runs_the_engine_from_a_snapshot():
-    with pytest.warns(UserWarning, match=DUPLICATE_CALL_ID_WARNING):
-        loader = InsightTraceLoader.from_path(CORPUS)
+    loader = FSDataLoader(CORPUS)
     stream = AnomalyAndPatternsEvidenceStream()
     snapshot = loader.load()
     actual = stream.analyze(snapshot)
@@ -153,4 +194,4 @@ def test_ia2_stream_runs_the_engine_from_a_snapshot():
     assert "docops-outlier" in {
         trace_id for problem in actual.problems for trace_id in problem.supporting_trace_ids
     }
-    assert [trace.id for trace in snapshot] == [record["trace_id"] for record in loader.records]
+    assert [trace.id for trace in snapshot] == list(snapshot.traces_by_id)

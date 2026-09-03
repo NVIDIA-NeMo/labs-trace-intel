@@ -8,11 +8,12 @@ from drifting apart.
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
-from insight_agent.trace_loaders import validate_corpus
+from insight_agent.evidence_streams._trace import walk_spans
+from insight_agent.trace_loaders import FSDataLoader
+from insight_agent.traces import SpanKind
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "src" / "insight_agent" / "data"
@@ -37,27 +38,28 @@ def test_committed_sample_data_matches_the_generator(tmp_path):
 
 
 def test_sample_corpus_validates_in_strict_mode():
-    report = validate_corpus(DATA_DIR / "sample_corpus.jsonl")
-    assert report.ok, [d.format() for d in report.errors]
+    assert FSDataLoader(DATA_DIR / "sample_corpus.jsonl").load().trace_count == 18
 
 
-def test_sample_corpus_warnings_are_deliberate():
-    """The sample plants exactly one lintable defect, to demonstrate the lint."""
-    report = validate_corpus(DATA_DIR / "sample_corpus.jsonl")
-    assert [d.code for d in report.warnings] == ["duplicate_call_id"]
+def test_sample_corpus_duplicate_call_id_is_deliberate():
+    """The sample plants duplicate source call IDs to exercise that detector."""
+    snapshot = FSDataLoader(DATA_DIR / "sample_corpus.jsonl").load()
+    trace = snapshot.get_trace_by_id("docops-instrumentation")
+    call_ids = [
+        visit.span.tool_call.call_id
+        for visit in walk_spans(trace)
+        if visit.span.kind is SpanKind.TOOL and visit.span.tool_call is not None
+    ]
+    assert call_ids.count("docops-instrumentation#dup") == 2
 
 
 def test_sample_corpus_shape():
-    records = [
-        json.loads(line)
-        for line in (DATA_DIR / "sample_corpus.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert len(records) >= 12, "clustering and recurrence need a corpus of real size"
+    traces = list(FSDataLoader(DATA_DIR / "sample_corpus.jsonl").load())
+    assert len(traces) >= 12, "clustering and recurrence need a corpus of real size"
 
-    trace_ids = {r["trace_id"] for r in records}
-    case_ids = {r["logical_case_id"] for r in records}
-    assert len(trace_ids) == len(records), "trace ids must be unique"
+    trace_ids = {trace.id for trace in traces}
+    case_ids = {trace.attributes["logical_case_id"] for trace in traces}
+    assert len(trace_ids) == len(traces), "trace ids must be unique"
     # Several traces must share a logical case, otherwise the sample cannot
     # demonstrate that card eligibility counts cases and not traces.
     assert len(case_ids) < len(trace_ids)
