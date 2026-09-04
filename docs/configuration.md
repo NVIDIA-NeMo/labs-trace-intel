@@ -26,7 +26,6 @@ evidence_streams:
 
 analyst:
   enabled: true
-  agent: Customer support agent
   model: anthropic/claude-opus-5
   # api_base: https://gateway.example/v1
   # env_file: .env

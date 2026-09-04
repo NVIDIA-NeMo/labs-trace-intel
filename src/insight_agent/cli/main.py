@@ -531,16 +531,6 @@ def _run(
 
     analyst_ran = False
     if analyst.enabled:
-        if not analyst.agent:
-            if config.trace.filesystem is not None:
-                agent = config.trace.filesystem.path.stem
-            elif config.trace.mlflow_experiment is not None:
-                agent = config.trace.mlflow_experiment.experiment
-            elif config.trace.mlflow_export is not None:
-                agent = config.trace.mlflow_export.path.stem
-            else:
-                agent = str(loader.describe()["source"])
-            analyst = analyst.model_copy(update={"agent": agent})
         code = _run_insights(analyst, output, loader, snapshot, evidence)
         if code != EXIT_OK:
             return code
@@ -732,7 +722,6 @@ def _run_insights(
         generation = InsightsGeneration(
             snapshot=snapshot,
             evidence=evidence,
-            agent=analyst.agent,
             corpus=loader.describe(),
             prompt_version=analyst.prompt_version,
         )
@@ -751,7 +740,6 @@ def _run_insights(
     if dry_run:
         approx = (len(system) + len(user)) // 4
         print("dry run — no API call made")
-        print(f"  agent                 : {analyst.agent}")
         print(f"  model                 : {model}")
         print(f"  prompt version        : {analyst.prompt_version}")
         if api_base:
@@ -792,7 +780,6 @@ def _run_insights(
     write_json(
         target / "run.json",
         {
-            "agent": analyst.agent,
             "model": result.model,
             "usage": result.usage,
             "prompt_version": result.prompt_version,

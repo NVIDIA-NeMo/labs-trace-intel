@@ -195,7 +195,7 @@ Results are written to the `out` directory.
 
 For a dry run or a run without LLM synthesis:
 ```bash
-uv run insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
+uv run insight-agent run-analyst traces.jsonl -o out --dry-run
 uv run insight-agent --config analyst.yaml --no-analyst.enabled
 ```
 

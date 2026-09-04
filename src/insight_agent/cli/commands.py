@@ -107,8 +107,6 @@ class RunAnalystCommand(TraceSourceCommandConfig):
 
     @model_validator(mode="after")
     def complete_analyst_request(self) -> RunAnalystCommand:
-        if not self.analyst.agent:
-            raise ValueError("analyst.agent is required")
         if bool(self.digest) != bool(self.cards):
             raise ValueError("digest and cards must be given together")
         return self
@@ -156,7 +154,6 @@ UTILITY_CLI_SHORTCUTS: dict[str, str | list[str]] = {
     "evidence-streams.tool-issues.minimum-independent-cases": "min-independent-cases",
     "evidence-streams.tool-issues.retry-threshold": "retry-threshold",
     "evidence-streams.tool-issues.include-audit-problems": "all-cards",
-    "analyst.agent": "agent",
     "analyst.model": "model",
     "analyst.api-base": "api-base",
     "analyst.env-file": "env-file",

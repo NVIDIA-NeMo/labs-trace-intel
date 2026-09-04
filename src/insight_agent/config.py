@@ -131,7 +131,6 @@ class EvidenceStreamsConfig(ConfigModel):
 class AnalystGenerationConfig(ConfigModel):
     """Settings that control LLM-authored Insight generation."""
 
-    agent: str | None = None
     model: str | None = None
     api_base: str | None = None
     env_file: Path | None = None

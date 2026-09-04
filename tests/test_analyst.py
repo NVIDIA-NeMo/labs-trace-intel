@@ -95,7 +95,6 @@ def evidence_result(
 @pytest.fixture
 def request_obj():
     return _AnalystRequest(
-        agent="DocOps agent",
         evidence=(
             evidence_result(
                 name="anomaly-and-patterns",
@@ -141,9 +140,8 @@ def mock_litellm(monkeypatch):
 # -- prompt assembly -------------------------------------------------------
 
 
-def test_prompt_carries_the_agent_name(request_obj):
+def test_prompt_uses_no_agent_label(request_obj):
     system, _ = _build_prompt(request_obj)
-    assert "DocOps agent" in system
     assert "{agent}" not in system
 
 
@@ -178,23 +176,21 @@ def test_output_contract_is_not_duplicated(request_obj):
 
 def test_output_contract_is_supplied_when_the_template_omits_it(tmp_path, monkeypatch):
     """A hand-written prompt should still produce a parseable shape."""
-    monkeypatch.setattr(
-        llm, "_prompt_template", lambda v=None: "Find problems in {agent}.\n\n{evidence}"
-    )
-    system, user = llm._build_prompt(llm._AnalystRequest(agent="A"))
+    monkeypatch.setattr(llm, "_prompt_template", lambda v=None: "Find problems.\n\n{evidence}")
+    system, user = llm._build_prompt(llm._AnalystRequest())
     assert '"trace_ids"' in user
 
 
 def test_a_template_without_the_evidence_marker_is_an_error(monkeypatch):
     """Silently appending the evidence would hide a typo in a custom prompt and
     send a paid request whose evidence landed somewhere the prompt never refers to."""
-    monkeypatch.setattr(llm, "_prompt_template", lambda v=None: "Analyse {agent}.")
+    monkeypatch.setattr(llm, "_prompt_template", lambda v=None: "Analyse.")
     with pytest.raises(InsightsGenerationError, match="{evidence}"):
-        llm._build_prompt(llm._AnalystRequest(agent="A"))
+        llm._build_prompt(llm._AnalystRequest())
 
 
 def test_prompt_explains_a_missing_evidence_stream():
-    request = _AnalystRequest(agent="A")
+    request = _AnalystRequest()
     system, _ = _build_prompt(request)
     assert "No evidence streams ran" in system
     assert "rather than inventing" in system
@@ -220,7 +216,6 @@ def test_insights_generation_accepts_an_arbitrary_evidence_stream():
     generation = InsightsGeneration(
         snapshot=EMPTY_SNAPSHOT,
         evidence=(evidence,),
-        agent="A",
         corpus={},
     )
 
@@ -235,7 +230,6 @@ def test_insights_generation_rejects_duplicate_stream_names():
         InsightsGeneration(
             snapshot=EMPTY_SNAPSHOT,
             evidence=(evidence, evidence),
-            agent="A",
             corpus={},
         )
 
@@ -474,7 +468,9 @@ def tool_prompt(monkeypatch):
     monkeypatch.setattr(
         llm,
         "_prompt_template",
-        lambda v=None: "Analyse {agent}. Use fetch_traces to read raw traces.\n\n{evidence}",
+        lambda v=None: (
+            "Analyse the agent under test. Use fetch_traces to read raw traces.\n\n{evidence}"
+        ),
     )
 
 
@@ -490,7 +486,7 @@ def test_a_prompt_that_never_names_the_tool_gets_no_tools(
 ):
     """A hand-written prompt that never mentions the tool would have no way to
     explain it to the model, so offering it anyway just invites confusion."""
-    monkeypatch.setattr(llm, "_prompt_template", lambda v=None: "Analyse {agent}.\n\n{evidence}")
+    monkeypatch.setattr(llm, "_prompt_template", lambda v=None: "Analyse.\n\n{evidence}")
     calls = scripted_litellm(ANSWER)
     generate(request_obj, snapshot=SNAPSHOT)
     assert "tools" not in calls[0]
@@ -541,9 +537,9 @@ def test_final_retry_withdraws_the_tools(scripted_litellm, tool_prompt, request_
 
 def test_evidence_is_inlined_when_the_template_asks_for_it(tool_prompt, request_obj):
     system, user = _build_prompt(request_obj)
-    assert "# Evidence for DocOps agent" in system, "evidence substituted at {evidence}"
+    assert "# Candidate problems" in system, "evidence substituted at {evidence}"
     assert "{evidence}" not in system
-    assert "# Evidence for" not in user, "evidence goes in the system prompt, not both"
+    assert "# Candidate problems" not in user, "evidence goes in the system prompt, not both"
 
 
 def test_a_self_contained_template_gets_only_a_kickoff(monkeypatch, request_obj):
@@ -551,7 +547,7 @@ def test_a_self_contained_template_gets_only_a_kickoff(monkeypatch, request_obj)
     monkeypatch.setattr(
         llm,
         "_prompt_template",
-        lambda v=None: 'Analyse {agent}. Emit "trace_ids". Use fetch_traces.\n\n{evidence}',
+        lambda v=None: 'Analyse. Emit "trace_ids". Use fetch_traces.\n\n{evidence}',
     )
     system, user = llm._build_prompt(request_obj)
     assert user.strip() == "Author Insights for this corpus."
@@ -564,13 +560,10 @@ def test_dry_run_writes_the_prompt_and_makes_no_call(tmp_path, capsys, monkeypat
     monkeypatch.setitem(sys.modules, "litellm", None)  # any use would explode
     out = tmp_path / "out"
 
-    assert (
-        main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(out), "--dry-run"])
-        == EXIT_OK
-    )
+    assert main(["run-analyst", str(CORPUS), "-o", str(out), "--dry-run"]) == EXIT_OK
 
     prompt = (out / "analyst" / "prompt.md").read_text(encoding="utf-8")
-    assert "DocOps" in prompt
+    assert "the agent under test" in prompt
     assert not (out / "analyst" / "insights.json").exists()
     assert "no API call" in capsys.readouterr().out
 
@@ -581,17 +574,14 @@ def test_full_run_writes_insights_and_provenance(tmp_path, mock_litellm):
     )
     out = tmp_path / "out"
 
-    assert (
-        main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(out), "--quiet"])
-        == EXIT_OK
-    )
+    assert main(["run-analyst", str(CORPUS), "-o", str(out), "--quiet"]) == EXIT_OK
 
     insights = json.loads((out / "analyst" / "insights.json").read_text(encoding="utf-8"))
     assert [i["name"] for i in insights] == ["Invented tools"]
     assert set(insights[0]) == {"name", "description", "trace_ids"}
 
     run = json.loads((out / "analyst" / "run.json").read_text(encoding="utf-8"))
-    assert run["agent"] == "DocOps"
+    assert "agent" not in run
     assert run["prompt_version"] == "analyst"
     assert run["insight_count"] == 1
     assert run["problems_presented"] > 0
@@ -601,7 +591,7 @@ def test_unparseable_response_is_saved_not_lost(tmp_path, mock_litellm, capsys):
     mock_litellm("I'm afraid I can't do that.")
     out = tmp_path / "out"
 
-    assert main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(out)]) == EXIT_ERROR
+    assert main(["run-analyst", str(CORPUS), "-o", str(out)]) == EXIT_ERROR
     assert (
         (out / "analyst" / "analyst_raw.txt").read_text(encoding="utf-8").startswith("I'm afraid")
     )
@@ -612,7 +602,7 @@ def test_zero_insights_is_reported_as_a_valid_outcome(tmp_path, mock_litellm, ca
     mock_litellm("[]")
     out = tmp_path / "out"
 
-    assert main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(out)]) == EXIT_OK
+    assert main(["run-analyst", str(CORPUS), "-o", str(out)]) == EXIT_OK
     assert json.loads((out / "analyst" / "insights.json").read_text(encoding="utf-8")) == []
     assert "valid outcome" in capsys.readouterr().out
 
@@ -622,7 +612,7 @@ def test_a_fabricated_trace_id_is_reported_loudly(tmp_path, mock_litellm, capsys
     mock_litellm('[{"name":"N","description":"D","trace_ids":["totally-invented-id"]}]')
     out = tmp_path / "out"
 
-    main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(out)])
+    main(["run-analyst", str(CORPUS), "-o", str(out)])
     printed = capsys.readouterr().out
     assert "not in the evidence" in printed
     assert "do not exist in the corpus at all" in printed
@@ -633,7 +623,7 @@ def test_a_fetched_trace_id_is_not_reported_as_unknown(tmp_path, mock_litellm, c
     real = json.loads(CORPUS.read_text(encoding="utf-8").splitlines()[0])["id"]
     mock_litellm(f'[{{"name":"N","description":"D","trace_ids":["{real}"]}}]')
 
-    main(["run-analyst", str(CORPUS), "--agent", "DocOps", "-o", str(tmp_path / "out")])
+    main(["run-analyst", str(CORPUS), "-o", str(tmp_path / "out")])
     assert "not in the evidence" not in capsys.readouterr().out
 
 
@@ -655,8 +645,6 @@ def test_cli_reads_model_and_endpoint_from_a_dotenv(tmp_path, mock_litellm, monk
         [
             "run-analyst",
             str(CORPUS),
-            "--agent",
-            "DocOps",
             "-o",
             str(tmp_path / "out"),
             "--env-file",
@@ -681,8 +669,6 @@ def test_cli_flags_beat_the_dotenv(tmp_path, mock_litellm, monkeypatch):
         [
             "run-analyst",
             str(CORPUS),
-            "--agent",
-            "DocOps",
             "-o",
             str(tmp_path / "out"),
             "--env-file",
@@ -700,15 +686,13 @@ def test_temperature_is_only_sent_when_asked_for(tmp_path, mock_litellm):
     calls = mock_litellm()
     out = tmp_path / "out"
 
-    main(["run-analyst", str(CORPUS), "--agent", "A", "-o", str(out), "--quiet"])
+    main(["run-analyst", str(CORPUS), "-o", str(out), "--quiet"])
     assert "temperature" not in calls[0]
 
     main(
         [
             "run-analyst",
             str(CORPUS),
-            "--agent",
-            "A",
             "-o",
             str(out),
             "--temperature",
@@ -729,8 +713,6 @@ def test_dry_run_reports_whether_credentials_were_found(tmp_path, capsys, monkey
         [
             "run-analyst",
             str(CORPUS),
-            "--agent",
-            "A",
             "-o",
             str(tmp_path / "out"),
             "--env-file",
@@ -742,9 +724,7 @@ def test_dry_run_reports_whether_credentials_were_found(tmp_path, capsys, monkey
 
 
 def test_digest_and_cards_must_be_given_together(tmp_path, capsys):
-    code = main(
-        ["run-analyst", str(CORPUS), "--agent", "A", "-o", str(tmp_path), "--digest", str(CORPUS)]
-    )
+    code = main(["run-analyst", str(CORPUS), "-o", str(tmp_path), "--digest", str(CORPUS)])
     assert code == EXIT_ERROR
     assert "must be given together" in capsys.readouterr().err
 
@@ -759,8 +739,6 @@ def test_existing_ia2_and_ia3_artifacts_rebuild_the_problem_handoff(tmp_path):
             [
                 "run-analyst",
                 str(CORPUS),
-                "--agent",
-                "DocOps",
                 "-o",
                 str(out),
                 "--digest",
@@ -809,19 +787,18 @@ def test_run_runs_the_configured_analyst_reusing_the_computed_evidence(
     out = tmp_path / "out"
     config = write_run_config(tmp_path, analyst=True)
 
-    code = main(["--config", str(config), "--analyst.agent", "DocOps"])
+    code = main(["--config", str(config)])
     assert code == EXIT_OK
     assert (out / "analyst" / "insights.json").exists()
     assert "analyst/insights.json" in (out / "index.md").read_text(encoding="utf-8")
 
 
-def test_agent_name_defaults_to_the_corpus_filename(tmp_path, mock_litellm, fake_credentials):
-    """The agent name is a label, not a gate; it defaults from the corpus."""
+def test_run_uses_a_generic_agent_label(tmp_path, mock_litellm, fake_credentials):
     calls = mock_litellm()
     config = write_run_config(tmp_path, analyst=True)
 
     assert main(["--config", str(config)]) == EXIT_OK
-    assert CORPUS.stem in calls[0]["messages"][0]["content"]
+    assert "the agent under test" in calls[0]["messages"][0]["content"]
 
 
 def test_run_fails_loudly_when_the_analyst_has_no_credentials(tmp_path, monkeypatch, capsys):

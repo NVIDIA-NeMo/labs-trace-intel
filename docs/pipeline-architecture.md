@@ -285,7 +285,6 @@ The implementation is an explicit stage object:
 generation = InsightsGeneration(
     snapshot=snapshot,
     evidence=stream_results,
-    agent=agent_name,
     corpus=corpus_description,
 )
 result = generation.generate()

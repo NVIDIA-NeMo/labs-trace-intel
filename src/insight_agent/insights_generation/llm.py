@@ -125,9 +125,6 @@ def _available_prompt_versions() -> list[str]:
 class _AnalystRequest:
     """Everything the Analyst is allowed to see."""
 
-    #: Name of the agent under test, substituted into the prompt.
-    agent: str
-
     #: Generic candidate problems from every configured evidence stream.
     evidence: Sequence[EvidenceStreamResult] = ()
 
@@ -169,7 +166,6 @@ class InsightsGeneration:
         *,
         snapshot: TraceSnapshot,
         evidence: Sequence[EvidenceStreamResult],
-        agent: str,
         corpus: Mapping[str, Any],
         prompt_version: str = DEFAULT_PROMPT_VERSION,
     ) -> None:
@@ -180,7 +176,6 @@ class InsightsGeneration:
             raise InsightsGenerationError("evidence stream names must be unique")
 
         self._request = _AnalystRequest(
-            agent=agent,
             evidence=tuple(evidence),
             corpus=corpus,
             prompt_version=prompt_version,
@@ -277,15 +272,13 @@ def _build_prompt(request: _AnalystRequest) -> tuple[str, str]:
             f"prompt {request.prompt_version!r} has no {EVIDENCE_PLACEHOLDER} marker, so the "
             "evidence has nowhere to go. Add it where the evidence should appear."
         )
-    system = template.replace("{agent}", request.agent)
-
-    sections: list[str] = [f"# Evidence for {request.agent}", ""]
+    sections: list[str] = []
 
     summary = _corpus_summary(request.corpus)
     if summary:
         sections += [f"Corpus: {summary}.", ""]
 
-    sections += ["---", "", "# Candidate problems", ""]
+    sections += ["# Candidate problems", ""]
     if not request.evidence:
         sections.append(
             "No evidence streams ran. Return no Insights rather than inventing a problem."
@@ -319,7 +312,7 @@ def _build_prompt(request: _AnalystRequest) -> tuple[str, str]:
     if '"trace_ids"' not in template and "`trace_ids`" not in template:
         kickoff += ["", OUTPUT_CONTRACT]
 
-    return system.replace(EVIDENCE_PLACEHOLDER, "\n".join(sections)), "\n".join(kickoff)
+    return template.replace(EVIDENCE_PLACEHOLDER, "\n".join(sections)), "\n".join(kickoff)
 
 
 # -- trace lookup ----------------------------------------------------------

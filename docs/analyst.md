@@ -109,7 +109,7 @@ context. Budget for more than the opening-prompt figure above.
 and exits without calling anything:
 
 ```bash
-uv run insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
+uv run insight-agent run-analyst traces.jsonl -o out --dry-run
 ```
 
 Use it to inspect exactly what would be sent before spending anything.
@@ -151,8 +151,8 @@ INSIGHT_AGENT_API_KEY=sk-ant-...
 OpenAI, Bedrock and the rest follow the same pattern:
 
 ```bash
-uv run insight-agent run-analyst traces.jsonl --agent A -o out --model openai/gpt-5.2
-uv run insight-agent run-analyst traces.jsonl --agent A -o out --model bedrock/anthropic.claude-opus-5
+uv run insight-agent run-analyst traces.jsonl -o out --model openai/gpt-5.2
+uv run insight-agent run-analyst traces.jsonl -o out --model bedrock/anthropic.claude-opus-5
 ```
 
 ### OpenAI-compatible gateways
@@ -190,14 +190,12 @@ usually also the right choice.
 artifacts, so a prompt change can be re-issued against a frozen evidence set:
 
 ```bash
-uv run insight-agent run-analyst traces.jsonl --agent A -o out \
+uv run insight-agent run-analyst traces.jsonl -o out \
   --digest out/ia2/digest.md --cards out/ia3/cards.json
 ```
 
 The config-driven run reuses the in-memory `EvidenceStreamResult` values it
 just computed.
-`--agent` is only a label for the system under test and defaults to the corpus
-filename.
 
 ## Reading the output honestly
 
@@ -239,8 +237,7 @@ Two requirements:
 - It must contain the marker `{evidence}`, which is where evidence-stream
   Problems are substituted. A template without it is an
   error rather than an append, so a typo cannot send a paid request whose
-  evidence landed somewhere the prompt never refers to. `{agent}` is also
-  substituted if present.
+  evidence landed somewhere the prompt never refers to.
 - Name `fetch_traces` in it to get the tool loop; omit it for a single-shot,
   evidence-only run.
 
