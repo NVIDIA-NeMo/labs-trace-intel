@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "insight-agent"
-version = "0.1.0"
+version = "0.1.0rc1"
 description = "Insight Agent IA2/IA3 trace-evidence preprocessing with a canonical JSONL trace contract"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,6 +27,9 @@ dependencies = [
     "litellm>=1.55,<2",
 ]
 
+[project.urls]
+Repository = "https://github.com/NVIDIA/nemo-platform-insights-preview"
+
 [project.optional-dependencies]
 # Source adapter only. Filesystem users do not install or import the MLflow SDK.
 mlflow = ["mlflow-skinny>=3.6,<4"]
@@ -41,6 +44,9 @@ insight-agent = "insight_agent.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/insight_agent"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/README.md", "/pyproject.toml", "/src/insight_agent"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
