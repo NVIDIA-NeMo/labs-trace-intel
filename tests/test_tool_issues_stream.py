@@ -11,7 +11,7 @@ from insight_agent.evidence_streams.tool_issues import (
     ToolIssueConfig,
     ToolIssueEvidenceArtifacts,
     ToolIssueEvidenceStream,
-    to_ia3_trace,
+    to_tool_issue_trace,
 )
 from insight_agent.trace_loaders import FSDataLoader
 from insight_agent.traces import Span, SpanKind, TokenCounts, ToolCall, Trace, TraceAggregate
@@ -22,7 +22,7 @@ NOW = datetime(2026, 8, 26, tzinfo=timezone.utc)
 TOKENS = TokenCounts(input_tokens=0, cached_input_tokens=0, output_tokens=0)
 
 
-def test_input_normalization_preserves_every_field_ia3_uses():
+def test_input_normalization_preserves_every_field_used_by_tool_issues():
     trace = Trace(
         id="trace-1",
         root_spans=[
@@ -57,7 +57,7 @@ def test_input_normalization_preserves_every_field_ia3_uses():
             "orphan_results": [{"result_id": "orphan"}],
         },
     )
-    projected = to_ia3_trace(trace)
+    projected = to_tool_issue_trace(trace)
     call = projected.calls[0]
     assert projected.trace_id == "trace-1"
     assert projected.logical_case_id == "case-1"
@@ -78,7 +78,7 @@ def test_input_normalization_preserves_every_field_ia3_uses():
     assert call.source_pointer == {"call": 4}
 
 
-def test_missing_output_uses_ia3_singleton_but_json_null_remains_none():
+def test_missing_output_uses_tool_issue_singleton_but_json_null_remains_none():
     trace = Trace(
         id="missing-null",
         root_spans=[
@@ -101,7 +101,7 @@ def test_missing_output_uses_ia3_singleton_but_json_null_remains_none():
         aggregate=TraceAggregate(),
     )
 
-    projected = to_ia3_trace(trace)
+    projected = to_tool_issue_trace(trace)
     assert projected.calls[0].result is MISSING
     assert projected.calls[1].result is None
 
@@ -145,7 +145,7 @@ def test_full_trace_input_supplies_prior_user_context():
         aggregate=TraceAggregate(cost_usd=0.0, latency_ms=0.0, token_counts=TOKENS),
     )
 
-    assert to_ia3_trace(trace).calls[0].prior_user_text == "Find DOC-9"
+    assert to_tool_issue_trace(trace).calls[0].prior_user_text == "Find DOC-9"
 
 
 def test_tool_issue_stream_retains_all_findings_and_cards():

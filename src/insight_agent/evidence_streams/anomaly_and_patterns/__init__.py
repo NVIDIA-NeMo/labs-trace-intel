@@ -896,7 +896,7 @@ class AnomalyAndPatternsAnalysis(BaseModel):
     digest: str
 
 
-def run_ia2(
+def run_anomaly_and_patterns(
     traces: Sequence[NormalizedTrace],
     *,
     feature_names: Sequence[str] = DEFAULT_FEATURES,
@@ -1052,7 +1052,7 @@ def _native_step_type(span: Span) -> str:
     }.get(span.kind, span.kind.value.lower())
 
 
-def to_ia2_trace(trace: Trace) -> NormalizedTrace:
+def to_anomaly_and_patterns_trace(trace: Trace) -> NormalizedTrace:
     """Project one normalized trace into the anomaly-and-pattern analysis model."""
 
     calls: list[NormalizedCall] = []
@@ -1173,8 +1173,8 @@ class AnomalyAndPatternsEvidenceStream:
             raise TypeError("anomaly-and-patterns requires AnomalyAndPatternsConfig")
 
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        traces = [to_ia2_trace(trace) for trace in snapshot]
-        result = run_ia2(
+        traces = [to_anomaly_and_patterns_trace(trace) for trace in snapshot]
+        result = run_anomaly_and_patterns(
             traces,
             feature_names=self.config.feature_names or DEFAULT_FEATURES,
             contamination=self.config.contamination,

@@ -12,7 +12,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsArtifacts,
     AnomalyAndPatternsEvidenceStream,
     extract_trace_features,
-    to_ia2_trace,
+    to_anomaly_and_patterns_trace,
 )
 from insight_agent.trace_loaders import FSDataLoader
 from insight_agent.traces import Span, SpanKind, TokenCounts, ToolCall, Trace, TraceAggregate
@@ -23,10 +23,10 @@ NOW = datetime(2026, 8, 26, tzinfo=timezone.utc)
 TOKENS = TokenCounts(input_tokens=0, cached_input_tokens=0, output_tokens=0)
 
 
-def test_input_normalization_preserves_every_field_ia2_uses():
+def test_input_normalization_preserves_every_field_used_by_anomaly_and_patterns():
     loader = FSDataLoader(CORPUS)
     trace = next(iter(loader.load()))
-    projected = to_ia2_trace(trace)
+    projected = to_anomaly_and_patterns_trace(trace)
     visits = tuple(walk_spans(trace))
     calls = [visit.span for visit in visits if visit.span.kind is SpanKind.TOOL]
 
@@ -63,7 +63,7 @@ def test_tool_calls_are_a_valid_trajectory_when_no_other_spans_exist():
         ],
         aggregate=TraceAggregate(),
     )
-    projected = to_ia2_trace(trace)
+    projected = to_anomaly_and_patterns_trace(trace)
     assert len(projected.calls) == 1
     assert [(step.step_type, step.name) for step in projected.steps] == [("tool", "search")]
 
@@ -84,7 +84,7 @@ def test_returned_data_is_projected_into_mapping_results():
         aggregate=TraceAggregate(),
     )
 
-    projected = to_ia2_trace(trace)
+    projected = to_anomaly_and_patterns_trace(trace)
 
     assert projected.calls[0].result == {"content": "no matches", "returned_data": False}
     assert extract_trace_features(projected).features.numeric["returned_data_false_rate"] == 1.0
@@ -107,7 +107,7 @@ def test_returned_data_does_not_rewrite_string_results():
     )
 
     with pytest.warns(UserWarning, match="result is not a JSON object"):
-        projected = to_ia2_trace(trace)
+        projected = to_anomaly_and_patterns_trace(trace)
 
     assert projected.calls[0].result == "no matches"
 
@@ -157,7 +157,7 @@ def test_native_projection_uses_canonical_spans_for_steps_and_tool_calls():
         aggregate=TraceAggregate(cost_usd=0.25, latency_ms=0.0, token_counts=TOKENS),
     )
 
-    projected = to_ia2_trace(trace)
+    projected = to_anomaly_and_patterns_trace(trace)
     assert projected.trace_id == "native"
     assert [step.step_type for step in projected.steps] == ["agent", "llm", "tool"]
     assert [step.content for step in projected.steps] == [
@@ -180,7 +180,7 @@ def test_native_projection_uses_canonical_spans_for_steps_and_tool_calls():
     assert projected.cost == 0.25
 
 
-def test_ia2_stream_runs_the_engine_from_a_snapshot():
+def test_anomaly_and_patterns_stream_runs_the_engine_from_a_snapshot():
     loader = FSDataLoader(CORPUS)
     stream = AnomalyAndPatternsEvidenceStream()
     snapshot = loader.load()

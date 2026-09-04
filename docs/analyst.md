@@ -191,7 +191,7 @@ artifacts, so a prompt change can be re-issued against a frozen evidence set:
 
 ```bash
 uv run insight-agent run-analyst traces.jsonl -o out \
-  --digest out/ia2/digest.md --cards out/ia3/cards.json
+  --digest out/anomaly_and_patterns/digest.md --cards out/tool_issues/cards.json
 ```
 
 The config-driven run reuses the in-memory `EvidenceStreamResult` values it

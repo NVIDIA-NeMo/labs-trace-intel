@@ -700,7 +700,7 @@ def _input_text(value: Any) -> str:
     return ""
 
 
-def to_ia3_trace(trace: Trace) -> TraceRecord:
+def to_tool_issue_trace(trace: Trace) -> TraceRecord:
     """Project one normalized trace into the tool-issue analysis model."""
 
     calls: list[CallRecord] = []
@@ -778,7 +778,7 @@ class ToolIssueEvidenceStream:
             raise TypeError("tool-issues requires ToolIssueConfig")
 
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        traces = [to_ia3_trace(trace) for trace in snapshot]
+        traces = [to_tool_issue_trace(trace) for trace in snapshot]
         findings = detect(
             traces,
             retry_threshold=self.config.retry_threshold,

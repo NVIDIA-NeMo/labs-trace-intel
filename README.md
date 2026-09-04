@@ -104,10 +104,10 @@ the public [`Trace` model](src/insight_agent/traces.py).
 ### Reading the outputs
 ./out/analyst contains the final output in insights.json. It also contains a prompt.md which is the full interpolated prompt sent to the Analyst Agent. 
 
-./out/ia2 contains the artifacts from the anomaly-and-pattern evidence stream.
+./out/anomaly_and_patterns contains the artifacts from the anomaly-and-pattern evidence stream.
 `digest.md` retains its native diagnostic summary; `problems.json` contains the generic handoff sent to Insights generation.
 
-out/ia3 contains the artifacts from the tool-issue evidence stream.
+out/tool_issues contains the artifacts from the tool-issue evidence stream.
 `cards.json` retains all native tool-issue cards; `problems.json` contains the recurrence-qualified handoff sent to Insights generation.
 
 ## Running the agent on your own traces

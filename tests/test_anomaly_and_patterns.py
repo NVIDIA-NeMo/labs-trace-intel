@@ -14,8 +14,8 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     FailureGroup,
     _rank_top_terms,
     normalize_error_template,
-    run_ia2,
-    to_ia2_trace,
+    run_anomaly_and_patterns,
+    to_anomaly_and_patterns_trace,
 )
 from insight_agent.trace_loaders import FSDataLoader
 
@@ -36,12 +36,12 @@ DIGEST_SECTIONS = (
 @pytest.fixture(scope="module")
 def traces():
     loader = FSDataLoader(CORPUS)
-    return [to_ia2_trace(trace) for trace in loader.load()]
+    return [to_anomaly_and_patterns_trace(trace) for trace in loader.load()]
 
 
 @pytest.fixture(scope="module")
 def result(traces):
-    return run_ia2(traces, minimum_independent_traces=3)
+    return run_anomaly_and_patterns(traces, minimum_independent_traces=3)
 
 
 def test_digest_contains_every_section(result):
@@ -60,8 +60,8 @@ def test_digest_states_the_reader_contract(result):
 
 
 def test_digest_is_byte_identical_across_runs(traces):
-    first = run_ia2(traces, minimum_independent_traces=3).digest
-    second = run_ia2(traces, minimum_independent_traces=3).digest
+    first = run_anomaly_and_patterns(traces, minimum_independent_traces=3).digest
+    second = run_anomaly_and_patterns(traces, minimum_independent_traces=3).digest
     assert first == second
 
 
@@ -91,8 +91,8 @@ def test_outcome_labels_never_enter_anomaly_selection(traces):
         )
         for t in traces
     ]
-    with_verdicts = run_ia2(traces, minimum_independent_traces=3).anomalies
-    without = run_ia2(stripped, minimum_independent_traces=3).anomalies
+    with_verdicts = run_anomaly_and_patterns(traces, minimum_independent_traces=3).anomalies
+    without = run_anomaly_and_patterns(stripped, minimum_independent_traces=3).anomalies
 
     assert [a.is_anomaly for a in with_verdicts] == [a.is_anomaly for a in without]
     assert [a.anomaly_score for a in with_verdicts] == [a.anomaly_score for a in without]
@@ -150,7 +150,7 @@ def test_features_cover_the_documented_defaults(result):
 
 
 def test_custom_metrics_become_usable_features(traces):
-    result = run_ia2(
+    result = run_anomaly_and_patterns(
         traces,
         feature_names=(*DEFAULT_FEATURES, "turn_count"),
         minimum_independent_traces=3,
@@ -160,7 +160,7 @@ def test_custom_metrics_become_usable_features(traces):
 
 def test_a_missing_custom_feature_errors_informatively(traces):
     with pytest.raises(ValueError) as excinfo:
-        run_ia2(
+        run_anomaly_and_patterns(
             traces, feature_names=("tool_call_count", "not_logged"), minimum_independent_traces=3
         )
     message = str(excinfo.value)
@@ -170,6 +170,10 @@ def test_a_missing_custom_feature_errors_informatively(traces):
 
 
 def test_contamination_controls_how_many_traces_are_flagged(traces):
-    few = run_ia2(traces, contamination=0.02, minimum_independent_traces=3).anomalies
-    many = run_ia2(traces, contamination=0.30, minimum_independent_traces=3).anomalies
+    few = run_anomaly_and_patterns(
+        traces, contamination=0.02, minimum_independent_traces=3
+    ).anomalies
+    many = run_anomaly_and_patterns(
+        traces, contamination=0.30, minimum_independent_traces=3
+    ).anomalies
     assert sum(a.is_anomaly for a in many) > sum(a.is_anomaly for a in few)

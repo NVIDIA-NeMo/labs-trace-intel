@@ -729,7 +729,7 @@ def test_digest_and_cards_must_be_given_together(tmp_path, capsys):
     assert "must be given together" in capsys.readouterr().err
 
 
-def test_existing_ia2_and_ia3_artifacts_rebuild_the_problem_handoff(tmp_path):
+def test_existing_evidence_artifacts_rebuild_the_problem_handoff(tmp_path):
     out = tmp_path / "out"
     config = write_run_config(tmp_path, analyst=False)
     assert main(["--config", str(config)]) == EXIT_OK
@@ -742,9 +742,9 @@ def test_existing_ia2_and_ia3_artifacts_rebuild_the_problem_handoff(tmp_path):
                 "-o",
                 str(out),
                 "--digest",
-                str(out / "ia2" / "digest.md"),
+                str(out / "anomaly_and_patterns" / "digest.md"),
                 "--cards",
-                str(out / "ia3" / "cards.json"),
+                str(out / "tool_issues" / "cards.json"),
                 "--dry-run",
             ]
         )

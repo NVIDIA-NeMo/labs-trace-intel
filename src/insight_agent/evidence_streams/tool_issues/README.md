@@ -39,7 +39,7 @@ Include `evidence_streams.tool_issues` in `analyst.yaml` and omit the other
 stream keys for a tool-issue-only run.
 
 The CLI writes individual findings, cards, finding-type coverage, projected problems, rendered
-card Markdown, and run metadata under `out/ia3/`.
+card Markdown, and run metadata under `out/tool_issues/`.
 
 The adjacent `coverage.py` reports which rules the supplied corpus has enough evidence to
 evaluate. This distinguishes a clean corpus from a detector that is silent because required
@@ -47,7 +47,7 @@ fields were not captured.
 
 ## Implementation boundary
 
-- `to_ia3_trace()` owns projection from the shared normalized trace model.
+- `to_tool_issue_trace()` owns projection from the shared normalized trace model.
 - `walk_spans()` is the private shared depth-first traversal of nested spans.
 - `detect()` owns individual rule evaluation.
 - `build_cards()` owns recurrence grouping and promotion.

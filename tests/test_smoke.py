@@ -17,7 +17,7 @@ import insight_agent
 from insight_agent.evidence_streams.anomaly_and_patterns import (
     group_trajectories,
     prepare_traces,
-    run_ia2,
+    run_anomaly_and_patterns,
 )
 from insight_agent.evidence_streams.tool_issues import FINDING_TYPES, build_cards, detect
 
@@ -32,8 +32,10 @@ def test_engine_modules_are_importable_by_dotted_path():
         assert importlib.import_module(f"insight_agent.evidence_streams.{name}")
 
 
-def test_run_ia2_produces_a_digest():
-    result = run_ia2(baseline_corpus.ia2_traces(), minimum_independent_traces=3)
+def test_run_anomaly_and_patterns_produces_a_digest():
+    result = run_anomaly_and_patterns(
+        baseline_corpus.anomaly_and_patterns_traces(), minimum_independent_traces=3
+    )
 
     assert set(type(result).model_fields) >= {
         "prepared",
@@ -46,18 +48,18 @@ def test_run_ia2_produces_a_digest():
         "digest",
     }
     assert result.digest.strip()
-    assert len(result.prepared) == len(baseline_corpus.ia2_traces())
+    assert len(result.prepared) == len(baseline_corpus.anomaly_and_patterns_traces())
 
 
-def test_run_ia2_is_deterministic_in_process():
-    traces = baseline_corpus.ia2_traces()
-    first = run_ia2(traces, minimum_independent_traces=3).digest
-    second = run_ia2(traces, minimum_independent_traces=3).digest
+def test_run_anomaly_and_patterns_is_deterministic_in_process():
+    traces = baseline_corpus.anomaly_and_patterns_traces()
+    first = run_anomaly_and_patterns(traces, minimum_independent_traces=3).digest
+    second = run_anomaly_and_patterns(traces, minimum_independent_traces=3).digest
     assert first == second
 
 
 def test_detect_produces_findings_from_the_known_catalog():
-    findings = detect(baseline_corpus.ia3_traces())
+    findings = detect(baseline_corpus.tool_issue_traces())
 
     assert findings
     assert {f["issue_type"] for f in findings} <= set(FINDING_TYPES)
@@ -66,7 +68,7 @@ def test_detect_produces_findings_from_the_known_catalog():
 
 
 def test_build_cards_requires_three_independent_cases():
-    findings = detect(baseline_corpus.ia3_traces())
+    findings = detect(baseline_corpus.tool_issue_traces())
     cards = build_cards(findings, minimum_independent_cases=3)
 
     assert cards
@@ -77,7 +79,7 @@ def test_build_cards_requires_three_independent_cases():
 
 
 def test_build_cards_at_a_higher_threshold_disqualifies_everything():
-    findings = detect(baseline_corpus.ia3_traces())
+    findings = detect(baseline_corpus.tool_issue_traces())
     cards = build_cards(findings, minimum_independent_cases=99)
 
     assert cards
@@ -86,22 +88,22 @@ def test_build_cards_at_a_higher_threshold_disqualifies_everything():
 
 @pytest.mark.filterwarnings("error")
 @pytest.mark.parametrize("n_traces", [1, 2])
-def test_run_ia2_abstains_from_grouping_corpora_too_small_to_cluster(n_traces):
-    """Below three traces ``run_ia2`` must abstain, not crash.
+def test_run_anomaly_and_patterns_abstains_from_grouping_corpora_too_small_to_cluster(n_traces):
+    """Below three traces ``run_anomaly_and_patterns`` must abstain, not crash.
 
     ``group_trajectories`` itself raises in this situation (it needs some k with
-    ``2 <= k < n_traces``); ``run_ia2`` guards the call and reports ``None``,
+    ``2 <= k < n_traces``); ``run_anomaly_and_patterns`` guards the call and reports ``None``,
     which the digest renders as an explicit abstention.
     """
-    traces = baseline_corpus.ia2_traces()[:n_traces]
-    result = run_ia2(traces, minimum_independent_traces=3)
+    traces = baseline_corpus.anomaly_and_patterns_traces()[:n_traces]
+    result = run_anomaly_and_patterns(traces, minimum_independent_traces=3)
 
     assert result.trajectory_groups is None
     assert result.digest.strip()
 
 
 def test_group_trajectories_raises_directly_on_small_corpora():
-    """The guard lives in ``run_ia2``, so direct callers still hit the raise."""
-    prepared, _ = prepare_traces(baseline_corpus.ia2_traces()[:2])
+    """The guard lives in ``run_anomaly_and_patterns``, so direct callers still hit the raise."""
+    prepared, _ = prepare_traces(baseline_corpus.anomaly_and_patterns_traces()[:2])
     with pytest.raises(ValueError, match="at least three traces"):
         group_trajectories([item.features for item in prepared])

@@ -2,7 +2,7 @@
 
 Two things in the engine outputs are not natively serialisable:
 
-* ``run_ia2`` returns ``PreparedTrace`` dataclasses under ``"prepared"``, which
+* ``run_anomaly_and_patterns`` returns ``PreparedTrace`` dataclasses under ``"prepared"``, which
   carry the whole input trace back out again.
 * The tool-issue stream's ``MISSING`` sentinel is a bare ``object()``. It should never reach
   ``json.dumps``, and if it somehow does we want ``"<missing>"`` in the output
@@ -64,7 +64,7 @@ def write_json(path: str | Path, value: Any, *, indent: int | None = 2) -> Path:
 
 
 def prepared_features(prepared: Any) -> list[dict[str, Any]]:
-    """Flatten ``run_ia2``'s ``prepared`` list into per-trace feature rows.
+    """Flatten ``run_anomaly_and_patterns``'s ``prepared`` list into per-trace feature rows.
 
     Keeps the numeric vector, the trajectory tokens and the source pointer —
     everything an analyst needs to see why a trace was scored the way it was —

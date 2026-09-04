@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from insight_agent.evidence_streams.tool_issues import MISSING, to_ia3_trace
+from insight_agent.evidence_streams.tool_issues import MISSING, to_tool_issue_trace
 from insight_agent.trace_loaders import FSDataLoader, FSDataLoadError
 from insight_agent.traces import UNSET, Span, SpanKind, ToolCall, Trace, TraceAggregate
 
@@ -57,7 +57,7 @@ def test_missing_output_and_explicit_null_remain_distinct(tmp_path):
     path = tmp_path / "traces.jsonl"
     write_jsonl(path, [trace("missing"), trace("null", output=None)])
 
-    projected = [to_ia3_trace(item).calls[0].result for item in FSDataLoader(path).load()]
+    projected = [to_tool_issue_trace(item).calls[0].result for item in FSDataLoader(path).load()]
 
     assert projected[0] is MISSING
     assert projected[1] is None

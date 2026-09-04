@@ -39,14 +39,14 @@ uv run insight-agent --config analyst.yaml
 Include `evidence_streams.anomaly_and_patterns` in `analyst.yaml` and omit the
 other stream keys for an anomaly-only run.
 
-The CLI writes `out/ia2/digest.md`, extracted features, anomalies, trajectory and verdict groups,
+The CLI writes `out/anomaly_and_patterns/digest.md`, extracted features, anomalies, trajectory and verdict groups,
 failure groups, projected problems, and run metadata.
 
 ## Implementation boundary
 
-- `to_ia2_trace()` owns projection from the shared normalized trace model.
+- `to_anomaly_and_patterns_trace()` owns projection from the shared normalized trace model.
 - `walk_spans()` is the private shared depth-first traversal of nested spans.
-- `run_ia2()` owns the native analysis.
+- `run_anomaly_and_patterns()` owns the native analysis.
 - `AnomalyAndPatternsEvidenceStream.analyze()` owns the shared evidence-stream handoff.
 - `decode_explicit_failure()` is intentionally independent from the tool-issue decoder; their
   measured differences are documented in [the decoder comparison](../../../../docs/failure-decoders.md).

@@ -70,7 +70,7 @@ def _steps(kinds, trace):
     )
 
 
-def ia2_traces() -> list[NormalizedTrace]:
+def anomaly_and_patterns_traces() -> list[NormalizedTrace]:
     """Four traces: two search-shaped, one code-shaped, one deliberate outlier."""
 
     traces = []
@@ -195,7 +195,7 @@ def ia2_traces() -> list[NormalizedTrace]:
     return traces
 
 
-def ia3_traces() -> list[TraceRecord]:
+def tool_issue_traces() -> list[TraceRecord]:
     """Exercises the traceback gate, the state patterns and the retry rules."""
 
     records = []

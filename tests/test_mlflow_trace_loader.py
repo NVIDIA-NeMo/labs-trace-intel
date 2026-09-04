@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import pytest
 from mlflow.entities import Feedback
 
-from insight_agent.evidence_streams.anomaly_and_patterns import to_ia2_trace
-from insight_agent.evidence_streams.tool_issues import MISSING, to_ia3_trace
+from insight_agent.evidence_streams.anomaly_and_patterns import to_anomaly_and_patterns_trace
+from insight_agent.evidence_streams.tool_issues import MISSING, to_tool_issue_trace
 from insight_agent.trace_loaders import (
     MLflowFileTraceConfig,
     MLflowFileTraceLoader,
@@ -372,16 +372,16 @@ def test_normalized_mlflow_trace_flows_through_both_evidence_streams():
         )
     )
 
-    ia2 = to_ia2_trace(normalized)
-    ia3 = to_ia3_trace(normalized)
+    anomaly_and_patterns = to_anomaly_and_patterns_trace(normalized)
+    tool_issue_trace = to_tool_issue_trace(normalized)
 
-    assert ia2.calls[0].call_id == "tool"
-    assert ia2.calls[0].error == "timeout"
-    assert ia2.calls[0].source_pointer["span_id"] == "tool"
-    assert ia3.logical_case_id == "session-7"
-    assert ia3.calls[0].result is MISSING
-    assert ia3.calls[0].explicit_error is True
-    assert ia3.calls[0].outcome_marker == "timeout"
+    assert anomaly_and_patterns.calls[0].call_id == "tool"
+    assert anomaly_and_patterns.calls[0].error == "timeout"
+    assert anomaly_and_patterns.calls[0].source_pointer["span_id"] == "tool"
+    assert tool_issue_trace.logical_case_id == "session-7"
+    assert tool_issue_trace.calls[0].result is MISSING
+    assert tool_issue_trace.calls[0].explicit_error is True
+    assert tool_issue_trace.calls[0].outcome_marker == "timeout"
 
 
 def test_otlp_json_null_is_distinct_from_an_absent_output():

@@ -52,7 +52,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsConfig,
     decode_explicit_failure,
     problems_from_analysis,
-    to_ia2_trace,
+    to_anomaly_and_patterns_trace,
 )
 from insight_agent.evidence_streams.builtins import (
     ANOMALY_AND_PATTERNS,
@@ -68,7 +68,7 @@ from insight_agent.evidence_streams.tool_issues import (
     detect,
     problems_from_cards,
     strict_failure,
-    to_ia3_trace,
+    to_tool_issue_trace,
 )
 from insight_agent.evidence_streams.tool_issues.coverage import corpus_coverage, format_coverage
 from insight_agent.insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
@@ -224,7 +224,7 @@ def cmd_coverage(args: CoverageCommand) -> int:
     findings = None
     if args.with_findings:
         findings = detect(
-            (to_ia3_trace(trace) for trace in loader.load()),
+            (to_tool_issue_trace(trace) for trace in loader.load()),
         )
 
     report = corpus_coverage(loader, findings=findings)
@@ -246,27 +246,29 @@ def cmd_explain_failures(args: ExplainFailuresCommand) -> int:
     """
     loader = _trace_loader(args)
     snapshot = loader.load()
-    ia2_traces = {trace.id: to_ia2_trace(trace) for trace in snapshot}
+    pattern_traces = {trace.id: to_anomaly_and_patterns_trace(trace) for trace in snapshot}
     rows = []
 
-    for trace in (to_ia3_trace(item) for item in snapshot):
-        ia2_calls = {c.call_id: c for c in ia2_traces[trace.trace_id].calls}
+    for trace in (to_tool_issue_trace(item) for item in snapshot):
+        pattern_calls = {call.call_id: call for call in pattern_traces[trace.trace_id].calls}
         for call in trace.calls:
-            ia3_failed, ia3_marker = strict_failure(call)
-            ia2_call = ia2_calls.get(call.call_id)
-            if ia2_call is None:
+            tool_issue_failed, tool_issue_marker = strict_failure(call)
+            pattern_call = pattern_calls.get(call.call_id)
+            if pattern_call is None:
                 continue
-            ia2_failed, ia2_marker, _ = decode_explicit_failure(ia2_call.tool_name, ia2_call.result)
+            pattern_failed, pattern_marker, _ = decode_explicit_failure(
+                pattern_call.tool_name, pattern_call.result
+            )
             row = {
                 "trace_id": trace.trace_id,
                 "call_id": call.call_id,
                 "call_index": call.call_index,
                 "tool_name": call.tool_name,
-                "ia2_failed": ia2_failed,
-                "ia2_marker": ia2_marker,
-                "ia3_failed": ia3_failed,
-                "ia3_marker": ia3_marker,
-                "agree": ia2_failed == ia3_failed,
+                "anomaly_and_patterns_failed": pattern_failed,
+                "anomaly_and_patterns_marker": pattern_marker,
+                "tool_issues_failed": tool_issue_failed,
+                "tool_issues_marker": tool_issue_marker,
+                "agree": pattern_failed == tool_issue_failed,
             }
             if args.only_disagreements and row["agree"]:
                 continue
@@ -283,12 +285,18 @@ def cmd_explain_failures(args: ExplainFailuresCommand) -> int:
     print(f"{'trace':<28} {'call':<26} {'tool':<20} {'patterns':<24} {'tool issues':<24}")
     print("-" * 126)
     for row in rows:
-        ia2 = f"{'FAIL' if row['ia2_failed'] else 'ok'} {row['ia2_marker'] or ''}".strip()
-        ia3 = f"{'FAIL' if row['ia3_failed'] else 'ok'} {row['ia3_marker'] or ''}".strip()
+        pattern_status = (
+            f"{'FAIL' if row['anomaly_and_patterns_failed'] else 'ok'} "
+            f"{row['anomaly_and_patterns_marker'] or ''}"
+        ).strip()
+        tool_issue_status = (
+            f"{'FAIL' if row['tool_issues_failed'] else 'ok'} {row['tool_issues_marker'] or ''}"
+        ).strip()
         flag = "" if row["agree"] else "  <-- disagree"
         print(
             f"{row['trace_id'][:27]:<28} {row['call_id'][:25]:<26} "
-            f"{row['tool_name'][:19]:<20} {ia2[:23]:<24} {ia3[:23]:<24}{flag}"
+            f"{row['tool_name'][:19]:<20} {pattern_status[:23]:<24} "
+            f"{tool_issue_status[:23]:<24}{flag}"
         )
 
     disagreements = sum(1 for r in rows if not r["agree"])
@@ -343,7 +351,7 @@ def _write_anomaly_and_patterns(
         sys.stdout.write(result.digest)
         return EXIT_OK
 
-    target = output.directory / "ia2"
+    target = output.directory / "anomaly_and_patterns"
     target.mkdir(parents=True, exist_ok=True)
     (target / "digest.md").write_text(result.digest, encoding="utf-8")
     write_json(target / "anomalies.json", result.anomalies)
@@ -411,7 +419,7 @@ def _write_tool_issues(
     eligible = [card for card in cards if card.eligible_for_analyst]
     include_audit = artifacts.config.include_audit_problems
     rendered = cards if (include_audit or not eligible) else eligible
-    target = output.directory / "ia3"
+    target = output.directory / "tool_issues"
     target.mkdir(parents=True, exist_ok=True)
     write_json(target / "findings.json", findings)
     write_json(target / "cards.json", cards)
@@ -592,21 +600,21 @@ def _render_index(
         lines += [
             "## Anomalies and patterns — what is unusual, and what recurs",
             "",
-            "- [digest.md](ia2/digest.md) — the packet written for the Analyst",
-            "- [anomalies.json](ia2/anomalies.json), [features.json](ia2/features.json)",
-            "- [trajectory_groups.json](ia2/trajectory_groups.json), "
-            "[verdict_groups.json](ia2/verdict_groups.json)",
-            "- [failure_groups.json](ia2/failure_groups.json), "
-            "[cross_tool_failure_groups.json](ia2/cross_tool_failure_groups.json)",
+            "- [digest.md](anomaly_and_patterns/digest.md) — the packet written for the Analyst",
+            "- [anomalies.json](anomaly_and_patterns/anomalies.json), [features.json](anomaly_and_patterns/features.json)",
+            "- [trajectory_groups.json](anomaly_and_patterns/trajectory_groups.json), "
+            "[verdict_groups.json](anomaly_and_patterns/verdict_groups.json)",
+            "- [failure_groups.json](anomaly_and_patterns/failure_groups.json), "
+            "[cross_tool_failure_groups.json](anomaly_and_patterns/cross_tool_failure_groups.json)",
             "",
         ]
     if TOOL_ISSUES in stream_names:
         lines += [
             "## Tool issues — what is demonstrably wrong with tool use",
             "",
-            "- [cards.md](ia3/cards.md) — recurrence-qualified evidence cards",
-            "- [cards.json](ia3/cards.json), [findings.json](ia3/findings.json)",
-            "- [coverage.json](ia3/coverage.json) — all nineteen finding types",
+            "- [cards.md](tool_issues/cards.md) — recurrence-qualified evidence cards",
+            "- [cards.json](tool_issues/cards.json), [findings.json](tool_issues/findings.json)",
+            "- [coverage.json](tool_issues/coverage.json) — all nineteen finding types",
             "",
         ]
     if has_analyst:
