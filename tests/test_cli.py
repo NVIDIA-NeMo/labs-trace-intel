@@ -150,10 +150,10 @@ def test_run_ia3_fires_all_nineteen_types_and_promotes_cards(tmp_path):
     cards = json.loads((out / "ia3" / "cards.json").read_text(encoding="utf-8"))
 
     assert {f["issue_type"] for f in findings} == set(FINDING_TYPES)
-    assert any(c["eligible_for_analyst"] for c in cards)
+    assert any(c["eligible_for_insight_compilation"] for c in cards)
     # Eligibility must track the independent-case count, not the finding count.
     for card in cards:
-        assert card["eligible_for_analyst"] == (card["independent_case_count"] >= 3)
+        assert card["eligible_for_insight_compilation"] == (card["independent_case_count"] >= 3)
 
 
 def test_run_ia3_cards_markdown_cites_evidence(tmp_path):
@@ -198,7 +198,7 @@ def test_run_ia3_degrades_without_a_catalog_instead_of_crashing(corpus_without, 
 
 def test_run_all_writes_an_index(tmp_path):
     out = tmp_path / "out"
-    assert main(["run-all", str(CORPUS), "-o", str(out), "--quiet", "--no-analyst"]) == EXIT_OK
+    assert main(["run-all", str(CORPUS), "-o", str(out), "--quiet", "--no-insights"]) == EXIT_OK
     index = (out / "index.md").read_text(encoding="utf-8")
     assert "An anomaly is not an error" in index
     for expected in ("ia2/digest.md", "ia3/cards.md"):
@@ -208,7 +208,7 @@ def test_run_all_writes_an_index(tmp_path):
 def test_run_all_refuses_an_invalid_corpus(tmp_path, capsys):
     bad = tmp_path / "bad.jsonl"
     bad.write_text('{"id": "t"}\n', encoding="utf-8")
-    assert main(["run-all", str(bad), "--no-analyst", "-o", str(tmp_path / "out")]) == EXIT_SCHEMA
+    assert main(["run-all", str(bad), "--no-insights", "-o", str(tmp_path / "out")]) == EXIT_SCHEMA
 
 
 def test_run_all_help_cites_the_mlflow_search_page_limit(capsys):
@@ -261,7 +261,7 @@ def test_run_all_accepts_mlflow_as_an_alternative_to_the_positional_file(monkeyp
                 "25",
                 "--min-independent-cases",
                 "100",
-                "--no-analyst",
+                "--no-insights",
                 "-o",
                 str(out),
             ]
@@ -312,7 +312,7 @@ def test_run_all_accepts_a_native_mlflow_export_without_conversion(monkeypatch, 
                 str(export),
                 "--max-traces",
                 "25",
-                "--no-analyst",
+                "--no-insights",
                 "--quiet",
                 "-o",
                 str(out),
@@ -328,7 +328,7 @@ def test_file_and_mlflow_sources_are_mutually_exclusive():
     parser = build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(
-            ["run-all", str(CORPUS), "--mlflow-experiment", "customer-support", "--no-analyst"]
+            ["run-all", str(CORPUS), "--mlflow-experiment", "customer-support", "--no-insights"]
         )
 
 
@@ -342,7 +342,7 @@ def test_live_mlflow_and_export_sources_are_mutually_exclusive(tmp_path):
                 "customer-support",
                 "--mlflow-export",
                 str(tmp_path / "traces.json"),
-                "--no-analyst",
+                "--no-insights",
             ]
         )
 
@@ -355,7 +355,7 @@ def test_mlflow_query_options_require_the_mlflow_source(tmp_path, capsys):
                 str(CORPUS),
                 "--mlflow-filter",
                 "trace.status = 'ERROR'",
-                "--no-analyst",
+                "--no-insights",
                 "-o",
                 str(tmp_path / "out"),
             ]
@@ -377,7 +377,7 @@ def test_mlflow_query_options_are_not_applied_to_an_export(tmp_path, capsys):
                 str(export),
                 "--mlflow-filter",
                 "trace.status = 'ERROR'",
-                "--no-analyst",
+                "--no-insights",
                 "-o",
                 str(tmp_path / "out"),
             ]
@@ -405,7 +405,7 @@ def test_missing_mlflow_extra_has_an_actionable_error(monkeypatch, tmp_path, cap
                 "run-all",
                 "--mlflow-experiment",
                 "customer-support",
-                "--no-analyst",
+                "--no-insights",
                 "-o",
                 str(tmp_path / "out"),
             ]
@@ -418,7 +418,7 @@ def test_missing_mlflow_extra_has_an_actionable_error(monkeypatch, tmp_path, cap
 
 
 def test_demo_runs_end_to_end(tmp_path, capsys):
-    assert main(["demo", "-o", str(tmp_path / "out"), "--quiet", "--no-analyst"]) == EXIT_OK
+    assert main(["demo", "-o", str(tmp_path / "out"), "--quiet", "--no-insights"]) == EXIT_OK
     out = capsys.readouterr().out
     assert "19/19 IA3 rules evaluable" in out
     assert (tmp_path / "out" / "ia2" / "digest.md").exists()

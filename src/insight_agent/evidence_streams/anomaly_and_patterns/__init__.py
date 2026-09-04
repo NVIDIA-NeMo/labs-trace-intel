@@ -719,7 +719,7 @@ def build_evidence_digest(
     max_anomalies: int = 50,
     max_patterns_per_section: int = 24,
 ) -> str:
-    """Build the compact Stage-6 packet read by the separate Analyst LLM."""
+    """Build the compact Stage-6 packet read by the Insight compilation agent."""
 
     prepared_by_id = {item.trace.trace_id: item for item in prepared}
     ranked = sorted(
@@ -737,7 +737,7 @@ def build_evidence_digest(
         "",
         "## Reader contract",
         "",
-        "IA2 answers **what is unusual?** and **what recurs?** It does not author an Insight, prove causality, or turn an anomaly into an error. The Analyst must inspect cited traces and may file zero Insights.",
+        "IA2 answers **what is unusual?** and **what recurs?** It does not author an Insight, prove causality, or turn an anomaly into an error. Insight compilation must inspect cited traces and may file zero Insights.",
         "",
         "## Inventory",
         "",
@@ -832,7 +832,7 @@ def build_evidence_digest(
     lines.extend(
         [
             "",
-            "## Analyst authoring rules",
+            "## Insight compilation rules",
             "",
             "1. File only recurring, operationally useful, evidence-backed Insights.",
             "2. Cite exact trace IDs and call IDs, then open raw evidence when needed.",

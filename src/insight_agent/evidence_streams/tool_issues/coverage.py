@@ -344,7 +344,7 @@ def corpus_coverage(
     if distinct_cases < 3:
         notes.append(
             f"Only {distinct_cases} distinct logical case(s): IA3 promotes a card at three "
-            "independent cases, so nothing can become eligible_for_analyst."
+            "independent cases, so nothing can become eligible_for_insight_compilation."
         )
     if trace_count and distinct_cases == trace_count and presence["logical_case_id"] == 0:
         notes.append(

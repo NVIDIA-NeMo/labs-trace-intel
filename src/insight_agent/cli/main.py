@@ -9,8 +9,9 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import importlib.util
+import asyncio
 import json
+import os
 import sys
 from collections.abc import Sequence
 from importlib.resources import files
@@ -19,6 +20,9 @@ from typing import Any
 
 import numpy
 import sklearn
+from nooa import build_prompt_data
+from nooa.prompts import render_prompt_data
+from nooa.unifiedllm import CompletionClient
 
 from insight_agent import __version__
 from insight_agent.cli.artifacts import prepared_features, write_json
@@ -48,22 +52,7 @@ from insight_agent.evidence_streams.tool_issues import (
     to_ia3_trace,
 )
 from insight_agent.evidence_streams.tool_issues.coverage import corpus_coverage, format_coverage
-from insight_agent.insights_generation import DEFAULT_MAX_TOKENS as ANALYST_DEFAULT_MAX_TOKENS
-from insight_agent.insights_generation import DEFAULT_MAX_TOOL_ROUNDS as ANALYST_DEFAULT_TOOL_ROUNDS
-from insight_agent.insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
-from insight_agent.insights_generation import DEFAULT_PROMPT_VERSION as ANALYST_DEFAULT_PROMPT
-from insight_agent.insights_generation import (
-    InsightsGeneration,
-    InsightsGenerationError,
-    ResponseParseError,
-)
-from insight_agent.insights_generation.config import (
-    ENV_API_BASE,
-    ENV_API_KEY,
-    ENV_MODEL,
-    load_dotenv,
-    resolve,
-)
+from insight_agent.insights_generation import InsightCompilation
 from insight_agent.trace_loaders import (
     MLFLOW_DEFAULT_MAX_TRACES,
     FSDataLoader,
@@ -80,6 +69,11 @@ from insight_agent.traces import Trace, TraceSnapshot
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_SCHEMA = 2
+
+DEFAULT_MODEL = "openai/azure/openai/gpt-5.6-luna"
+DEFAULT_API_BASE = "https://inference-api.nvidia.com/v1"
+DEFAULT_MAX_TOKENS = 300_000
+DEFAULT_REASONING_EFFORT = "high"
 
 
 # -- shared plumbing -------------------------------------------------------
@@ -459,7 +453,7 @@ def _write_tool_issues(
 
     findings = list(artifacts.findings)
     cards = list(artifacts.cards)
-    eligible = [card for card in cards if card.eligible_for_analyst]
+    eligible = [card for card in cards if card.eligible_for_insight_compilation]
     include_audit = artifacts.config.include_audit_problems
     rendered = cards if (include_audit or not eligible) else eligible
     target = args.out / "ia3"
@@ -488,7 +482,7 @@ def _write_tool_issues(
         print(f"  findings              : {len(findings)}")
         print(f"  distinct issue types  : {len({f['issue_type'] for f in findings})}/19")
         print(f"  cards                 : {len(cards)}")
-        print(f"  eligible for analyst  : {len(eligible)}")
+        print(f"  eligible for compilation: {len(eligible)}")
         print(f"  cards                 : {target / 'cards.md'}")
         if cards and not eligible:
             distinct = loader.describe()["distinct_logical_cases"]
@@ -514,11 +508,11 @@ def cmd_run_ia3(args: argparse.Namespace) -> int:
 
 def _render_cards(cards: Sequence[ToolIssueCard], *, total: int | None = None) -> str:
     lines = ["# IA3 evidence cards", ""]
-    eligible = [card for card in cards if card.eligible_for_analyst]
+    eligible = [card for card in cards if card.eligible_for_insight_compilation]
     total = len(cards) if total is None else total
     lines.append(
         f"{total} card(s) in total; {len(eligible)} reached the independent-case threshold "
-        "and are eligible for the Analyst."
+        "and are eligible for Insight compilation."
     )
     if total > len(cards):
         lines += [
@@ -529,11 +523,14 @@ def _render_cards(cards: Sequence[ToolIssueCard], *, total: int | None = None) -
     lines += [
         "",
         "A card is not an Insight. It is recurring, attributable evidence that a human or "
-        "Analyst LLM still has to interpret. `impact_status` is never established here.",
+        "the Insight compilation agent still has to interpret. `impact_status` is never "
+        "established here.",
         "",
     ]
-    for card in sorted(cards, key=lambda item: (not item.eligible_for_analyst, item.card_id)):
-        mark = "ELIGIBLE" if card.eligible_for_analyst else "audit only"
+    for card in sorted(
+        cards, key=lambda item: (not item.eligible_for_insight_compilation, item.card_id)
+    ):
+        mark = "ELIGIBLE" if card.eligible_for_insight_compilation else "audit only"
         lines += [
             f"## {card.card_id}  ({mark})",
             "",
@@ -556,11 +553,11 @@ def _render_cards(cards: Sequence[ToolIssueCard], *, total: int | None = None) -
 
 
 def _run_all(args: argparse.Namespace, loader: TraceLoader) -> int:
-    if not args.no_analyst:
-        missing = _analyst_preflight(args)
+    if not args.no_insights:
+        missing = _insight_preflight(args)
         if missing:
             print(f"error: {missing}", file=sys.stderr)
-            print("       pass --no-analyst to run IA2 and IA3 only.", file=sys.stderr)
+            print("       pass --no-insights to run IA2 and IA3 only.", file=sys.stderr)
             return EXIT_ERROR
 
     snapshot = loader.load()
@@ -577,22 +574,17 @@ def _run_all(args: argparse.Namespace, loader: TraceLoader) -> int:
     if not args.quiet:
         print()
 
-    analyst_ran = False
-    if not args.no_analyst:
-        if not args.agent:
-            args.agent = (
-                getattr(args, "mlflow_experiment", None)
-                or Path(getattr(args, "mlflow_export", None) or args.traces).stem
-            )
+    insights_ran = False
+    if not args.no_insights:
         code = _run_insights(args, loader, snapshot, (anomaly_and_patterns, tool_issues))
         if code != EXIT_OK:
             return code
-        analyst_ran = True
+        insights_ran = True
         if not args.quiet:
             print()
 
     (args.out / "index.md").write_text(
-        _render_index(str(loader.describe()["source"]), has_analyst=analyst_ran),
+        _render_index(str(loader.describe()["source"]), has_insights=insights_ran),
         encoding="utf-8",
     )
     if not args.quiet:
@@ -604,20 +596,14 @@ def cmd_run_all(args: argparse.Namespace) -> int:
     return _run_all(args, _trace_loader(args))
 
 
-def _analyst_preflight(args: argparse.Namespace) -> str | None:
-    load_dotenv(getattr(args, "env_file", None))
-    if not (resolve(ENV_API_KEY) or "").strip():
-        return "the Analyst needs an API key; set INSIGHT_AGENT_API_KEY"
-    if "litellm" in sys.modules:
-        litellm_available = sys.modules["litellm"] is not None
-    else:
-        litellm_available = importlib.util.find_spec("litellm") is not None
-    if not litellm_available:
-        return "the Analyst needs litellm, which is not installed"
+def _insight_preflight(args: argparse.Namespace) -> str | None:
+    _load_inference_environment(getattr(args, "env_file", None))
+    if not _inference_api_key():
+        return "Insight compilation needs INFERENCE_API_KEY"
     return None
 
 
-def _render_index(source: str, *, has_analyst: bool) -> str:
+def _render_index(source: str, *, has_insights: bool) -> str:
     lines = [
         "# Insight Agent run",
         "",
@@ -625,7 +611,7 @@ def _render_index(source: str, *, has_analyst: bool) -> str:
         "",
         "## IA2 — what is unusual, and what recurs",
         "",
-        "- [digest.md](ia2/digest.md) — the packet written for the Analyst",
+        "- [digest.md](ia2/digest.md) — the packet written for Insight compilation",
         "- [anomalies.json](ia2/anomalies.json), [features.json](ia2/features.json)",
         "- [trajectory_groups.json](ia2/trajectory_groups.json), "
         "[verdict_groups.json](ia2/verdict_groups.json)",
@@ -639,13 +625,13 @@ def _render_index(source: str, *, has_analyst: bool) -> str:
         "- [coverage.json](ia3/coverage.json) — all nineteen finding types",
         "",
     ]
-    if has_analyst:
+    if has_insights:
         lines += [
-            "## Analyst — authored Insights",
+            "## Insight compilation — authored Insights",
             "",
-            "- [insights.json](analyst/insights.json) — the authored Insights",
-            "- [prompt.md](analyst/prompt.md) — the exact prompt sent",
-            "- [run.json](analyst/run.json) — model, usage, prompt version",
+            "- [insights.json](insights/insights.json) — the authored Insights",
+            "- [prompt.txt](insights/prompt.txt) — the exact prompt sent",
+            "- [run.json](insights/run.json) — model and usage",
             "",
             "This is the only LLM-authored artifact here, and the only one that is not",
             "reproducible. Everything above it is deterministic.",
@@ -662,10 +648,10 @@ def _render_index(source: str, *, has_analyst: bool) -> str:
 
 
 def _insights_inputs(args):
-    """Load a snapshot and the evidence consumed by InsightsGeneration.
+    """Load a snapshot and the evidence consumed by InsightCompilation.
 
     Either reads artifacts a previous run already produced, or computes them
-    in-process. Explicit `--digest`/`--cards` wins so a paid Analyst call can be
+    in-process. Explicit `--digest`/`--cards` wins so a paid compilation call can be
     re-issued against a frozen evidence set without re-running the engines.
     """
     if bool(args.digest) != bool(args.cards):
@@ -732,146 +718,146 @@ def _read_sibling(reference: Path, name: str) -> Any:
     return json.loads(candidate.read_text(encoding="utf-8"))
 
 
+def _load_inference_environment(path: Path | None) -> set[str]:
+    from dotenv import dotenv_values, load_dotenv
+
+    values = dotenv_values(path) if path else dotenv_values()
+    load_dotenv(path, override=False)
+    return {key for key, value in values.items() if value}
+
+
+def _inference_api_key() -> str | None:
+    return next(
+        (
+            os.environ.get(name)
+            for name in (
+                "INFERENCE_API_KEY",
+                "NVIDIA_INFERENCE_API_KEY",
+                "INSIGHT_AGENT_API_KEY",
+            )
+            if os.environ.get(name)
+        ),
+        None,
+    )
+
+
 def _run_insights(
     args: argparse.Namespace,
     loader: TraceLoader,
     snapshot: TraceSnapshot,
     evidence: Sequence[EvidenceStreamResult],
 ) -> int:
-    # Credentials are only needed here, so `.env` is only read here. A purely
-    # deterministic run never touches the filesystem for configuration.
-    loaded = load_dotenv(getattr(args, "env_file", None))
-    model = args.model or resolve(ENV_MODEL) or ANALYST_DEFAULT_MODEL
-    api_base = getattr(args, "api_base", None) or resolve(ENV_API_BASE)
-    api_key = resolve(ENV_API_KEY)
-
-    try:
-        generation = InsightsGeneration(
-            snapshot=snapshot,
-            evidence=evidence,
-            agent=args.agent,
-            corpus=loader.describe(),
-            prompt_version=args.prompt_version,
-        )
-    except (InsightsGenerationError, ValueError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return EXIT_ERROR
-
-    target = args.out / "analyst"
+    loaded = _load_inference_environment(getattr(args, "env_file", None))
+    model = (
+        args.model
+        or os.environ.get("INFERENCE_MODEL")
+        or os.environ.get("INSIGHT_AGENT_MODEL")
+        or DEFAULT_MODEL
+    )
+    api_base = (
+        getattr(args, "api_base", None)
+        or os.environ.get("INFERENCE_API_BASE")
+        or os.environ.get("INSIGHT_AGENT_API_BASE")
+        or DEFAULT_API_BASE
+    )
+    api_key = _inference_api_key()
+    client = CompletionClient(
+        model=model,
+        api_base=api_base,
+        api_key=api_key,
+        max_tokens=args.max_tokens,
+        reasoning_effort=DEFAULT_REASONING_EFFORT,
+        allowed_openai_params=["tool_choice", "reasoning_effort"],
+        drop_params=True,
+    )
+    compilation = InsightCompilation(llm=client)
+    presented = list(evidence)
+    problems_presented = sum(len(result.problems) for result in presented)
+    target = args.out / "insights"
     target.mkdir(parents=True, exist_ok=True)
 
-    system, user = generation.build_prompt()
-    (target / "prompt.md").write_text(
-        f"<!-- system -->\n\n{system}\n\n<!-- user -->\n\n{user}\n", encoding="utf-8"
-    )
+    try:
+        prompt_data = asyncio.run(
+            build_prompt_data(compilation.compile_insights, presented, snapshot, [])
+        )
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        print(f"error: could not build Insight compilation prompt: {exc}", file=sys.stderr)
+        return EXIT_ERROR
 
+    prompt = render_prompt_data(prompt_data)
+    (target / "prompt.txt").write_text(prompt, encoding="utf-8")
     if args.dry_run:
-        approx = (len(system) + len(user)) // 4
         print("dry run — no API call made")
-        print(f"  agent                 : {args.agent}")
         print(f"  model                 : {model}")
-        print(f"  prompt version        : {args.prompt_version}")
-        if api_base:
-            print(f"  api base              : {api_base}")
+        print(f"  api base              : {api_base}")
         print(f"  credentials           : {'found' if api_key else 'NOT FOUND'}")
         if loaded:
             print(f"  loaded from .env      : {', '.join(sorted(loaded))}")
-        print(f"  problems              : {generation.problems_presented}")
-        print(f"  prompt                : {target / 'prompt.md'}")
-        print(f"  approx input tokens   : {approx:,}")
+        print(f"  problems              : {problems_presented}")
+        print(f"  prompt                : {target / 'prompt.txt'}")
+        print(f"  approx input tokens   : {len(prompt) // 4:,}")
         return EXIT_OK
 
-    extra: dict[str, Any] = {}
-    if args.temperature is not None:
-        # Unset by default on purpose: temperature is rejected outright by some
-        # current models. Only sent when explicitly asked for.
-        extra["temperature"] = args.temperature
+    if not api_key:
+        print("error: Insight compilation needs INFERENCE_API_KEY", file=sys.stderr)
+        return EXIT_ERROR
 
     try:
-        result = generation.generate(
-            model=model,
-            max_tokens=args.max_tokens,
-            api_base=api_base,
-            api_key=api_key,
-            max_tool_rounds=args.max_tool_rounds,
-            **extra,
-        )
-    except ResponseParseError as exc:
-        (target / "analyst_raw.txt").write_text(exc.raw, encoding="utf-8")
-        print(f"error: {exc}", file=sys.stderr)
-        print(f"       raw response saved to {target / 'analyst_raw.txt'}", file=sys.stderr)
-        return EXIT_ERROR
-    except InsightsGenerationError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        insights = asyncio.run(compilation.compile_insights(presented, snapshot, []))
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        print(f"error: Insight compilation failed: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
-    write_json(target / "insights.json", result.insights)
+    rows = [insight.model_dump(mode="json") for insight in insights]
+    write_json(target / "insights.json", rows)
     write_json(
         target / "run.json",
         {
-            "agent": args.agent,
-            "model": result.model,
-            "usage": result.usage,
-            "prompt_version": result.prompt_version,
+            "model": model,
             "api_base": api_base,
-            "tool_calls": result.tool_calls,
-            "traces_fetched": list(result.traces_fetched),
-            "problems_presented": generation.problems_presented,
-            "insight_count": len(result.insights),
+            "problems_presented": problems_presented,
+            "insight_count": len(rows),
             "corpus": loader.describe(),
         },
     )
 
     if not args.quiet:
-        print(f"Analyst over {generation.problems_presented} problem(s) -> {target}")
-        print(f"  model                 : {result.model}")
-        if result.usage:
-            tokens = result.usage.get("total_tokens") or result.usage.get("prompt_tokens")
-            if tokens:
-                print(f"  tokens                : {tokens:,}")
-        if result.tool_calls:
-            print(
-                f"  trace lookups         : {result.tool_calls} call(s), "
-                f"{len(result.traces_fetched)} distinct trace(s)"
-            )
-        print(f"  insights              : {len(result.insights)}")
+        print(f"Insight compilation over {problems_presented} problem(s) -> {target}")
+        print(f"  model                 : {model}")
+        print(f"  insights              : {len(rows)}")
         print(f"  insights              : {target / 'insights.json'}")
-
-        if not result.insights:
+        if not rows:
             print(
-                "  note: the Analyst filed zero Insights. That is a valid outcome — it means "
-                "the evidence did not support a specific, recurring, actionable problem."
+                "  note: zero Insights is valid when the evidence does not support a "
+                "specific, recurring, actionable problem."
             )
 
-        # Reported, not enforced: there is no validator, but an Insight citing a
-        # trace that is not in the evidence is the failure mode most worth seeing.
-        # A trace the model opened for itself is legitimate evidence, so the
-        # known set has to include what it fetched — otherwise every prompt
-        # with trace lookup looks like it is inventing ids.
-        known = generation.known_trace_ids | set(result.traces_fetched)
-        unknown = sorted(result.cited_trace_ids - known) if known else []
+        known = {
+            trace_id
+            for result in presented
+            for problem in result.problems
+            for trace_id in problem.supporting_trace_ids
+        }
+        cited = {trace_id for insight in insights for trace_id in insight.trace_refs}
+        unknown = sorted(cited - known)
         if unknown:
-            # Distinguish "read it but did not show us" from "does not exist".
             available = {trace.id for trace in snapshot}
-            fabricated = sorted(t for t in unknown if t not in available)
+            fabricated = sorted(trace_id for trace_id in unknown if trace_id not in available)
             print(
-                f"  note: {len(unknown)} cited trace id(s) are not in the evidence or the "
-                f"traces fetched: {', '.join(unknown[:3])}{'...' if len(unknown) > 3 else ''}"
+                f"  note: {len(unknown)} cited trace id(s) are not in the evidence: "
+                f"{', '.join(unknown[:3])}{'...' if len(unknown) > 3 else ''}"
             )
             if fabricated:
-                print(
-                    f"  WARNING: {len(fabricated)} of those do not exist in the corpus at all — "
-                    "treat this run's citations as unreliable."
-                )
+                print(f"  WARNING: {len(fabricated)} cited trace id(s) do not exist in the corpus")
     return EXIT_OK
 
 
-def cmd_run_analyst(args: argparse.Namespace) -> int:
+def cmd_run_insights(args: argparse.Namespace) -> int:
     """Author Insights from a snapshot and its evidence streams.
 
     The only command in the package that calls out to a model, and the only
     non-deterministic one. `run-all` and `demo` invoke it by default; pass
-    `--no-analyst` to either for a purely deterministic run.
+    `--no-insights` to either for a purely deterministic run.
     """
 
     try:
@@ -949,7 +935,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_explain_failures)
 
     # run-ia2
-    p = sub.add_parser("run-ia2", help="anomalies, recurring patterns, and the Analyst digest")
+    p = sub.add_parser("run-ia2", help="anomalies, recurring patterns, and the Insight digest")
     _add_trace_source_arguments(p)
     _add_output_arguments(p)
     _add_anomaly_and_patterns_arguments(p)
@@ -963,68 +949,42 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_run_ia3)
 
     # run-all
-    p = sub.add_parser("run-all", help="validate, then run IA2, IA3 and the Analyst")
+    p = sub.add_parser("run-all", help="validate, then run IA2, IA3 and Insight compilation")
     _add_trace_source_arguments(p)
     _add_output_arguments(p)
     _add_anomaly_and_patterns_arguments(p)
     _add_tool_issue_arguments(p)
     p.add_argument(
-        "--no-analyst",
+        "--no-insights",
         action="store_true",
-        help="skip the Analyst and stop at IA2/IA3 evidence (no API key needed)",
-    )
-    p.add_argument(
-        "--agent",
-        default=None,
-        help="name of the agent under test (defaults to the corpus filename)",
+        help="skip Insight compilation and stop at IA2/IA3 evidence (no API key needed)",
     )
     p.add_argument("--model", default=None)
     p.add_argument("--api-base", default=None)
     p.add_argument("--env-file", type=Path, default=None)
-    p.add_argument("--prompt-version", default=ANALYST_DEFAULT_PROMPT)
-    p.add_argument("--max-tool-rounds", type=int, default=ANALYST_DEFAULT_TOOL_ROUNDS)
-    p.add_argument("--temperature", type=float, default=None)
-    p.add_argument("--max-tokens", type=int, default=ANALYST_DEFAULT_MAX_TOKENS)
+    p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     p.set_defaults(func=cmd_run_all, digest=None, cards=None, dry_run=False)
 
-    # run-analyst
+    # run-insights
     p = sub.add_parser(
-        "run-analyst", help="author Insights from the IA2 digest and IA3 cards (calls an LLM)"
+        "run-insights", help="author Insights from the IA2 digest and IA3 cards (calls an LLM)"
     )
     _add_trace_source_arguments(p)
     _add_output_arguments(p)
-    p.add_argument("--agent", required=True, help="name of the agent under test")
     p.add_argument(
         "--model",
         default=None,
-        help=f"any litellm model string (default: $INSIGHT_AGENT_MODEL, else {ANALYST_DEFAULT_MODEL})",
+        help=f"LiteLLM model string (default: $INFERENCE_MODEL, else {DEFAULT_MODEL})",
     )
     p.add_argument(
         "--api-base",
         default=None,
-        help="OpenAI-compatible endpoint (default: $INSIGHT_AGENT_API_BASE)",
+        help=f"OpenAI-compatible endpoint (default: {DEFAULT_API_BASE})",
     )
     p.add_argument(
         "--env-file", type=Path, default=None, help="path to a .env (default: autodetect)"
     )
-    p.add_argument(
-        "--prompt-version",
-        default=ANALYST_DEFAULT_PROMPT,
-        help=f"packaged prompt to use (default: {ANALYST_DEFAULT_PROMPT})",
-    )
-    p.add_argument(
-        "--max-tool-rounds",
-        type=int,
-        default=ANALYST_DEFAULT_TOOL_ROUNDS,
-        help="cap on trace-lookup rounds, for prompts that use the fetch tool",
-    )
-    p.add_argument(
-        "--temperature",
-        type=float,
-        default=None,
-        help="only sent when given; several current models reject it outright",
-    )
-    p.add_argument("--max-tokens", type=int, default=ANALYST_DEFAULT_MAX_TOKENS)
+    p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     p.add_argument("--digest", type=Path, default=None, help="use an existing digest.md")
     p.add_argument("--cards", type=Path, default=None, help="use an existing cards.json")
     p.add_argument(
@@ -1034,7 +994,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_anomaly_and_patterns_arguments(p)
     _add_tool_issue_arguments(p)
-    p.set_defaults(func=cmd_run_analyst)
+    p.set_defaults(func=cmd_run_insights)
 
     # demo
     p = sub.add_parser("demo", help="run everything on the bundled sample data")
@@ -1042,22 +1002,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_anomaly_and_patterns_arguments(p)
     _add_tool_issue_arguments(p)
     p.add_argument(
-        "--no-analyst",
+        "--no-insights",
         action="store_true",
-        help="skip the Analyst and stop at IA2/IA3 evidence (no API key needed)",
-    )
-    p.add_argument(
-        "--agent",
-        default=None,
-        help="name of the agent under test (defaults to the corpus filename)",
+        help="skip Insight compilation and stop at IA2/IA3 evidence (no API key needed)",
     )
     p.add_argument("--model", default=None)
     p.add_argument("--api-base", default=None)
     p.add_argument("--env-file", type=Path, default=None)
-    p.add_argument("--prompt-version", default=ANALYST_DEFAULT_PROMPT)
-    p.add_argument("--max-tool-rounds", type=int, default=ANALYST_DEFAULT_TOOL_ROUNDS)
-    p.add_argument("--temperature", type=float, default=None)
-    p.add_argument("--max-tokens", type=int, default=ANALYST_DEFAULT_MAX_TOKENS)
+    p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     p.set_defaults(func=cmd_demo, digest=None, cards=None, dry_run=False)
 
     return parser

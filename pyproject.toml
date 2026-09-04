@@ -7,7 +7,7 @@ name = "insight-agent"
 version = "0.1.0rc1"
 description = "Insight Agent IA2/IA3 trace-evidence preprocessing with a canonical JSONL trace contract"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12,<3.14"
 license = { text = "Proprietary" }
 authors = [{ name = "Insight Agent contributors" }]
 keywords = ["agent-traces", "evaluation", "anomaly-detection", "tool-use"]
@@ -21,10 +21,8 @@ dependencies = [
     "scikit-learn>=1.4,<2",
     "jsonschema>=4.18,<5",
     "pydantic>=2.12,<3",
-    # The Analyst runs by default in `run-all` and `demo`, so its client is a
-    # base dependency rather than an extra. `--no-analyst` skips the stage but
-    # does not change what gets installed.
     "litellm>=1.55,<2",
+    "nooa>=0.0.10,<0.1",
 ]
 
 [project.urls]

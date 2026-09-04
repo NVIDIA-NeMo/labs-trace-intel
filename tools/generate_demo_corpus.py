@@ -227,7 +227,7 @@ def search_trace(suffix: str, case: str) -> Trace:
 
     Contributes ``explicit_tool_failure`` (error_prefix) and ``unknown_tool``
     across three independent logical cases, which is what makes those two
-    cards eligible for the Analyst.
+    cards eligible for Insight compilation.
     """
     task = f"Locate the {suffix} specification and remove the stale copy."
     b = TraceBuilder(f"docops-search-{suffix}", case, task)

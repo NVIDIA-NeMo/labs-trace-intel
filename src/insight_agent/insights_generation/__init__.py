@@ -1,23 +1,6 @@
-"""InsightsGeneration stage."""
+"""LLM-backed Insight compilation."""
 
-from insight_agent.insights_generation.llm import (
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_MAX_TOOL_ROUNDS,
-    DEFAULT_MODEL,
-    DEFAULT_PROMPT_VERSION,
-    InsightsGeneration,
-    InsightsGenerationError,
-    InsightsGenerationResult,
-    ResponseParseError,
-)
+from insight_agent.insight import Insight
+from insight_agent.insights_generation.insight_compilation import InsightCompilation
 
-__all__ = [
-    "DEFAULT_MAX_TOKENS",
-    "DEFAULT_MAX_TOOL_ROUNDS",
-    "DEFAULT_MODEL",
-    "DEFAULT_PROMPT_VERSION",
-    "InsightsGeneration",
-    "InsightsGenerationError",
-    "InsightsGenerationResult",
-    "ResponseParseError",
-]
+__all__ = ["Insight", "InsightCompilation"]

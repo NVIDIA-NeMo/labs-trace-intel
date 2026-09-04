@@ -29,7 +29,7 @@ DIGEST_SECTIONS = (
     "## Recurring ordered trajectory patterns",
     "## Explicit terminal-verdict patterns",
     "## Recurring strict tool-failure signatures",
-    "## Analyst authoring rules",
+    "## Insight compilation rules",
 )
 
 
