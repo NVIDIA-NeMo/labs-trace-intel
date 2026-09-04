@@ -22,6 +22,39 @@ TEST_DATA_DIR = Path(__file__).resolve().parent / "data"
 CORPUS = DATA_DIR / "sample_corpus.jsonl"
 
 
+def write_run_config(
+    tmp_path: Path,
+    *,
+    name: str = "analyst.yaml",
+    corpus: Path = CORPUS,
+    anomaly_and_patterns: bool = True,
+    tool_issues: bool = True,
+    analyst: bool = False,
+) -> Path:
+    config = tmp_path / name
+    streams = []
+    if anomaly_and_patterns:
+        streams.append("  anomaly_and_patterns: {}")
+    if tool_issues:
+        streams.append("  tool_issues: {}")
+    stream_yaml = "\n".join(streams)
+    config.write_text(
+        f"""trace:
+  filesystem:
+    path: {corpus}
+output:
+  directory: {tmp_path / "out"}
+  quiet: true
+evidence_streams:
+{stream_yaml}
+analyst:
+  enabled: {str(analyst).lower()}
+""",
+        encoding="utf-8",
+    )
+    return config
+
+
 @pytest.fixture
 def corpus_without(tmp_path):
     """A copy of the sample corpus with chosen trace attributes removed."""
@@ -53,20 +86,20 @@ def test_schema_command_emits_the_canonical_schema(capsys):
 
 
 def test_validate_exits_zero_on_the_sample_corpus(capsys):
-    assert main(["validate", str(CORPUS)]) == EXIT_OK
+    assert main(["validate", "--traces", str(CORPUS)]) == EXIT_OK
     assert "OK" in capsys.readouterr().out
 
 
 def test_validate_exits_two_on_a_corrupt_corpus(tmp_path, capsys):
     bad = tmp_path / "bad.jsonl"
     bad.write_text('{"id": "incomplete"}\n{not json\n', encoding="utf-8")
-    assert main(["validate", str(bad)]) == EXIT_SCHEMA
+    assert main(["validate", "--traces", str(bad)]) == EXIT_SCHEMA
     out = capsys.readouterr().out
     assert "invalid trace" in out
 
 
 def test_validate_json_output_is_machine_readable(capsys):
-    assert main(["validate", str(CORPUS), "--json"]) == EXIT_OK
+    assert main(["validate", "--traces", str(CORPUS), "--json"]) == EXIT_OK
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["trace_count"] == 18
@@ -115,9 +148,22 @@ def test_coverage_warns_when_logical_case_id_is_absent(corpus_without, capsys):
 # -- runs ------------------------------------------------------------------
 
 
-def test_run_ia2_writes_a_digest_and_run_metadata(tmp_path, capsys):
+@pytest.mark.parametrize("command", ["run-ia2", "run-ia3", "run-all", "run", "show-config"])
+def test_removed_commands_are_unavailable(command):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args([command])
+
+
+def test_run_requires_a_yaml_config():
+    with pytest.raises(SystemExit):
+        main([])
+
+
+def test_run_writes_anomaly_digest_and_run_metadata(tmp_path):
     out = tmp_path / "out"
-    assert main(["run-ia2", str(CORPUS), "-o", str(out)]) == EXIT_OK
+    config = write_run_config(tmp_path, anomaly_and_patterns=True, tool_issues=False)
+    assert main(["--config", str(config)]) == EXIT_OK
 
     digest = (out / "ia2" / "digest.md").read_text(encoding="utf-8")
     assert "## Unusual traces" in digest
@@ -130,21 +176,18 @@ def test_run_ia2_writes_a_digest_and_run_metadata(tmp_path, capsys):
     assert run["corpus"]["trace_count"] == 18
 
 
-def test_run_ia2_digest_is_deterministic(tmp_path):
+def test_anomaly_digest_is_deterministic(tmp_path):
     first, second = tmp_path / "a", tmp_path / "b"
-    main(["run-ia2", str(CORPUS), "-o", str(first)])
-    main(["run-ia2", str(CORPUS), "-o", str(second)])
+    config = write_run_config(tmp_path, anomaly_and_patterns=True, tool_issues=False)
+    main(["--config", str(config), "--output.directory", str(first)])
+    main(["--config", str(config), "--output.directory", str(second)])
     assert (first / "ia2" / "digest.md").read_bytes() == (second / "ia2" / "digest.md").read_bytes()
 
 
-def test_run_ia2_to_stdout(capsys):
-    assert main(["run-ia2", str(CORPUS), "-o", "-"]) == EXIT_OK
-    assert "IA2 cited evidence digest" in capsys.readouterr().out
-
-
-def test_run_ia3_fires_all_nineteen_types_and_promotes_cards(tmp_path):
+def test_run_tool_issues_fires_all_nineteen_types_and_promotes_cards(tmp_path):
     out = tmp_path / "out"
-    assert main(["run-ia3", str(CORPUS), "-o", str(out)]) == EXIT_OK
+    config = write_run_config(tmp_path, anomaly_and_patterns=False, tool_issues=True)
+    assert main(["--config", str(config)]) == EXIT_OK
 
     findings = json.loads((out / "ia3" / "findings.json").read_text(encoding="utf-8"))
     cards = json.loads((out / "ia3" / "cards.json").read_text(encoding="utf-8"))
@@ -156,9 +199,10 @@ def test_run_ia3_fires_all_nineteen_types_and_promotes_cards(tmp_path):
         assert card["eligible_for_analyst"] == (card["independent_case_count"] >= 3)
 
 
-def test_run_ia3_cards_markdown_cites_evidence(tmp_path):
+def test_tool_issue_cards_markdown_cites_evidence(tmp_path):
     out = tmp_path / "out"
-    main(["run-ia3", str(CORPUS), "-o", str(out)])
+    config = write_run_config(tmp_path, anomaly_and_patterns=False, tool_issues=True)
+    main(["--config", str(config)])
     text = (out / "ia3" / "cards.md").read_text(encoding="utf-8")
 
     assert "ELIGIBLE" in text
@@ -167,10 +211,19 @@ def test_run_ia3_cards_markdown_cites_evidence(tmp_path):
 
 
 def test_all_cards_widens_the_rendering_but_not_the_json(tmp_path):
-    """cards.json is always complete; --all-cards only affects cards.md."""
+    """cards.json is complete; the stream config only changes cards.md."""
     default, everything = tmp_path / "a", tmp_path / "b"
-    main(["run-ia3", str(CORPUS), "-o", str(default), "--quiet"])
-    main(["run-ia3", str(CORPUS), "-o", str(everything), "--all-cards", "--quiet"])
+    config = write_run_config(tmp_path, anomaly_and_patterns=False, tool_issues=True)
+    main(["--config", str(config), "--output.directory", str(default)])
+    main(
+        [
+            "--config",
+            str(config),
+            "--output.directory",
+            str(everything),
+            "--evidence-streams.tool-issues.include-audit-problems",
+        ]
+    )
 
     def sections(path):
         return [
@@ -183,12 +236,18 @@ def test_all_cards_widens_the_rendering_but_not_the_json(tmp_path):
     assert json.loads((default / "ia3" / "cards.json").read_text(encoding="utf-8")) == json.loads(
         (everything / "ia3" / "cards.json").read_text(encoding="utf-8")
     )
-    assert "--all-cards" in (default / "ia3" / "cards.md").read_text(encoding="utf-8")
+    assert "include_audit_problems" in (default / "ia3" / "cards.md").read_text(encoding="utf-8")
 
 
-def test_run_ia3_degrades_without_a_catalog_instead_of_crashing(corpus_without, tmp_path):
+def test_tool_issues_degrades_without_a_catalog_instead_of_crashing(corpus_without, tmp_path):
     out = tmp_path / "out"
-    assert main(["run-ia3", str(corpus_without("tool_catalog")), "-o", str(out)]) == EXIT_OK
+    config = write_run_config(
+        tmp_path,
+        corpus=corpus_without("tool_catalog"),
+        anomaly_and_patterns=False,
+        tool_issues=True,
+    )
+    assert main(["--config", str(config)]) == EXIT_OK
 
     findings = json.loads((out / "ia3" / "findings.json").read_text(encoding="utf-8"))
     fired = {f["issue_type"] for f in findings}
@@ -196,35 +255,154 @@ def test_run_ia3_degrades_without_a_catalog_instead_of_crashing(corpus_without, 
     assert "explicit_tool_failure" in fired  # non-contract rules keep working
 
 
-def test_run_all_writes_an_index(tmp_path):
+def test_run_writes_an_index(tmp_path):
     out = tmp_path / "out"
-    assert main(["run-all", str(CORPUS), "-o", str(out), "--quiet", "--no-analyst"]) == EXIT_OK
+    config = write_run_config(tmp_path)
+    assert main(["--config", str(config)]) == EXIT_OK
     index = (out / "index.md").read_text(encoding="utf-8")
     assert "An anomaly is not an error" in index
     for expected in ("ia2/digest.md", "ia3/cards.md"):
         assert expected in index
 
 
-def test_run_all_refuses_an_invalid_corpus(tmp_path, capsys):
+def test_validate_prints_the_resolved_yaml_config(tmp_path, capsys):
+    config = tmp_path / "analyst.yaml"
+    config.write_text(
+        f"""trace:
+  filesystem:
+    path: {CORPUS}
+output:
+  directory: {tmp_path / "results"}
+evidence_streams:
+  anomaly_and_patterns:
+    minimum_independent_traces: 5
+  tool_issues:
+    retry_threshold: 4
+analyst:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    assert main(["validate", "--config", str(config)]) == EXIT_OK
+    resolved = json.loads(capsys.readouterr().out)
+    assert resolved["trace"]["filesystem"]["path"] == str(CORPUS)
+    assert resolved["analyst"]["enabled"] is False
+    assert resolved["evidence_streams"]["tool_issues"]["retry_threshold"] == 4
+
+
+def test_run_uses_yaml_and_explicit_cli_overrides(tmp_path):
+    configured_out = tmp_path / "configured"
+    overridden_out = tmp_path / "overridden"
+    config = tmp_path / "analyst.yaml"
+    config.write_text(
+        f"""trace:
+  filesystem:
+    path: {CORPUS}
+output:
+  directory: {configured_out}
+  quiet: true
+evidence_streams:
+  anomaly_and_patterns:
+    minimum_independent_traces: 5
+  tool_issues:
+    retry_threshold: 4
+analyst:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    assert (
+        main(
+            [
+                "--config",
+                str(config),
+                "--output.directory",
+                str(overridden_out),
+                "--evidence-streams.anomaly-and-patterns.minimum-independent-traces",
+                "6",
+            ]
+        )
+        == EXIT_OK
+    )
+    ia2_run = json.loads((overridden_out / "ia2" / "run.json").read_text(encoding="utf-8"))
+    ia3_run = json.loads((overridden_out / "ia3" / "run.json").read_text(encoding="utf-8"))
+    assert ia2_run["parameters"]["minimum_independent_traces"] == 6
+    assert ia3_run["parameters"]["retry_threshold"] == 4
+    assert not configured_out.exists()
+
+
+def test_yaml_selects_which_evidence_streams_run(tmp_path):
+    out = tmp_path / "results"
+    config = tmp_path / "analyst.yaml"
+    config.write_text(
+        f"""trace:
+  filesystem:
+    path: {CORPUS}
+output:
+  directory: {out}
+  quiet: true
+evidence_streams:
+  tool_issues:
+    retry_threshold: 4
+analyst:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+
+    assert main(["--config", str(config)]) == EXIT_OK
+    assert not (out / "ia2").exists()
+    ia3 = json.loads((out / "ia3" / "run.json").read_text(encoding="utf-8"))
+    assert ia3["parameters"]["retry_threshold"] == 4
+    index = (out / "index.md").read_text(encoding="utf-8")
+    assert "ia2/digest.md" not in index
+    assert "ia3/cards.md" in index
+
+
+def test_validate_requires_exactly_one_explicit_target(tmp_path, capsys):
+    assert main(["validate"]) == EXIT_ERROR
+    assert "exactly one of --config or --traces" in capsys.readouterr().err
+
+    config = write_run_config(tmp_path)
+    assert main(["validate", "--config", str(config), "--traces", str(CORPUS)]) == EXIT_ERROR
+    assert "exactly one of --config or --traces" in capsys.readouterr().err
+
+
+def test_run_refuses_an_invalid_corpus(tmp_path):
     bad = tmp_path / "bad.jsonl"
     bad.write_text('{"id": "t"}\n', encoding="utf-8")
-    assert main(["run-all", str(bad), "--no-analyst", "-o", str(tmp_path / "out")]) == EXIT_SCHEMA
+    config = write_run_config(tmp_path, corpus=bad)
+    assert main(["--config", str(config)]) == EXIT_SCHEMA
 
 
-def test_run_all_help_cites_the_mlflow_search_page_limit(capsys):
+def test_run_help_is_generated_from_nested_config_models(capsys):
     with pytest.raises(SystemExit) as raised:
-        main(["run-all", "--help"])
+        main(["--help"])
 
     assert raised.value.code == 0
     help_text = capsys.readouterr().out
-    assert "500-trace pages" in help_text
-    compact_help = "".join(help_text.split())
-    assert (
-        "https://mlflow.org/docs/latest/api_reference/rest-api.html#searchtracesv3" in compact_help
-    )
+    assert "--trace.mlflow-experiment.experiment" in help_text
+    assert "--evidence-streams.anomaly-and-patterns.contamination" in help_text
+    assert "--evidence-streams.anomaly-and-patterns.enabled" not in help_text
+    assert "--analyst.max-tool-rounds" in help_text
 
 
-def test_run_all_accepts_mlflow_as_an_alternative_to_the_positional_file(monkeypatch, tmp_path):
+def test_utility_help_is_generated_from_shared_config_models(capsys):
+    with pytest.raises(SystemExit) as raised:
+        main(["run-analyst", "--help"])
+
+    assert raised.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--mlflow-experiment.experiment" in help_text
+    assert "--output.directory" in help_text
+    assert "--evidence-streams.tool-issues.retry-threshold" in help_text
+    assert "--analyst.max-tool-rounds" in help_text
+    assert "--model" in help_text  # established compatibility alias
+
+
+def test_run_accepts_mlflow_as_an_alternative_to_the_configured_file(monkeypatch, tmp_path):
     cli_main = importlib.import_module("insight_agent.cli.main")
     seen = {}
 
@@ -247,22 +425,25 @@ def test_run_all_accepts_mlflow_as_an_alternative_to_the_positional_file(monkeyp
     monkeypatch.setattr(cli_main, "MLflowTraceLoader", FakeMLflowTraceLoader)
 
     out = tmp_path / "out"
+    config = write_run_config(tmp_path)
     assert (
         main(
             [
-                "run-all",
-                "--mlflow-experiment",
+                "--config",
+                str(config),
+                "--trace.filesystem",
+                "None",
+                "--trace.mlflow-experiment.experiment",
                 "customer-support",
-                "--mlflow-tracking-uri",
+                "--trace.mlflow-experiment.tracking-uri",
                 "http://mlflow.example",
-                "--mlflow-filter",
+                "--trace.mlflow-experiment.filter",
                 "trace.status = 'ERROR'",
-                "--max-traces",
+                "--trace.max-traces",
                 "25",
-                "--min-independent-cases",
+                "--evidence-streams.tool-issues.minimum-independent-cases",
                 "100",
-                "--no-analyst",
-                "-o",
+                "--output.directory",
                 str(out),
             ]
         )
@@ -279,7 +460,7 @@ def test_run_all_accepts_mlflow_as_an_alternative_to_the_positional_file(monkeyp
     assert "mlflow://http://mlflow.example" in (out / "index.md").read_text(encoding="utf-8")
 
 
-def test_run_all_accepts_a_native_mlflow_export_without_conversion(monkeypatch, tmp_path):
+def test_run_accepts_a_native_mlflow_export_without_conversion(monkeypatch, tmp_path):
     cli_main = importlib.import_module("insight_agent.cli.main")
     export = tmp_path / "mlflow-traces.json"
     export.write_text("{}", encoding="utf-8")
@@ -304,17 +485,19 @@ def test_run_all_accepts_a_native_mlflow_export_without_conversion(monkeypatch, 
     monkeypatch.setattr(cli_main, "MLflowFileTraceLoader", FakeMLflowFileTraceLoader)
 
     out = tmp_path / "out"
+    config = write_run_config(tmp_path)
     assert (
         main(
             [
-                "run-all",
-                "--mlflow-export",
+                "--config",
+                str(config),
+                "--trace.filesystem",
+                "None",
+                "--trace.mlflow-export.path",
                 str(export),
-                "--max-traces",
+                "--trace.max-traces",
                 "25",
-                "--no-analyst",
-                "--quiet",
-                "-o",
+                "--output.directory",
                 str(out),
             ]
         )
@@ -324,67 +507,130 @@ def test_run_all_accepts_a_native_mlflow_export_without_conversion(monkeypatch, 
     assert f"mlflow-export:{export}" in (out / "index.md").read_text(encoding="utf-8")
 
 
-def test_file_and_mlflow_sources_are_mutually_exclusive():
-    parser = build_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(
-            ["run-all", str(CORPUS), "--mlflow-experiment", "customer-support", "--no-analyst"]
-        )
+def test_run_loads_mlflow_experiment_from_yaml(monkeypatch, tmp_path):
+    cli_main = importlib.import_module("insight_agent.cli.main")
+    seen = {}
 
+    class FakeMLflowTraceLoader:
+        def __init__(self, config):
+            seen["config"] = config
+            self.delegate = FSDataLoader(CORPUS)
 
-def test_live_mlflow_and_export_sources_are_mutually_exclusive(tmp_path):
-    parser = build_parser()
-    with pytest.raises(SystemExit):
-        parser.parse_args(
-            [
-                "run-all",
-                "--mlflow-experiment",
-                "customer-support",
-                "--mlflow-export",
-                str(tmp_path / "traces.json"),
-                "--no-analyst",
-            ]
-        )
+        def load(self):
+            return self.delegate.load()
 
+        def describe(self):
+            return self.delegate.describe()
 
-def test_mlflow_query_options_require_the_mlflow_source(tmp_path, capsys):
+    monkeypatch.setattr(cli_main, "MLflowTraceLoader", FakeMLflowTraceLoader)
+    config = tmp_path / "analyst.yaml"
+    config.write_text(
+        """trace:
+  max_traces: 25
+  mlflow_experiment:
+    experiment: customer-support
+    tracking_uri: http://mlflow.example
+    filter: \"trace.status = 'ERROR'\"
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
+analyst:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+
     assert (
         main(
             [
-                "run-all",
-                str(CORPUS),
-                "--mlflow-filter",
-                "trace.status = 'ERROR'",
-                "--no-analyst",
-                "-o",
+                "--config",
+                str(config),
+                "--output.directory",
                 str(tmp_path / "out"),
+            ]
+        )
+        == EXIT_OK
+    )
+    assert seen["config"] == MLflowTraceConfig(
+        experiment_name="customer-support",
+        tracking_uri="http://mlflow.example",
+        filter_string="trace.status = 'ERROR'",
+        max_traces=25,
+    )
+
+
+def test_file_and_mlflow_sources_are_mutually_exclusive(tmp_path, capsys):
+    config = write_run_config(tmp_path)
+    assert (
+        main(
+            [
+                "--config",
+                str(config),
+                "--trace.mlflow-experiment.experiment",
+                "customer-support",
             ]
         )
         == EXIT_ERROR
     )
-    assert "--mlflow-filter require --mlflow-experiment" in capsys.readouterr().err
+    assert "exactly one loader" in capsys.readouterr().err
+
+
+def test_live_mlflow_and_export_sources_are_mutually_exclusive(tmp_path):
+    config = write_run_config(tmp_path)
+    assert (
+        main(
+            [
+                "--config",
+                str(config),
+                "--trace.filesystem",
+                "None",
+                "--trace.mlflow-experiment.experiment",
+                "customer-support",
+                "--trace.mlflow-export.path",
+                str(tmp_path / "traces.json"),
+            ]
+        )
+        == EXIT_ERROR
+    )
+
+
+def test_mlflow_query_options_require_the_mlflow_source(tmp_path, capsys):
+    config = write_run_config(tmp_path)
+    assert (
+        main(
+            [
+                "--config",
+                str(config),
+                "--trace.mlflow-experiment.filter",
+                "trace.status = 'ERROR'",
+            ]
+        )
+        == EXIT_ERROR
+    )
+    assert "experiment" in capsys.readouterr().err
 
 
 def test_mlflow_query_options_are_not_applied_to_an_export(tmp_path, capsys):
     export = tmp_path / "traces.json"
     export.write_text("{}", encoding="utf-8")
+    config = write_run_config(tmp_path)
 
     assert (
         main(
             [
-                "run-all",
-                "--mlflow-export",
+                "--config",
+                str(config),
+                "--trace.filesystem",
+                "None",
+                "--trace.mlflow-export.path",
                 str(export),
-                "--mlflow-filter",
+                "--trace.mlflow-experiment.filter",
                 "trace.status = 'ERROR'",
-                "--no-analyst",
-                "-o",
-                str(tmp_path / "out"),
             ]
         )
         == EXIT_ERROR
     )
-    assert "--mlflow-filter require --mlflow-experiment" in capsys.readouterr().err
+    assert "experiment" in capsys.readouterr().err
 
 
 def test_missing_mlflow_extra_has_an_actionable_error(monkeypatch, tmp_path, capsys):
@@ -398,15 +644,18 @@ def test_missing_mlflow_extra_has_an_actionable_error(monkeypatch, tmp_path, cap
             raise ModuleNotFoundError("No module named 'mlflow'", name="mlflow")
 
     monkeypatch.setattr(cli_main, "MLflowTraceLoader", MissingMLflowLoader)
+    config = write_run_config(tmp_path)
 
     assert (
         main(
             [
-                "run-all",
-                "--mlflow-experiment",
+                "--config",
+                str(config),
+                "--trace.filesystem",
+                "None",
+                "--trace.mlflow-experiment.experiment",
                 "customer-support",
-                "--no-analyst",
-                "-o",
+                "--output.directory",
                 str(tmp_path / "out"),
             ]
         )
@@ -418,9 +667,9 @@ def test_missing_mlflow_extra_has_an_actionable_error(monkeypatch, tmp_path, cap
 
 
 def test_demo_runs_end_to_end(tmp_path, capsys):
-    assert main(["demo", "-o", str(tmp_path / "out"), "--quiet", "--no-analyst"]) == EXIT_OK
+    assert main(["demo", "-o", str(tmp_path / "out"), "--quiet", "--no-analyst.enabled"]) == EXIT_OK
     out = capsys.readouterr().out
-    assert "19/19 IA3 rules evaluable" in out
+    assert "19/19 tool-issue rules evaluable" in out
     assert (tmp_path / "out" / "ia2" / "digest.md").exists()
 
 
@@ -435,7 +684,7 @@ def test_explain_failures_lists_every_call(capsys):
 
 
 def test_explain_failures_surfaces_the_content_vs_output_trap(tmp_path, capsys):
-    """A result under 'output' fails in IA2 and is invisible to IA3."""
+    """A result under 'output' is decoded by only one evidence stream."""
     path = tmp_path / "trap.jsonl"
     path.write_text(
         json.dumps(

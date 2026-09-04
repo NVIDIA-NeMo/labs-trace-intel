@@ -1,4 +1,4 @@
-"""IA3 tool-issue detection over the bundled sample corpus.
+"""Tool-issue detection over the bundled sample corpus.
 
 The headline test is the parametrised one: every single one of the nineteen
 finding types must fire on shipped data. That is what makes the sample corpus a

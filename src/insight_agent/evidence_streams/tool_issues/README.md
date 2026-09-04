@@ -1,7 +1,7 @@
 # Tool-issue evidence stream
 
 This stream performs deterministic, capability-gated auditing of tool calls. It projects the
-shared `TraceSnapshot` into IA3 records, evaluates nineteen finding types, groups recurring
+shared `TraceSnapshot` into tool-issue records, evaluates nineteen finding types, groups recurring
 findings into evidence cards, and returns recurrence-qualified `Problem` values for Insights
 generation.
 
@@ -32,8 +32,11 @@ the native artifacts without presenting them as recurring problems.
 ## Run it
 
 ```bash
-uv run insight-agent run-ia3 traces.jsonl -o out
+uv run insight-agent --config analyst.yaml
 ```
+
+Include `evidence_streams.tool_issues` in `analyst.yaml` and omit the other
+stream keys for a tool-issue-only run.
 
 The CLI writes individual findings, cards, finding-type coverage, projected problems, rendered
 card Markdown, and run metadata under `out/ia3/`.

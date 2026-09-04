@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "insight-agent"
 version = "0.1.0rc1"
-description = "Insight Agent IA2/IA3 trace-evidence preprocessing with a canonical JSONL trace contract"
+description = "Insights Analyst trace-evidence processing with a canonical JSONL trace contract"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Proprietary" }
@@ -21,9 +21,11 @@ dependencies = [
     "scikit-learn>=1.4,<2",
     "jsonschema>=4.18,<5",
     "pydantic>=2.12,<3",
-    # The Analyst runs by default in `run-all` and `demo`, so its client is a
-    # base dependency rather than an extra. `--no-analyst` skips the stage but
-    # does not change what gets installed.
+    "pydantic-settings>=2.12,<3",
+    "PyYAML>=6,<7",
+    # The Analyst can run from the config-driven command and runs by default in
+    # `demo`, so its client is a base dependency rather than an extra. Disabling
+    # the stage does not change what gets installed.
     "litellm>=1.55,<2",
 ]
 
@@ -35,8 +37,8 @@ Repository = "https://github.com/NVIDIA/nemo-platform-insights-preview"
 mlflow = ["mlflow-skinny>=3.6,<4"]
 
 [dependency-groups]
-# Exercise the optional MLflow adapter in the standard contributor and CI test environment without
-# making MLflow a runtime dependency for users of the canonical filesystem format.
+# Exercise the optional source adapters in the standard contributor and CI test environment without
+# making them runtime dependencies for users of the canonical filesystem format.
 dev = ["mlflow-skinny>=3.6,<4", "pytest>=8.0", "ruff>=0.6"]
 
 [project.scripts]

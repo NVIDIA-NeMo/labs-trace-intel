@@ -1,4 +1,4 @@
-"""IA2 projection and evidence-stream parity."""
+"""Anomaly-and-pattern projection and evidence-stream parity."""
 
 from __future__ import annotations
 

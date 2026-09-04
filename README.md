@@ -28,8 +28,6 @@ There are 2 current evidence streams, and we can expect to add more in the futur
 
     The tools in each trace are checked against a set of deterministic rules to detect specific tool calling issues. 
 
-The focused CLI commands retain the `run-ia2` and `run-ia3` names from their research lineage.
-
 After the evidence streams run, each returns candidate `Problem` objects with a description and supporting trace IDs. Those Problems are passed to the Analyst Agent to guide its analysis. The Analyst can also look up normalized supporting traces from the same snapshot and uses that evidence as a starting point for more detailed exploration and synthesis.
 
 The Analyst Agent ultimately produces a set of "insights" which are meant to describe a recurring and actionable problem observed from the trace corpus. 
@@ -44,7 +42,7 @@ Then run the Analyst:
 ```bash
 uv sync --locked
 
-uv run insight-agent run-all examples/tau_bench_traces.jsonl -o out
+uv run insight-agent --config examples/analyst.yaml
 open out/index.md
 ```
 
@@ -57,8 +55,7 @@ To see the
 deterministic stages alone, with no key and no cost:
 
 ```bash
-uv run insight-agent run-all examples/tau_bench_traces.jsonl \
-  -o out --no-analyst
+uv run insight-agent --config examples/analyst.yaml --no-analyst.enabled
 ```
 
 ### Run directly from Git
@@ -67,7 +64,7 @@ UV can build and run the CLI without cloning the repository:
 
 ```bash
 uvx --from 'git+https://github.com/NVIDIA/nemo-platform-insights-preview.git' \
-  insight-agent demo --no-analyst
+  insight-agent demo --no-analyst.enabled
 ```
 
 The architecture is intentionally small:
@@ -76,7 +73,12 @@ The architecture is intentionally small:
 TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insights
 ```
 
-`run-ia2` and `run-ia3` remain useful for focused development and ablation.
+### Reusable run configuration
+
+The default command loads its trace, evidence-stream selection, output, and
+non-secret Analyst settings from YAML. Explicit CLI options still override
+the file, which is useful for one-off experiments. See
+[run configuration](docs/configuration.md) for the full schema and examples.
 
 ### Code layout
 
@@ -85,8 +87,8 @@ src/insight_agent/
 ├── traces.py             # normalized Trace, Span, and TraceSnapshot contracts
 ├── trace_loaders/        # loader contracts and source-specific trace loaders
 ├── evidence_streams/     # evidence-stream contracts and implementations
-│   ├── anomaly_and_patterns/  # IA2 stream implementation
-│   └── tool_issues/           # IA3 stream implementation and coverage helper
+│   ├── anomaly_and_patterns/  # anomaly-and-pattern stream implementation
+│   └── tool_issues/           # tool-issue stream implementation and coverage helper
 ├── insights_generation/  # LLM-backed synthesis and its configuration
 └── cli/                  # command orchestration and artifact writing
 ```
@@ -121,10 +123,12 @@ experiment:
 ```bash
 uv sync --locked --extra mlflow
 
-MLFLOW_TRACKING_URI=https://mlflow.example.com \
-  uv run --no-sync insight-agent run-all \
-    --mlflow-experiment my-agent \
-    -o out
+# In analyst.yaml, select the live loader:
+# trace:
+#   mlflow_experiment:
+#     experiment: my-agent
+#     tracking_uri: https://mlflow.example.com
+  uv run --no-sync insight-agent --config analyst.yaml
 ```
 
 Authentication uses the MLflow SDK's standard environment variables. Set
@@ -136,10 +140,11 @@ and `MLFLOW_TRACKING_INSECURE_TLS` (not recommended). See MLflow's
 There are intentionally no Analyst auth flags, which keeps credentials in MLflow's configuration;
 provider-specific or custom auth may require its corresponding MLflow extra or plugin.
 
-Add `--mlflow-filter "trace.status = 'ERROR'"` to select a subset. MLflow's
+Add `filter: "trace.status = 'ERROR'"` under `trace.mlflow_experiment` to select a subset. MLflow's
 [trace search filters](https://mlflow.org/docs/latest/genai/tracing/search-traces/) can target
-timestamps, names, span types, tags, and metadata. `--max-traces` controls the final number of
-complete traces materialized in memory and defaults to 10,000. The loader transparently requests
+timestamps, names, span types, tags, and metadata. Set `trace.max_traces` in YAML (or override it
+with `--trace.max-traces`) to control the final number of complete traces materialized in memory;
+it defaults to 10,000. The loader transparently requests
 sequential pages of at most 500 traces, matching MLflow's documented
 [SearchTraces limit](https://mlflow.org/docs/latest/api_reference/rest-api.html#searchtracesv3).
 Large or span-heavy traces may exhaust local memory before the trace-count limit, so production
@@ -149,9 +154,11 @@ If the traces are already exported from MLflow, pass the native JSON directly:
 
 ```bash
 uv sync --locked --extra mlflow
-uv run --no-sync insight-agent run-all \
-  --mlflow-export traces.json \
-  -o out
+# In analyst.yaml, select the export loader:
+# trace:
+#   mlflow_export:
+#     path: traces.json
+uv run --no-sync insight-agent --config analyst.yaml
 ```
 
 The loader accepts complete JSON from `mlflow traces search --output json`, `mlflow traces get`,
@@ -159,7 +166,7 @@ or MLflow's `Trace.to_json()` / `Trace.to_dict()` serializers. It also accepts a
 trace objects and JSONL containing one native trace per line. Exports must contain spans; the loader
 rejects metadata-only results. Export-time selection is authoritative: the offline loader does not
 apply MLflow filters or follow a continuation token, and it reads the complete file before applying
-`--max-traces`.
+`trace.max_traces`.
 
 ### Read traces from the filesystem
 
@@ -173,7 +180,7 @@ After converting your traces, validate the format:
 
 ```bash
 # Check the format
-uv run insight-agent validate traces.jsonl
+uv run insight-agent validate --traces traces.jsonl
 
 # Check what your data actually supports
 uv run insight-agent coverage traces.jsonl
@@ -181,7 +188,7 @@ uv run insight-agent coverage traces.jsonl
 
 Then run the full analysis:
 ```bash
-uv run insight-agent run-all traces.jsonl -o out
+uv run insight-agent --config analyst.yaml
 ```
 
 Results are written to the `out` directory.
@@ -189,7 +196,7 @@ Results are written to the `out` directory.
 For a dry run or a run without LLM synthesis:
 ```bash
 uv run insight-agent run-analyst traces.jsonl --agent "My agent" -o out --dry-run
-uv run insight-agent run-all traces.jsonl -o out --no-analyst
+uv run insight-agent --config analyst.yaml --no-analyst.enabled
 ```
 
 ## Validation

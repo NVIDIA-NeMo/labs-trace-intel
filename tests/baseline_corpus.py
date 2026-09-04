@@ -1,7 +1,7 @@
 """A small hand-written corpus used as a behavioural baseline.
 
 This module builds a fixed corpus, and the golden artefacts in ``tests/data/``
-assert that built-in IA2 and IA3 behavior remains byte-identical.
+assert that built-in evidence-stream behavior remains byte-identical.
 
 Deliberately written against the raw engine dataclasses rather than the
 canonical JSONL loader: the loader does not exist yet at Phase 0, and keeping

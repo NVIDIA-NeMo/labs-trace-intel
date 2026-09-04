@@ -122,7 +122,7 @@ class Trace(BaseModel):
 
 `UNSET` is Pydantic's missing sentinel and is distinct from JSON `null`. An absent tool-span
 `output` means no result was observed, while `"output": null` means the tool returned `null`.
-IA3 depends on that distinction.
+The tool-issue stream depends on that distinction.
 
 Source loaders should populate span timestamps when the source records them. They are nullable
 because a source may preserve authoritative order without wall-clock time; normalization does
@@ -145,9 +145,9 @@ span. Full structured message payloads remain in each span's `input` and `output
 
 The contract deliberately contains only fields consumed by the current system:
 
-- IA2 derives its ordered steps, tool calls, durations, cost, verdicts, and numeric features
+- The anomaly-and-pattern stream derives its ordered steps, tool calls, durations, cost, verdicts, and numeric features
   from spans, aggregates, and attributes.
-- IA3 derives `CallRecord` values from `TOOL` spans and evidence-specific attributes.
+- The tool-issue stream derives `CallRecord` values from `TOOL` spans and evidence-specific attributes.
 - Insights Generation can fetch the same structured trace and inspect its message, tool, and
   result payloads.
 
@@ -196,8 +196,9 @@ Evidence streams independently surface evidence that may support an Insight. Eve
 - returns candidate `Problem` values with supporting trace IDs;
 - may retain native artifacts for focused inspection and evaluation.
 
-A stream may contain complex internal steps. IA2, for example, performs feature extraction,
-anomaly detection, clustering, and recurring-pattern analysis. Those actions belong to IA2;
+A stream may contain complex internal steps. The anomaly-and-pattern stream, for example,
+performs feature extraction, anomaly detection, clustering, and recurring-pattern analysis. Those
+actions belong to that stream;
 they do not become top-level Analyst stages.
 
 ```python
@@ -227,19 +228,19 @@ class EvidenceStreamResult(BaseModel):
 normalized traces support investigating it. It does not claim root cause, impact, prevalence,
 or that every matching trace has been found.
 
-Native stream outputs remain available in `artifacts`, such as IA2's feature and clustering
-results or IA3's findings and cards. They support diagnostics and evaluation but are not part
+Native stream outputs remain available in `artifacts`, such as anomaly-and-pattern feature and
+clustering results or tool-issue findings and cards. They support diagnostics and evaluation but are not part
 of the synthesis interface. Each stream owns the projection from its native analysis into
 Problems, including its own evidence threshold.
 
 The result does not carry generic coverage, status, version, or metrics fields. A stream that
 cannot run raises an error; an empty `problems` tuple means it found nothing worth surfacing.
 Stream-specific diagnostics remain in its typed artifacts. Input capability diagnostics, such
-as IA3's per-rule coverage report, remain separate because they do not share a useful generic
+as the tool-issue stream's per-rule coverage report, remain separate because they do not share a useful generic
 shape across evidence streams.
 
-Stable algorithm outputs are typed at the stream boundary as well. IA2 returns an
-`AnomalyAndPatternsAnalysis` with typed anomalies and recurring-failure groups; IA3 returns
+Stable algorithm outputs are typed at the stream boundary as well. The anomaly-and-pattern stream
+returns an `AnomalyAndPatternsAnalysis` with typed anomalies and recurring-failure groups; the tool-issue stream returns
 typed `ToolIssueCard` values with typed representative evidence. Temporary detector structures
 can remain local dictionaries, but code outside the algorithm uses validated model attributes.
 
@@ -291,7 +292,7 @@ result = generation.generate()
 insights = result.insights
 ```
 
-Concrete example: the existing Analyst receives Problems from IA2 and IA3, fetches their
+Concrete example: the existing Analyst receives Problems from the evidence streams, fetches their
 supporting canonical traces, and produces Insights through a versioned LLM prompt. It has no
 dependency on either stream's native artifact type. The implementation and its prompt live
 together under `insights_generation/`.
@@ -324,18 +325,19 @@ The built-in run configures one trace loader, loads one snapshot, runs the curre
 streams, and invokes Insights generation:
 
 ```bash
-uv run insight-agent run-all traces.jsonl -o out
+uv run insight-agent --config analyst.yaml
 ```
 
-Focused engine commands remain useful for development, regression testing, and ablation:
+Evidence streams are selected in the YAML configuration, including focused
+development and ablation runs:
 
-```bash
-uv run insight-agent run-ia2 traces.jsonl -o out/ia2
-uv run insight-agent run-ia3 traces.jsonl -o out/ia3
-uv run insight-agent run-all traces.jsonl -o out/evidence-only --no-analyst
+```yaml
+evidence_streams:
+  anomaly_and_patterns: {}
+analyst:
+  enabled: false
 ```
 
-The architecture does not require YAML, import-time plugin discovery, or a general-purpose
-workflow engine. A future `analyze` command may provide a clearer product entry point, but it
-should construct this concrete Analyst directly rather than expose its stages as a pipeline
-language.
+The YAML selects concrete evidence streams and their typed settings; it is not
+a general-purpose workflow language. The default config-driven command
+constructs this concrete Analyst directly without import-time plugin discovery.

@@ -16,7 +16,7 @@ handled here:
   run writes the assembled copy beside its result, so a change to it shows up
   in the outputs rather than silently altering behaviour.
 * **Cost is driven by what the model opens, not by corpus size.** The traces
-  worth opening are the ones IA2 flagged for large outputs, which are exactly
+  worth opening are the ones the anomaly-and-pattern stream flagged for large outputs, which are exactly
   the expensive ones — a single trace can run to well over 100k tokens. Results
   are trimmed per call and the loop is capped.
 """
@@ -70,7 +70,7 @@ EVIDENCE_PLACEHOLDER = "{evidence}"
 TRACE_LOOKUP_TOOL = "fetch_traces"
 
 #: Per-result cap when a trace is fetched. The traces an Analyst most wants to
-#: open are the ones IA2 flagged for large outputs — which are exactly the ones
+#: open are the ones the anomaly-and-pattern stream flagged for large outputs — exactly those
 #: that would blow the context if returned whole. Single traces well over 100k
 #: tokens are routine.
 DEFAULT_RESULT_CHARS = 2_000

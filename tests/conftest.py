@@ -33,8 +33,8 @@ CREDENTIAL_VARS = (
 def no_real_model_calls(monkeypatch, tmp_path):
     """Make a real API call impossible, and a developer's `.env` invisible.
 
-    The Analyst runs by default in `run-all` and `demo`, so a test that forgets
-    to pass ``--no-analyst`` or install ``mock_litellm`` would otherwise reach
+    The Analyst can run from `run` and runs by default in `demo`, so a test that
+    forgets to disable it or install ``mock_litellm`` would otherwise reach
     the network — spending money and coupling the suite to a live endpoint. It
     fails loudly here instead.
 
@@ -51,7 +51,7 @@ def no_real_model_calls(monkeypatch, tmp_path):
     def _blocked(**kwargs):
         raise AssertionError(
             "a test tried to reach a real model endpoint. Use the `mock_litellm` "
-            "fixture, or pass --no-analyst if the test is about the deterministic path."
+            "fixture, or disable analyst.enabled if the test is about the deterministic path."
         )
 
     monkeypatch.setattr(litellm, "completion", _blocked, raising=False)

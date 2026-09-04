@@ -1,4 +1,4 @@
-"""IA3 projection and evidence-stream behavior."""
+"""Tool-issue projection and evidence-stream behavior."""
 
 from __future__ import annotations
 

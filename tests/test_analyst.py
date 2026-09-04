@@ -57,6 +57,26 @@ NOW = datetime(2026, 8, 26, tzinfo=timezone.utc)
 TOKENS = TokenCounts(input_tokens=0, cached_input_tokens=0, output_tokens=0)
 
 
+def write_run_config(tmp_path: Path, *, analyst: bool) -> Path:
+    config = tmp_path / "analyst.yaml"
+    config.write_text(
+        f"""trace:
+  filesystem:
+    path: {CORPUS}
+output:
+  directory: {tmp_path / "out"}
+  quiet: true
+evidence_streams:
+  anomaly_and_patterns: {{}}
+  tool_issues: {{}}
+analyst:
+  enabled: {str(analyst).lower()}
+""",
+        encoding="utf-8",
+    )
+    return config
+
+
 def generate(request: _AnalystRequest, *, snapshot: TraceSnapshot = EMPTY_SNAPSHOT, **kwargs):
     return _author_insights(request, snapshot=snapshot, **kwargs)
 
@@ -731,7 +751,8 @@ def test_digest_and_cards_must_be_given_together(tmp_path, capsys):
 
 def test_existing_ia2_and_ia3_artifacts_rebuild_the_problem_handoff(tmp_path):
     out = tmp_path / "out"
-    assert main(["run-all", str(CORPUS), "-o", str(out), "--quiet", "--no-analyst"]) == EXIT_OK
+    config = write_run_config(tmp_path, analyst=False)
+    assert main(["--config", str(config)]) == EXIT_OK
 
     assert (
         main(
@@ -758,12 +779,13 @@ def test_existing_ia2_and_ia3_artifacts_rebuild_the_problem_handoff(tmp_path):
     assert "candidate problem(s), as JSON" in prompt
 
 
-def test_no_analyst_keeps_run_all_free_of_any_api_dependency(tmp_path, monkeypatch):
-    """--no-analyst is the escape hatch for a purely deterministic run."""
+def test_disabled_analyst_keeps_run_free_of_any_api_dependency(tmp_path, monkeypatch):
+    """Disabling the Analyst keeps a run purely deterministic."""
     monkeypatch.setitem(sys.modules, "litellm", None)  # any use would explode
     out = tmp_path / "out"
+    config = write_run_config(tmp_path, analyst=False)
 
-    assert main(["run-all", str(CORPUS), "-o", str(out), "--quiet", "--no-analyst"]) == EXIT_OK
+    assert main(["--config", str(config)]) == EXIT_OK
     assert not (out / "analyst").exists()
     # The index still *mentions* the Analyst as the digest's reader; what must
     # be absent is the section linking to authored output.
@@ -772,49 +794,58 @@ def test_no_analyst_keeps_run_all_free_of_any_api_dependency(tmp_path, monkeypat
     assert "analyst/insights.json" not in index
 
 
-def test_run_all_runs_the_analyst_by_default_reusing_the_computed_evidence(
+def test_generated_cli_can_disable_the_yaml_analyst(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "litellm", None)  # any use would explode
+    config = write_run_config(tmp_path, analyst=True)
+
+    assert main(["--config", str(config), "--no-analyst.enabled"]) == EXIT_OK
+    assert not (tmp_path / "out" / "analyst").exists()
+
+
+def test_run_runs_the_configured_analyst_reusing_the_computed_evidence(
     tmp_path, mock_litellm, fake_credentials
 ):
     mock_litellm()
     out = tmp_path / "out"
+    config = write_run_config(tmp_path, analyst=True)
 
-    code = main(["run-all", str(CORPUS), "-o", str(out), "--quiet", "--agent", "DocOps"])
+    code = main(["--config", str(config), "--analyst.agent", "DocOps"])
     assert code == EXIT_OK
     assert (out / "analyst" / "insights.json").exists()
     assert "analyst/insights.json" in (out / "index.md").read_text(encoding="utf-8")
 
 
 def test_agent_name_defaults_to_the_corpus_filename(tmp_path, mock_litellm, fake_credentials):
-    """--agent is a label, not a gate; requiring it would block the default path."""
+    """The agent name is a label, not a gate; it defaults from the corpus."""
     calls = mock_litellm()
-    out = tmp_path / "out"
+    config = write_run_config(tmp_path, analyst=True)
 
-    assert main(["run-all", str(CORPUS), "-o", str(out), "--quiet"]) == EXIT_OK
+    assert main(["--config", str(config)]) == EXIT_OK
     assert CORPUS.stem in calls[0]["messages"][0]["content"]
 
 
-def test_run_all_fails_loudly_when_the_analyst_has_no_credentials(tmp_path, monkeypatch, capsys):
+def test_run_fails_loudly_when_the_analyst_has_no_credentials(tmp_path, monkeypatch, capsys):
     """A run that silently stopped at evidence would look complete but not be."""
     for var in ("INSIGHT_AGENT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     # An empty env file, so a developer's real .env cannot rescue the run.
     empty = tmp_path / "empty.env"
     empty.write_text("", encoding="utf-8")
+    config = write_run_config(tmp_path, analyst=True)
 
-    code = main(
-        ["run-all", str(CORPUS), "-o", str(tmp_path / "out"), "--quiet", "--env-file", str(empty)]
-    )
+    code = main(["--config", str(config), "--analyst.env-file", str(empty)])
     assert code == EXIT_ERROR
     err = capsys.readouterr().err
     assert "API key" in err
-    assert "--no-analyst" in err
+    assert "analyst.enabled" in err
 
 
-def test_run_all_fails_loudly_when_litellm_is_absent(tmp_path, monkeypatch, capsys):
+def test_run_fails_loudly_when_litellm_is_absent(tmp_path, monkeypatch, capsys):
     monkeypatch.setitem(sys.modules, "litellm", None)
-    code = main(["run-all", str(CORPUS), "-o", str(tmp_path / "out"), "--quiet"])
+    config = write_run_config(tmp_path, analyst=True)
+    code = main(["--config", str(config)])
     assert code == EXIT_ERROR
-    assert "--no-analyst" in capsys.readouterr().err
+    assert "analyst.enabled" in capsys.readouterr().err
 
 
 # -- the digest inventory fix ---------------------------------------------

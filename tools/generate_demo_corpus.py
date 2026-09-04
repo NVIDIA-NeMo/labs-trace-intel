@@ -1,8 +1,8 @@
 #!/usr/bin/env -S uv run
 """Generate the bundled sample corpus.
 
-The corpus has to do a specific job: make every one of IA3's nineteen finding
-types fire, give IA2 enough recurrence to populate all of its grouping
+The corpus has to do a specific job: make every one of the tool-issue stream's
+nineteen finding types fire, give the anomaly-and-pattern stream enough recurrence to populate all of its grouping
 sections — all while staying small enough to read. Hand-writing fourteen traces of inline JSON
 to hit those targets is where mistakes hide, so it is generated here instead
 and the output is committed. ``tests/test_sample_data.py`` regenerates into a
@@ -463,7 +463,7 @@ def code_trace() -> Trace:
 def stagnation_trace(suffix: str, case: str) -> Trace:
     """The same failing search repeated with no progress between attempts.
 
-    Fires ``repeated_identical_failed_call``, and gives IA2 a trajectory whose
+    Fires ``repeated_identical_failed_call``, and gives the anomaly-and-pattern stream a trajectory whose
     terminal evaluation claims success the calls do not support.
     """
     task = f"Find the {suffix} owner in the directory."
@@ -487,7 +487,7 @@ def stagnation_trace(suffix: str, case: str) -> Trace:
 def outlier_trace() -> Trace:
     """One deliberately extreme trace so the 2% contamination default flags something.
 
-    Long, repetitive, and one very large output — the shape IA2's feature
+    Long, repetitive, and one very large output — the shape the anomaly-and-pattern feature
     vector is built to separate.
     """
     task = "Reindex the entire documentation tree."

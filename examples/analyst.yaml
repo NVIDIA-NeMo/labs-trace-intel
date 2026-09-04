@@ -1,0 +1,13 @@
+trace:
+  filesystem:
+    path: tau_bench_traces.jsonl
+
+output:
+  directory: ../out
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
+
+analyst:
+  enabled: true

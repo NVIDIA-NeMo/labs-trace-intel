@@ -1,6 +1,6 @@
 # The two failure decoders
 
-IA2 and IA3 were developed independently, and each has its own idea of what
+The anomaly-and-pattern and tool-issue streams were developed independently, and each has its own idea of what
 counts as a tool failure. The canonical trace format does **not** unify them,
 because unifying them would mean changing measured algorithm behaviour. Instead
 the divergence is documented here and made observable with
@@ -13,12 +13,12 @@ as a failure in one engine can read as a success in the other.
 
 | | Function | File |
 |---|---|---|
-| IA2 | `decode_explicit_failure` | `src/insight_agent/evidence_streams/anomaly_and_patterns/__init__.py` |
-| IA3 | `strict_failure` | `src/insight_agent/evidence_streams/tool_issues/__init__.py` |
+| Anomaly and patterns | `decode_explicit_failure` | `src/insight_agent/evidence_streams/anomaly_and_patterns/__init__.py` |
+| Tool issues | `strict_failure` | `src/insight_agent/evidence_streams/tool_issues/__init__.py` |
 
 ## What each one accepts
 
-| Evidence in the result | IA2 | IA3 |
+| Evidence in the result | Anomaly and patterns | Tool issues |
 |---|:---:|:---:|
 | `isError: true` | yes | yes |
 | `is_error: true` | yes | **no** |
@@ -41,10 +41,10 @@ This is the one that actually bites.
 
 | | Keys unwrapped from a result object |
 |---|---|
-| IA2 | `content`, `output`, `message`, `error`, `summary` |
-| IA3 | **`content` only** |
+| Anomaly and patterns | `content`, `output`, `message`, `error`, `summary` |
+| Tool issues | **`content` only** |
 
-When IA3 finds no `content` key it serialises the whole object to JSON. Its
+When the tool-issue stream finds no `content` key it serialises the whole object to JSON. Its
 error-prefix regex is anchored to the start of the string, so a serialised
 object never matches:
 
@@ -52,11 +52,11 @@ object never matches:
 {"result": {"output": "Error: connection refused"}}
 ```
 
-- IA2 extracts `Error: connection refused` → fires `tool_output_error_prefix`.
-- IA3 sees `{"output":"Error: connection refused"}` → the anchored regex fails
+- The anomaly-and-pattern stream extracts `Error: connection refused` → fires `tool_output_error_prefix`.
+- The tool-issue stream sees `{"output":"Error: connection refused"}` → the anchored regex fails
   → **no finding at all**.
 
-The result is a corpus where IA2 reports failures that IA3 never saw, which
+The result is a corpus where the anomaly-and-pattern stream reports failures that the tool-issue stream never saw, which
 looks like a detector bug and is actually a source-normalization bug.
 
 **Put textual result payloads under `content` when the source format uses an
@@ -73,7 +73,7 @@ On a well-formed corpus this prints `No disagreements.` Anything else is worth
 investigating before you trust the findings:
 
 ```
-trace                        call                  tool         IA2                IA3
+trace                        call                  tool         patterns           tool issues
 --------------------------------------------------------------------------------------
 run-0007                     call-2                Search       FAIL error_prefix  ok
 ```
@@ -84,10 +84,10 @@ Add `--json` for machine-readable output.
 
 Three reasons:
 
-1. IA2's decoder feeds `explicit_failure_rate`, one of the eleven features
+1. The anomaly-and-pattern decoder feeds `explicit_failure_rate`, one of the eleven features
    behind anomaly detection. Changing it changes which traces are flagged, and
    the current behaviour is what was measured.
-2. IA3's decoder is deliberately stricter. It is a rule-based auditor whose
+2. The tool-issue decoder is deliberately stricter. It is a rule-based auditor whose
    whole value is that it does not guess; broadening it would trade precision
    for recall in a component chosen for precision.
 3. The two engines answer different questions. "This trace looks statistically

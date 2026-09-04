@@ -1,6 +1,6 @@
 # The Analyst stage
 
-IA2 and IA3 stop deliberately short of a conclusion. Each evidence stream
+The anomaly-and-pattern and tool-issue streams stop deliberately short of a conclusion. Each stream
 projects its native analysis into candidate `Problem` objects containing a
 description and supporting trace IDs. Only the Analyst LLM turns those Problems
 into formal Insights.
@@ -13,14 +13,16 @@ Insights.
 ```bash
 cp .env.example .env      # then fill in INSIGHT_AGENT_API_KEY
 
-uv run insight-agent run-all traces.jsonl -o out      # includes the Analyst
+uv run insight-agent --config analyst.yaml      # includes the Analyst when enabled
 cat out/analyst/insights.json
 ```
 
-`run-all` and `demo` run the Analyst by default. Because a run that stops at
-evidence is a partial run, an unusable Analyst is a hard failure rather than a
-silent skip: if litellm is missing or no key resolves, the command exits 1 and
-says so. `--no-analyst` is the supported way to ask for IA2/IA3 only.
+The default config-driven command runs the Analyst when `analyst.enabled` is
+true, and `demo` runs it by default. Because a run that stops at evidence is a
+partial run, an unusable Analyst is a hard failure rather than a silent skip:
+if litellm is missing or no key resolves, the command exits 1 and says so.
+`--no-analyst.enabled` provides a one-off override for a deterministic-only
+run, including `demo`.
 
 ## Output
 
@@ -48,12 +50,12 @@ Each Insight has exactly three fields:
 ## What the Analyst sees
 
 The Analyst receives every `EvidenceStreamResult`, grouped by stream, but only
-its stream name and Problems. It does not import or interpret IA2 or IA3
+its stream name and Problems. It does not import or interpret stream-native
 artifact types.
 
-IA2 creates Problems for statistical outliers, recurring strict failures, and
+The anomaly-and-pattern stream creates Problems for statistical outliers, recurring strict failures, and
 failures whose normalized message crosses tool boundaries. Its digest,
-features, and clustering output remain diagnostic artifacts. IA3 creates one
+features, and clustering output remain diagnostic artifacts. The tool-issue stream creates one
 Problem per recurrence-qualified tool-issue card. Audit-only cards remain in
 `cards.json`; `--all-cards` also exposes them as Problems.
 
@@ -89,8 +91,8 @@ there would be nothing telling the model what it is for.
 ### Size
 
 The opening prompt scales with the number and size of candidate Problems, not
-with raw trace or finding count. IA2 caps the supporting IDs on its aggregate
-anomaly Problem, and IA3's Problem count is bounded by distinct
+with raw trace or finding count. The anomaly-and-pattern stream caps the supporting IDs on its
+aggregate anomaly Problem, and the tool-issue stream's Problem count is bounded by distinct
 `(issue_type, mechanism_key)` pairs. Corpus-scale prompt measurements should be
 tracked as additional streams are added.
 
@@ -184,7 +186,7 @@ usually also the right choice.
 
 ## Re-running without recomputing
 
-`--digest` and `--cards` bypass IA2 and IA3 and rebuild Problems from existing
+`--digest` and `--cards` bypass both evidence streams and rebuild Problems from existing
 artifacts, so a prompt change can be re-issued against a frozen evidence set:
 
 ```bash
@@ -192,7 +194,8 @@ uv run insight-agent run-analyst traces.jsonl --agent A -o out \
   --digest out/ia2/digest.md --cards out/ia3/cards.json
 ```
 
-`run-all` reuses the in-memory `EvidenceStreamResult` values it just computed.
+The config-driven run reuses the in-memory `EvidenceStreamResult` values it
+just computed.
 `--agent` is only a label for the system under test and defaults to the corpus
 filename.
 

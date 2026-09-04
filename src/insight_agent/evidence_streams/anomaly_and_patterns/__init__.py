@@ -78,7 +78,7 @@ FEATURE_LABELS = {
 
 @dataclass(frozen=True)
 class NormalizedCall:
-    """One ordered tool call in the platform-neutral IA2 contract."""
+    """One ordered tool call in the platform-neutral stream contract."""
 
     call_id: str
     call_index: int
@@ -103,7 +103,7 @@ class NormalizedStep:
 
 @dataclass(frozen=True)
 class NormalizedTrace:
-    """Complete IA2 input unit projected from one canonical trace."""
+    """Complete anomaly-and-pattern input projected from one canonical trace."""
 
     trace_id: str
     calls: Sequence[NormalizedCall]
@@ -126,7 +126,7 @@ class TraceFeatures:
 
 @dataclass(frozen=True)
 class PreparedTrace:
-    """Structured IA2 evidence produced before selection and grouping."""
+    """Structured anomaly-and-pattern evidence produced before selection and grouping."""
 
     trace: NormalizedTrace
     features: TraceFeatures
@@ -157,7 +157,7 @@ def cap_head_tail(text: str, *, max_chars: int = 8_000) -> str:
         raise ValueError("max_chars must be at least 80")
     if len(text) <= max_chars:
         return text
-    marker = "\n… <middle omitted by IA2 head+tail cap> …\n"
+    marker = "\n… <middle omitted by anomaly-and-pattern head+tail cap> …\n"
     remaining = max_chars - len(marker)
     head = (remaining + 1) // 2
     tail = remaining // 2
@@ -326,7 +326,7 @@ def extract_trace_features(trace: NormalizedTrace) -> PreparedTrace:
             # backwards compatibility; only the silence is removed.
             if key in numeric:
                 warnings.warn(
-                    f"trace {trace.trace_id!r} metric {key!r} shadows a built-in IA2 feature; "
+                    f"trace {trace.trace_id!r} metric {key!r} shadows a built-in stream feature; "
                     f"the built-in value {numeric[key]!r} is being replaced by {float(value)!r}. "
                     "Rename the metric unless this is deliberate.",
                     UserWarning,
@@ -429,7 +429,7 @@ def select_anomalies(
     random_state: int = RANDOM_STATE,
     input_scaling: str = "none",
 ) -> list[dict[str, Any]]:
-    """Run IA2 Isolation Forest and return inspectable per-trace evidence.
+    """Run Isolation Forest and return inspectable per-trace evidence.
 
     Outcomes/verdicts are absent from ``TraceFeatures``. ``input_scaling='none'``
     matches the current multi-dataset path; ``'robust'`` reproduces the original
@@ -733,11 +733,11 @@ def build_evidence_digest(
     flagged_total = len(ranked)
     flagged = ranked[:max_anomalies]
     lines = [
-        "# IA2 cited evidence digest",
+        "# Anomaly and pattern evidence digest",
         "",
         "## Reader contract",
         "",
-        "IA2 answers **what is unusual?** and **what recurs?** It does not author an Insight, prove causality, or turn an anomaly into an error. The Analyst must inspect cited traces and may file zero Insights.",
+        "This stream answers **what is unusual?** and **what recurs?** It does not author an Insight, prove causality, or turn an anomaly into an error. The Analyst must inspect cited traces and may file zero Insights.",
         "",
         "## Inventory",
         "",
@@ -956,7 +956,7 @@ class AnomalyAndPatternsArtifacts:
 
 
 def problems_from_analysis(result: AnomalyAndPatternsAnalysis) -> tuple[Problem, ...]:
-    """Project IA2's native analysis into candidate problems for synthesis."""
+    """Project native anomaly-and-pattern analysis into candidate problems for synthesis."""
 
     problems: list[Problem] = []
     anomalies = [row for row in result.anomalies if row.is_anomaly]

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from insight_agent.config import load_run_config
 from insight_agent.insights_generation.config import (
     ENV_API_BASE,
     ENV_API_KEY,
@@ -170,3 +171,97 @@ def test_dotenv_is_gitignored():
     """It holds a credential; a missing ignore rule is a real hazard."""
     ignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").split()
     assert ".env" in ignore
+
+
+def test_run_config_resolves_paths_relative_to_its_yaml_file(tmp_path):
+    config_file = tmp_path / "settings" / "analyst.yaml"
+    config_file.parent.mkdir()
+    config_file.write_text(
+        """trace:
+  filesystem:
+    path: corpus.jsonl
+output:
+  directory: results
+evidence_streams:
+  anomaly_and_patterns: {}
+analyst:
+  env_file: .env
+""",
+        encoding="utf-8",
+    )
+
+    config = load_run_config(config_file)
+    assert config.trace.filesystem is not None
+    assert config.trace.filesystem.path == config_file.parent / "corpus.jsonl"
+    assert config.output.directory == config_file.parent / "results"
+    assert config.analyst.env_file == config_file.parent / ".env"
+
+
+def test_run_config_supports_mlflow_sources(tmp_path):
+    config_file = tmp_path / "analyst.yaml"
+    config_file.write_text(
+        """trace:
+  max_traces: 25
+  mlflow_export:
+    path: exports/traces.json
+evidence_streams:
+  anomaly_and_patterns: {}
+""",
+        encoding="utf-8",
+    )
+
+    config = load_run_config(config_file)
+    assert config.trace.mlflow_export is not None
+    assert config.trace.mlflow_export.path == tmp_path / "exports" / "traces.json"
+    assert config.trace.max_traces == 25
+
+
+def test_run_config_requires_exactly_one_trace_loader(tmp_path):
+    config_file = tmp_path / "analyst.yaml"
+    config_file.write_text(
+        """trace:
+  filesystem:
+    path: traces.jsonl
+  mlflow_export:
+    path: traces.json
+evidence_streams:
+  anomaly_and_patterns: {}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="exactly one loader"):
+        load_run_config(config_file)
+
+
+def test_run_config_rejects_unsupported_filesystem_trace_limit(tmp_path):
+    config_file = tmp_path / "analyst.yaml"
+    config_file.write_text(
+        """trace:
+  max_traces: 25
+  filesystem:
+    path: traces.jsonl
+evidence_streams:
+  anomaly_and_patterns: {}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="not supported by the filesystem loader"):
+        load_run_config(config_file)
+
+
+def test_run_config_requires_a_configured_evidence_stream(tmp_path):
+    config_file = tmp_path / "analyst.yaml"
+    config_file.write_text(
+        """trace:
+  filesystem:
+    path: traces.jsonl
+evidence_streams:
+  {}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="at least one evidence stream"):
+        load_run_config(config_file)

@@ -1,7 +1,7 @@
 # Anomaly and pattern evidence stream
 
 This stream finds statistically unusual traces and recurring behavioral patterns. It projects
-the shared `TraceSnapshot` into an IA2-native model, performs deterministic feature extraction,
+the shared `TraceSnapshot` into its native model, performs deterministic feature extraction,
 and returns both native analysis artifacts and generic `Problem` values for Insights generation.
 
 ## Analysis
@@ -33,8 +33,11 @@ remains available in `AnomalyAndPatternsArtifacts`.
 ## Run it
 
 ```bash
-uv run insight-agent run-ia2 traces.jsonl -o out
+uv run insight-agent --config analyst.yaml
 ```
+
+Include `evidence_streams.anomaly_and_patterns` in `analyst.yaml` and omit the
+other stream keys for an anomaly-only run.
 
 The CLI writes `out/ia2/digest.md`, extracted features, anomalies, trajectory and verdict groups,
 failure groups, projected problems, and run metadata.

@@ -1,4 +1,4 @@
-"""IA2 evidence preprocessing over the bundled sample corpus."""
+"""Anomaly-and-pattern preprocessing over the bundled sample corpus."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def test_digest_contains_every_section(result):
 
 
 def test_digest_states_the_reader_contract(result):
-    """IA2 must never be read as authoring conclusions."""
+    """The evidence stream must never be read as authoring conclusions."""
     digest = result.digest
     assert "does not author an Insight" in digest
     assert "turn an anomaly into an error" in digest

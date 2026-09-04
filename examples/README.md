@@ -4,18 +4,25 @@
 
 200 real agent traces (1,003 tool calls) from [τ-bench](https://github.com/sierra-research/tau-bench),
 the public tool-agent benchmark, already serialized as canonical `Trace` JSONL.
-Nothing to adapt — point the CLI at it and run:
+Nothing to adapt. Validate the bundled run configuration, then run it:
 
 ```bash
-uv run insight-agent validate examples/tau_bench_traces.jsonl
-uv run insight-agent coverage examples/tau_bench_traces.jsonl
-uv run insight-agent run-all examples/tau_bench_traces.jsonl -o out
+uv run insight-agent validate --config examples/analyst.yaml
+uv run insight-agent --config examples/analyst.yaml
 open out/index.md
 ```
 
 The agent under test is a customer-service assistant working against stateful
 tools. All customer names, addresses and order IDs are τ-bench's own synthetic
 fixtures — there is no real user data here.
+
+The raw-corpus utilities remain available when you want to inspect the input
+independently of a configured run:
+
+```bash
+uv run insight-agent validate --traces examples/tau_bench_traces.jsonl
+uv run insight-agent coverage examples/tau_bench_traces.jsonl
+```
 
 | | |
 |---|---|
@@ -27,7 +34,7 @@ fixtures — there is no real user data here.
 ### What it produces
 
 ```
-IA3 rules evaluable : 14/19
+Tool-issue rules evaluable : 14/19
 findings            : 64
 cards               : 3, all 3 eligible for the Analyst
 ```
@@ -75,8 +82,8 @@ export, both measured rather than assumed:
 - **`Span.attributes["explicit_error"]: false` was dropped** where the source asserted it
   corpus-wide (945 calls); the 58 genuine `true` values are kept. A blanket
   false is a success *assertion* that disables all text-based failure decoding
-  as documented by the canonical trace contract. Ablation confirmed IA2 and IA3 output
-  is byte-identical either way, so nothing is lost and ~180 spurious warnings
+  as documented by the canonical trace contract. Ablation confirmed the anomaly-and-pattern
+  and tool-issue output is byte-identical either way, so nothing is lost and ~180 spurious warnings
   go away.
 - **Only observed tool spans are present.** τ-bench has no additional step model
   beyond the calls themselves, so the converted traces do not invent one.
