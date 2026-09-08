@@ -2,7 +2,7 @@
 
 This is the feedback loop for anyone writing a source loader. Validation answers
 "is my JSON well formed"; coverage answers the far more useful question "given
-what I populated, which of the nineteen tool-issue rules can fire at all, and what
+what I populated, which of the nineteen IA3 rules can fire at all, and what
 would I have to add to unlock the rest?"
 
 Without it the failure mode is silent and demoralising: the normalized trace validates,
@@ -34,7 +34,7 @@ class RuleRequirement:
     detail: str
 
 
-#: Every tool-issue finding type, with the canonical field that gates it.
+#: Every IA3 finding type, with the canonical field that gates it.
 RULE_REQUIREMENTS: tuple[RuleRequirement, ...] = (
     RuleRequirement(
         "unknown_tool",
@@ -338,13 +338,13 @@ def corpus_coverage(
 
     if trace_count < 3:
         notes.append(
-            f"Only {trace_count} trace(s): trajectory clustering needs at least three and "
+            f"Only {trace_count} trace(s): IA2 trajectory clustering needs at least three and "
             "will abstain."
         )
     if distinct_cases < 3:
         notes.append(
-            f"Only {distinct_cases} distinct logical case(s): the tool-issue stream promotes a card at three "
-            "independent cases, so nothing can become eligible_for_analyst."
+            f"Only {distinct_cases} distinct logical case(s): IA3 promotes a card at three "
+            "independent cases, so nothing can become eligible_for_insight_compilation."
         )
     if trace_count and distinct_cases == trace_count and presence["logical_case_id"] == 0:
         notes.append(
@@ -379,7 +379,7 @@ def corpus_coverage(
             "sometimes, missing_tool_result cannot report it."
         )
     if presence["steps"] == 0:
-        notes.append("No record has steps: trajectory tokens fall back to one token per call.")
+        notes.append("No record has steps: IA2 trajectory tokens fall back to one token per call.")
     elif presence["steps"] < trace_count:
         notes.append(
             f"Only {presence['steps']}/{trace_count} records have steps. Mixed corpora are not "
@@ -423,7 +423,7 @@ def format_coverage(report: Mapping[str, Any], *, verbose: bool = False) -> str:
 
     rules = report["rules"]
     lines.append("")
-    lines.append(f"Tool-issue rules evaluable: {rules['evaluable']}/{rules['total']}")
+    lines.append(f"IA3 rules evaluable: {rules['evaluable']}/{rules['total']}")
 
     abstaining = rules["abstaining"]
     if abstaining:

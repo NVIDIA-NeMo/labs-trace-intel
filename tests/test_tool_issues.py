@@ -182,8 +182,8 @@ def test_cards_are_promoted_only_at_three_independent_cases(findings):
         for evidence in card.representative_evidence
     )
     for card in cards:
-        assert card.eligible_for_analyst == (card.independent_case_count >= 3)
-    assert any(card.eligible_for_analyst for card in cards)
+        assert card.eligible_for_insight_compilation == (card.independent_case_count >= 3)
+    assert any(card.eligible_for_insight_compilation for card in cards)
 
 
 def test_card_eligibility_counts_cases_not_traces(loader, findings):
@@ -200,7 +200,7 @@ def test_cards_never_claim_impact(findings):
 
 def test_raising_the_threshold_disqualifies_everything(findings):
     cards = build_cards(findings, minimum_independent_cases=999)
-    assert cards and not any(card.eligible_for_analyst for card in cards)
+    assert cards and not any(card.eligible_for_insight_compilation for card in cards)
 
 
 # -- parameters ------------------------------------------------------------

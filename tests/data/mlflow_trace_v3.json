@@ -24,7 +24,7 @@
       "mlflow.trace_schema.version": "3"
     },
     "tags": {
-      "mlflow.traceName": "analyst-fixture",
+      "mlflow.traceName": "insight-fixture",
       "mlflow.artifactLocation": "mlflow-artifacts:/1/traces/tr-9df8a4c934051e916458d472ac87ee2a/artifacts",
       "mlflow.trace.spansLocation": "TRACKING_STORE"
     },
@@ -38,7 +38,7 @@
         "trace_id": "nfikyTQFHpFkWNRyrIfuKg==",
         "span_id": "QiE11VDVdUg=",
         "parent_span_id": null,
-        "name": "analyst-fixture",
+        "name": "insight-fixture",
         "start_time_unix_nano": 1788374258529802000,
         "end_time_unix_nano": 1788374258533442000,
         "events": [],

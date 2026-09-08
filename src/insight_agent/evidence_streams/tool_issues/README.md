@@ -13,7 +13,7 @@ finding retains the original trace, call identifier, and source pointer.
 The nineteen rules cover tool contracts and arguments, call/result integrity, explicit outcomes,
 retry behavior, trace instrumentation, argument provenance, and prerequisite or state failures.
 `detect()` emits individual findings. `build_cards()` groups findings by issue type and mechanism,
-selects representative evidence, and marks a card eligible for the Analyst after it appears in
+selects representative evidence, and marks a card eligible for Insight compilation after it appears in
 the configured number of independent logical cases.
 
 `problems_from_cards()` excludes audit-only cards by default. This keeps one-off observations in
@@ -25,7 +25,7 @@ the native artifacts without presenting them as recurring problems.
 
 | Field | Default | Purpose |
 |---|---:|---|
-| `minimum_independent_cases` | `3` | Cases required before a card is eligible for the Analyst |
+| `minimum_independent_cases` | `3` | Cases required before a card is eligible for Insight compilation |
 | `retry_threshold` | `3` | Failed calls required for retry-pattern findings |
 | `include_audit_problems` | `false` | Include cards below the recurrence threshold in projected problems |
 
