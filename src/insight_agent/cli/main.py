@@ -74,6 +74,7 @@ from insight_agent.evidence_streams.tool_issues.stream import (
     strict_failure,
     to_tool_issue_trace,
 )
+from insight_agent.insight import load_insights
 from insight_agent.insights_generation.config import (
     ENV_API_BASE,
     ENV_API_KEY,
@@ -719,6 +720,10 @@ def _run_insights(
     *,
     dry_run: bool = False,
 ) -> int:
+    existing_insights = (
+        load_insights(analyst.existing_insights) if analyst.existing_insights else []
+    )
+
     loaded = load_dotenv(analyst.env_file)
     model = analyst.model or resolve(ENV_MODEL) or ANALYST_DEFAULT_MODEL
     api_base = analyst.api_base or resolve(ENV_API_BASE)
@@ -747,7 +752,12 @@ def _run_insights(
 
     try:
         prompt_data = asyncio.run(
-            build_prompt_data(compilation.compile_insights, presented, snapshot, [])
+            build_prompt_data(
+                compilation.compile_insights,
+                presented,
+                snapshot,
+                existing_insights,
+            )
         )
     except Exception as exc:  # noqa: BLE001 - CLI boundary
         print(f"error: could not build Insight compilation prompt: {exc}", file=sys.stderr)
@@ -764,6 +774,7 @@ def _run_insights(
         if loaded:
             print(f"  loaded from .env      : {', '.join(sorted(loaded))}")
         print(f"  problems              : {problems_presented}")
+        print(f"  existing insights     : {len(existing_insights)}")
         print(f"  prompt                : {target / 'prompt.md'}")
         print(f"  approx input tokens   : {len(prompt) // 4:,}")
         return EXIT_OK
@@ -776,7 +787,7 @@ def _run_insights(
         return EXIT_ERROR
 
     try:
-        insights = asyncio.run(compilation.compile_insights(presented, snapshot, []))
+        insights = asyncio.run(compilation.compile_insights(presented, snapshot, existing_insights))
     except Exception as exc:  # noqa: BLE001 - CLI boundary
         print(f"error: Insight compilation failed: {exc}", file=sys.stderr)
         return EXIT_ERROR
@@ -790,6 +801,10 @@ def _run_insights(
             "api_base": api_base,
             "problems_presented": problems_presented,
             "insight_count": len(rows),
+            "existing_insights": {
+                "path": str(analyst.existing_insights) if analyst.existing_insights else None,
+                "count": len(existing_insights),
+            },
             "corpus": loader.describe(),
         },
     )
@@ -798,6 +813,7 @@ def _run_insights(
         print(f"Insight compilation over {problems_presented} problem(s) -> {target}")
         print(f"  model                 : {model}")
         print(f"  insights              : {len(rows)}")
+        print(f"  existing insights     : {len(existing_insights)}")
         print(f"  insights              : {target / 'insights.json'}")
 
         if not rows:
@@ -812,6 +828,7 @@ def _run_insights(
             for problem in result.problems
             for trace_id in problem.supporting_trace_ids
         }
+        known.update(trace_id for insight in existing_insights for trace_id in insight.trace_refs)
         cited = {trace_id for insight in insights for trace_id in insight.trace_refs}
         unknown = sorted(cited - known)
         if unknown:

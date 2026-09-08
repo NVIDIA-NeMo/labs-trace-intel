@@ -133,6 +133,10 @@ class AnalystGenerationConfig(ConfigModel):
     model: str | None = None
     api_base: str | None = None
     env_file: Path | None = None
+    existing_insights: Path | None = Field(
+        default=None,
+        description="Existing insights.json to reconcile with newly generated Insights",
+    )
     max_tool_rounds: int = Field(default=DEFAULT_MAX_TOOL_ROUNDS, ge=0)
     temperature: float | None = None
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=1)
@@ -190,7 +194,12 @@ def load_run_config(path: Path | str) -> RunConfig:
         export = export.model_copy(update={"path": resolve_path(export.path)})
     trace = config.trace.model_copy(update={"filesystem": filesystem, "mlflow_export": export})
     output = config.output.model_copy(update={"directory": resolve_path(config.output.directory)})
-    analyst = config.analyst.model_copy(update={"env_file": resolve_path(config.analyst.env_file)})
+    analyst = config.analyst.model_copy(
+        update={
+            "env_file": resolve_path(config.analyst.env_file),
+            "existing_insights": resolve_path(config.analyst.existing_insights),
+        }
+    )
     return config.model_copy(update={"trace": trace, "output": output, "analyst": analyst})
 
 

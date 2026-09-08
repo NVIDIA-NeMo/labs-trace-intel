@@ -57,6 +57,25 @@ Run it with:
 uv run insight-agent --config analyst.yaml
 ```
 
+## Continue from a previous run
+
+To carry Insights across runs, point `analyst.existing_insights` at an
+`insights.json` artifact from a previous run. The Insight compilation agent
+keeps the existing collection, merges semantic duplicates, and adds newly
+supported trace references. The current run writes the complete reconciled
+collection to `<output.directory>/analyst/insights.json`.
+
+```yaml
+analyst:
+  enabled: true
+  existing_insights: previous-run/analyst/insights.json
+```
+
+When the input file is that same path, the CLI reads it before replacing it, so
+the file acts as the latest Insight collection and older versions are not kept.
+To retain every version, use a new output directory for each run and update
+`analyst.existing_insights` to point at the preceding run's artifact.
+
 The presence of a stream selects it for the run. Omit a stream when it should
 not run; at least one evidence stream must be configured:
 

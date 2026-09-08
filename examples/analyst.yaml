@@ -11,3 +11,4 @@ evidence_streams:
 
 analyst:
   enabled: true
+  # existing_insights: ../previous-run/analyst/insights.json
