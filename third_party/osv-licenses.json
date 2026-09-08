@@ -1,0 +1,1214 @@
+{
+  "results": [
+    {
+      "source": {
+        "type": "lockfile"
+      },
+      "packages": [
+        {
+          "package": {
+            "name": "aiohappyeyeballs",
+            "version": "2.7.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "PSF-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "aiohttp",
+            "version": "3.14.3",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0 AND MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "aiosignal",
+            "version": "1.4.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "annotated-doc",
+            "version": "0.0.5",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "annotated-types",
+            "version": "0.8.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "anyio",
+            "version": "4.14.2",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "attrs",
+            "version": "26.1.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "boto3",
+            "version": "1.43.81",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "botocore",
+            "version": "1.43.81",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "cachetools",
+            "version": "7.1.7",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "certifi",
+            "version": "2026.7.22",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MPL-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "cffi",
+            "version": "2.1.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT-0"
+          ]
+        },
+        {
+          "package": {
+            "name": "charset-normalizer",
+            "version": "3.5.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "click",
+            "version": "8.5.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "cloudpickle",
+            "version": "3.1.2",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "colorama",
+            "version": "0.4.6",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "cryptography",
+            "version": "49.0.0",
+            "ecosystem": "PyPI"
+          },
+          "groups": [
+            {
+              "ids": [
+                "PYSEC-2026-3552",
+                "GHSA-g6cj-pr64-35w5"
+              ],
+              "aliases": [
+                "CVE-2026-69247",
+                "GHSA-g6cj-pr64-35w5",
+                "PYSEC-2026-3552"
+              ],
+              "max_severity": "8.2"
+            }
+          ],
+          "licenses": [
+            "Apache-2.0 OR BSD-3-Clause"
+          ],
+          "vulnerabilities": [
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/pypa/advisory-database/blob/main/vulns/cryptography/PYSEC-2026-3552.yaml"
+                  },
+                  "package": {
+                    "ecosystem": "PyPI",
+                    "name": "cryptography",
+                    "purl": "pkg:pypi/cryptography"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "44.0.0"
+                        },
+                        {
+                          "fixed": "50.0.0"
+                        }
+                      ],
+                      "type": "ECOSYSTEM"
+                    }
+                  ],
+                  "versions": [
+                    "44.0.0",
+                    "44.0.1",
+                    "44.0.2",
+                    "44.0.3",
+                    "45.0.0",
+                    "45.0.1",
+                    "45.0.2",
+                    "45.0.3",
+                    "45.0.4",
+                    "45.0.5",
+                    "45.0.6",
+                    "45.0.7",
+                    "46.0.0",
+                    "46.0.1",
+                    "46.0.2",
+                    "46.0.3",
+                    "46.0.4",
+                    "46.0.5",
+                    "46.0.6",
+                    "46.0.7",
+                    "47.0.0",
+                    "48.0.0",
+                    "48.0.1",
+                    "49.0.0"
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2026-69247",
+                "GHSA-g6cj-pr64-35w5"
+              ],
+              "details": "### Summary\n\n`pkcs7_decrypt_der`, `pkcs7_decrypt_pem`, and `pkcs7_decrypt_smime` reported the\noutcome of decrypting a `RecipientInfo`'s `encryptedKey` in several\ndistinguishable ways, one of which disclosed the exact length recovered from the\nRSA operation. The same distinction was also observable by timing. An\napplication that decrypts attacker-supplied `EnvelopedData` and reflects the\noutcome gives the attacker a Bleichenbacher oracle against the\ncontent-encryption key.\n\nIntroduced in 44.0.0. Fixed in 50.0.0.\n\n### Details\n\nDecryption ran as: RSA PKCS#1 v1.5 decrypt of `encryptedKey` \u2192 build an AES\ncipher from the result \u2192 AES-CBC decrypt and PKCS#7 unpad. Each stage failed\ndifferently, with no RFC 3218 mitigation:\n\n1. invalid RSA padding \u2192 `Decryption failed`\n2. valid padding, bad key length \u2192 `Invalid key size (N) for AES.`, disclosing `N`\n3. correct length, wrong key \u2192 `Invalid padding bytes.`\n4. the real key \u2192 plaintext\n\nCase 1 is reachable only where the linked library lacks implicit rejection:\nOpenSSL 3.0 and 3.1, LibreSSL, and BoringSSL. On OpenSSL 3.2+, used in our wheels,\ninvalid padding instead returns a synthetic plaintext of\npseudorandom length, so the error channel does not distinguish conforming\nciphertexts.\n\nExploitation requires a service that auto-decrypts untrusted `EnvelopedData`\nmatching the victim certificate and answers adaptively at high volume, such as\nan S/MIME gateway or mail filter.\n\n### Fix\n\nPer RFC 3218, the content-encryption algorithm is now resolved before the\nprivate key is used, so the expected key length is known in advance. If the RSA\ndecryption fails or recovers a key of the wrong length, a random key of the\nexpected length is substituted and decryption continues down an identical path.\nAll failures now report identically and perform the same work.\n\n### Not addressed by this fix\n\n`EnvelopedData` does not authenticate its content. Tampering with\n`encryptedContent` alone yields a CBC padding oracle that recovers plaintext at\nroughly 256 queries per byte, without recovering any key, on every backend. This\nis a property of PKCS#7 rather than of this implementation, cannot be fixed in\nthe library, and is now documented.\n\n### Credit\n\nReported by @X1AOxiang.",
+              "id": "PYSEC-2026-3552",
+              "modified": "2026-08-04T14:30:15.036332054Z",
+              "published": "2026-08-04T11:34:47.697724Z",
+              "references": [
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/pyca/cryptography/security/advisories/GHSA-g6cj-pr64-35w5"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/pyca/cryptography/pull/15369"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/pyca/cryptography/commit/53fccd93413a8d7f07d6d8999681f27b75cffa3f"
+                },
+                {
+                  "type": "PACKAGE",
+                  "url": "https://github.com/pyca/cryptography"
+                },
+                {
+                  "type": "PACKAGE",
+                  "url": "https://pypi.org/project/cryptography"
+                },
+                {
+                  "type": "ADVISORY",
+                  "url": "https://github.com/advisories/GHSA-g6cj-pr64-35w5"
+                },
+                {
+                  "type": "ADVISORY",
+                  "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-69247"
+                }
+              ],
+              "schema_version": "1.8.0",
+              "severity": [
+                {
+                  "score": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+                  "type": "CVSS_V4"
+                }
+              ],
+              "summary": "cryptography: PKCS#7 EnvelopedData decryption exposes a Bleichenbacher oracle through distinguishable errors and timing"
+            },
+            {
+              "affected": [
+                {
+                  "database_specific": {
+                    "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/08/GHSA-g6cj-pr64-35w5/GHSA-g6cj-pr64-35w5.json"
+                  },
+                  "package": {
+                    "ecosystem": "PyPI",
+                    "name": "cryptography",
+                    "purl": "pkg:pypi/cryptography"
+                  },
+                  "ranges": [
+                    {
+                      "events": [
+                        {
+                          "introduced": "44.0.0"
+                        },
+                        {
+                          "fixed": "50.0.0"
+                        }
+                      ],
+                      "type": "ECOSYSTEM"
+                    }
+                  ],
+                  "versions": [
+                    "44.0.0",
+                    "44.0.1",
+                    "44.0.2",
+                    "44.0.3",
+                    "45.0.0",
+                    "45.0.1",
+                    "45.0.2",
+                    "45.0.3",
+                    "45.0.4",
+                    "45.0.5",
+                    "45.0.6",
+                    "45.0.7",
+                    "46.0.0",
+                    "46.0.1",
+                    "46.0.2",
+                    "46.0.3",
+                    "46.0.4",
+                    "46.0.5",
+                    "46.0.6",
+                    "46.0.7",
+                    "47.0.0",
+                    "48.0.0",
+                    "48.0.1",
+                    "49.0.0"
+                  ]
+                }
+              ],
+              "aliases": [
+                "CVE-2026-69247",
+                "PYSEC-2026-3552"
+              ],
+              "database_specific": {
+                "cwe_ids": [
+                  "CWE-208",
+                  "CWE-209"
+                ],
+                "github_reviewed": true,
+                "github_reviewed_at": "2026-08-03T21:17:00Z",
+                "nvd_published_at": null,
+                "severity": "HIGH"
+              },
+              "details": "### Summary\n\n`pkcs7_decrypt_der`, `pkcs7_decrypt_pem`, and `pkcs7_decrypt_smime` reported the\noutcome of decrypting a `RecipientInfo`'s `encryptedKey` in several\ndistinguishable ways, one of which disclosed the exact length recovered from the\nRSA operation. The same distinction was also observable by timing. An\napplication that decrypts attacker-supplied `EnvelopedData` and reflects the\noutcome gives the attacker a Bleichenbacher oracle against the\ncontent-encryption key.\n\nIntroduced in 44.0.0. Fixed in 50.0.0.\n\n### Details\n\nDecryption ran as: RSA PKCS#1 v1.5 decrypt of `encryptedKey` \u2192 build an AES\ncipher from the result \u2192 AES-CBC decrypt and PKCS#7 unpad. Each stage failed\ndifferently, with no RFC 3218 mitigation:\n\n1. invalid RSA padding \u2192 `Decryption failed`\n2. valid padding, bad key length \u2192 `Invalid key size (N) for AES.`, disclosing `N`\n3. correct length, wrong key \u2192 `Invalid padding bytes.`\n4. the real key \u2192 plaintext\n\nCase 1 is reachable only where the linked library lacks implicit rejection:\nOpenSSL 3.0 and 3.1, LibreSSL, and BoringSSL. On OpenSSL 3.2+, used in our wheels,\ninvalid padding instead returns a synthetic plaintext of\npseudorandom length, so the error channel does not distinguish conforming\nciphertexts.\n\nExploitation requires a service that auto-decrypts untrusted `EnvelopedData`\nmatching the victim certificate and answers adaptively at high volume, such as\nan S/MIME gateway or mail filter.\n\n### Fix\n\nPer RFC 3218, the content-encryption algorithm is now resolved before the\nprivate key is used, so the expected key length is known in advance. If the RSA\ndecryption fails or recovers a key of the wrong length, a random key of the\nexpected length is substituted and decryption continues down an identical path.\nAll failures now report identically and perform the same work.\n\n### Not addressed by this fix\n\n`EnvelopedData` does not authenticate its content. Tampering with\n`encryptedContent` alone yields a CBC padding oracle that recovers plaintext at\nroughly 256 queries per byte, without recovering any key, on every backend. This\nis a property of PKCS#7 rather than of this implementation, cannot be fixed in\nthe library, and is now documented.\n\n### Credit\n\nReported by @X1AOxiang.",
+              "id": "GHSA-g6cj-pr64-35w5",
+              "modified": "2026-08-04T21:26:57.762682357Z",
+              "published": "2026-08-03T21:17:00Z",
+              "references": [
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/pyca/cryptography/security/advisories/GHSA-g6cj-pr64-35w5"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/pyca/cryptography/pull/15369"
+                },
+                {
+                  "type": "WEB",
+                  "url": "https://github.com/pyca/cryptography/commit/53fccd93413a8d7f07d6d8999681f27b75cffa3f"
+                },
+                {
+                  "type": "PACKAGE",
+                  "url": "https://github.com/pyca/cryptography"
+                }
+              ],
+              "related": [
+                "CGA-g67v-j9r6-8vjv"
+              ],
+              "schema_version": "1.7.5",
+              "severity": [
+                {
+                  "score": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+                  "type": "CVSS_V4"
+                }
+              ],
+              "summary": "cryptography: PKCS#7 EnvelopedData decryption exposes a Bleichenbacher oracle through distinguishable errors and timing"
+            }
+          ]
+        },
+        {
+          "package": {
+            "name": "databricks-sdk",
+            "version": "0.133.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "distro",
+            "version": "1.9.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "fastapi",
+            "version": "0.141.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "fastuuid",
+            "version": "0.14.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "filelock",
+            "version": "3.32.4",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "frozenlist",
+            "version": "1.8.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "fsspec",
+            "version": "2026.7.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "gitdb",
+            "version": "4.0.12",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "gitpython",
+            "version": "3.1.60",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "google-auth",
+            "version": "2.57.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "h11",
+            "version": "0.16.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "hf-xet",
+            "version": "1.6.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "httpcore",
+            "version": "1.0.9",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "httpx",
+            "version": "0.28.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "huggingface-hub",
+            "version": "1.29.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "idna",
+            "version": "3.19",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "importlib-metadata",
+            "version": "8.9.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "jinja2",
+            "version": "3.1.6",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "jiter",
+            "version": "0.16.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "jmespath",
+            "version": "1.1.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "joblib",
+            "version": "1.5.3",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "jsonschema",
+            "version": "4.26.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "jsonschema-specifications",
+            "version": "2025.9.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "litellm",
+            "version": "1.98.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "markupsafe",
+            "version": "3.0.3",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "mlflow-skinny",
+            "version": "3.15.2",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "multidict",
+            "version": "6.7.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "narwhals",
+            "version": "2.25.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "nooa",
+            "version": "0.0.10",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "numpy",
+            "version": "2.5.2",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "0BSD AND BSD-3-Clause AND CC0-1.0 AND MIT AND Zlib"
+          ]
+        },
+        {
+          "package": {
+            "name": "openai",
+            "version": "2.54.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "openinference-instrumentation",
+            "version": "0.1.61",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "openinference-instrumentation-litellm",
+            "version": "0.1.41",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "openinference-semantic-conventions",
+            "version": "0.1.35",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "opentelemetry-api",
+            "version": "1.44.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "opentelemetry-instrumentation",
+            "version": "0.65b0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "opentelemetry-proto",
+            "version": "1.44.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "opentelemetry-sdk",
+            "version": "1.44.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "opentelemetry-semantic-conventions",
+            "version": "0.65b0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "packaging",
+            "version": "26.3",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0 OR BSD-2-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "propcache",
+            "version": "0.5.2",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "protobuf",
+            "version": "7.36.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "pyasn1",
+            "version": "0.6.4",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-2-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "pyasn1-modules",
+            "version": "0.4.2",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "pycparser",
+            "version": "3.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "pydantic",
+            "version": "2.13.4",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "pydantic-core",
+            "version": "2.46.4",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "pydantic-settings",
+            "version": "2.15.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "python-dateutil",
+            "version": "2.9.0.post0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "python-dotenv",
+            "version": "1.2.3",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "pyyaml",
+            "version": "6.0.3",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "referencing",
+            "version": "0.37.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "regex",
+            "version": "2026.7.19",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0 AND CNRI-Python"
+          ]
+        },
+        {
+          "package": {
+            "name": "requests",
+            "version": "2.34.2",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "rpds-py",
+            "version": "2026.6.3",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "s3transfer",
+            "version": "0.19.2",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "scikit-learn",
+            "version": "1.9.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "scipy",
+            "version": "1.18.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "setuptools",
+            "version": "84.0.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "six",
+            "version": "1.17.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "smmap",
+            "version": "5.0.3",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "sniffio",
+            "version": "1.3.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0 OR MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "sqlparse",
+            "version": "0.6.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "starlette",
+            "version": "1.6.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "threadpoolctl",
+            "version": "3.6.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "tiktoken",
+            "version": "0.14.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "tokenizers",
+            "version": "0.23.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "non-standard"
+          ]
+        },
+        {
+          "package": {
+            "name": "tqdm",
+            "version": "4.70.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT AND MPL-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "typing-extensions",
+            "version": "4.16.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "PSF-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "typing-inspection",
+            "version": "0.4.4",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "urllib3",
+            "version": "2.7.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "uvicorn",
+            "version": "0.52.4",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "wrapt",
+            "version": "2.4.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-2-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "yarl",
+            "version": "1.24.5",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
+            "name": "zipp",
+            "version": "4.1.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        }
+      ]
+    }
+  ],
+  "experimental_config": {
+    "licenses": {
+      "summary": true,
+      "allowlist": []
+    }
+  },
+  "license_summary": [
+    {
+      "name": "MIT",
+      "count": 26
+    },
+    {
+      "name": "Apache-2.0",
+      "count": 24
+    },
+    {
+      "name": "BSD-3-Clause",
+      "count": 17
+    },
+    {
+      "name": "non-standard",
+      "count": 12
+    },
+    {
+      "name": "BSD-2-Clause",
+      "count": 2
+    },
+    {
+      "name": "PSF-2.0",
+      "count": 2
+    },
+    {
+      "name": "0BSD AND BSD-3-Clause AND CC0-1.0 AND MIT AND Zlib",
+      "count": 1
+    },
+    {
+      "name": "Apache-2.0 AND CNRI-Python",
+      "count": 1
+    },
+    {
+      "name": "Apache-2.0 AND MIT",
+      "count": 1
+    },
+    {
+      "name": "Apache-2.0 OR BSD-2-Clause",
+      "count": 1
+    },
+    {
+      "name": "Apache-2.0 OR BSD-3-Clause",
+      "count": 1
+    },
+    {
+      "name": "Apache-2.0 OR MIT",
+      "count": 1
+    },
+    {
+      "name": "MIT AND MPL-2.0",
+      "count": 1
+    },
+    {
+      "name": "MIT-0",
+      "count": 1
+    },
+    {
+      "name": "MPL-2.0",
+      "count": 1
+    }
+  ]
+}

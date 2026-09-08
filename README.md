@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
 # NeMo Insight Agent Research Preview
 
 The NVIDIA team has been working on agent-driven trace analysis techniques. 
@@ -201,10 +204,36 @@ uv run insight-agent --config analyst.yaml --no-analyst.enabled
 
 ## Validation
 
+When adding NVIDIA-authored files or changing dependencies, update the tracked
+licensing artifacts first:
+
+```bash
+make update-copyright-headers
+make update-licenses
+```
+
+License generation requires `osv-scanner` on `PATH`; CI pins the same 2.3.3
+release used by NeMo Platform. `make update-licenses` refreshes the OSV
+dependency inventory.
+
+Run the same read-only checks used by CI:
+
 ```bash
 uv lock --check
+make check-copyright-headers
+make check-licenses
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
 uv build
 ```
+
+## License
+
+Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This project is licensed under the [Apache License, Version 2.0](LICENSE). See
+[NOTICE](NOTICE) for project attributions and
+[third_party/licenses.jsonl](third_party/licenses.jsonl) for the dependency license inventory.
+
+This project is currently not accepting contributions.

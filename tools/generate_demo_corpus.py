@@ -1,4 +1,7 @@
 #!/usr/bin/env -S uv run
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Generate the bundled sample corpus.
 
 The corpus has to do a specific job: make every one of the tool-issue stream's

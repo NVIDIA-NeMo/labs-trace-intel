@@ -1,4 +1,7 @@
 #!/usr/bin/env -S uv run
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Build and publish an Insight Agent release candidate to NVIDIA Artifactory."""
 
 from __future__ import annotations

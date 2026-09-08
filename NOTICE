@@ -1,0 +1,17 @@
+NeMo Insight Agent Research Preview
+Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+Licensed under the Apache License, Version 2.0.
+
+Third-party dependency licenses are listed in third_party/licenses.jsonl.
+
+The example trace data in examples/tau_bench_traces.jsonl is derived from the
+Tau benchmark project:
+
+  Tau Bench
+  Copyright (c) 2024 Sierra
+  License: MIT
+  Source: https://github.com/sierra-research/tau-bench
+
+The complete Tau Bench license is provided in
+third_party/tau-bench-LICENSE.txt.

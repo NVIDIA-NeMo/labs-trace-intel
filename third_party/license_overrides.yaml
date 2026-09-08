@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Reviewed overrides for licenses that OSV-Scanner reports as non-standard or
+# that fall outside NeMo Platform's default permissive-license allowlist.
+overrides:
+  aiohappyeyeballs: PSF-2.0
+  certifi: MPL-2.0
+  cffi: MIT-0
+  colorama: BSD-3-Clause
+  databricks-sdk: Apache-2.0
+  fastuuid: BSD-3-Clause
+  gitdb: BSD-3-Clause
+  jinja2: BSD-3-Clause
+  mlflow-skinny: Apache-2.0
+  numpy: BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
+  pyasn1-modules: BSD-3-Clause
+  python-dateutil: Apache-2.0
+  scipy: BSD-3-Clause
+  sqlparse: BSD-3-Clause
+  tiktoken: MIT
+  tokenizers: Apache-2.0
+  tqdm: MIT AND MPL-2.0
+  typing-extensions: PSF-2.0

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 name: CI
 
 on:
@@ -34,6 +37,22 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --locked
+
+      - name: Install OSV-Scanner
+        env:
+          OSV_SCANNER_SHA256: 777b4bb7ddd10bdcc8a1aa398d37d05e91e866e7586f9cff3fca2f72b8153033
+          OSV_SCANNER_URL: https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_linux_amd64
+        run: |
+          curl --fail --location --silent --show-error "$OSV_SCANNER_URL" --output "$RUNNER_TEMP/osv-scanner"
+          echo "$OSV_SCANNER_SHA256  $RUNNER_TEMP/osv-scanner" | sha256sum --check -
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Check copyright headers
+        run: uv run --locked python tools/check_copyright_headers.py
+
+      - name: Check third-party licenses
+        run: uv run --locked python tools/generate_third_party_licenses.py --check
 
       - name: Lint
         run: uv run --locked ruff check .

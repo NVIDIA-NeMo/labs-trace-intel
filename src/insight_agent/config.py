@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 """Validated, shareable configuration for a complete Analyst run.
 
 The CLI remains useful for one-off invocations, while this module gives a
