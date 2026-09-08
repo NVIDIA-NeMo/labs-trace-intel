@@ -3,15 +3,12 @@
 
 trace:
   filesystem:
-    path: tau_bench_traces.jsonl
+    path: examples/tau_bench_traces.jsonl
 
-output:
-  directory: ../out
+output_path: insights.yml
 
 evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
 
-analyst:
-  enabled: true
-  # existing_insights: ../previous-run/analyst/insights.json
+# existing_insights: previous-insights.yml

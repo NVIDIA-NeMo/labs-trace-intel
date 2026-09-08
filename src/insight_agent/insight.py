@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
 from pydantic import BaseModel, Field, TypeAdapter
 
 
@@ -23,8 +24,8 @@ _INSIGHTS_ADAPTER = TypeAdapter(list[Insight])
 
 def load_insights(path: Path) -> list[Insight]:
     source = Path(path)
-    text = source.read_text(encoding="utf-8")
-    return _INSIGHTS_ADAPTER.validate_json(text)
+    payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+    return _INSIGHTS_ADAPTER.validate_python(payload)
 
 
 __all__ = ["Insight", "load_insights"]

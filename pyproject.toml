@@ -30,7 +30,7 @@ dependencies = [
     "scikit-learn>=1.4,<2",
     "jsonschema>=4.18,<5",
     "pydantic>=2.12,<3",
-    "pydantic-settings>=2.12,<3",
+    "pydantic-settings[yaml]>=2.12,<3",
     "python-dotenv>=1.0,<2",
     "PyYAML>=6,<7",
     # The Analyst can run from the config-driven command and runs by default in

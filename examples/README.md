@@ -7,25 +7,18 @@
 
 200 real agent traces (1,003 tool calls) from [τ-bench](https://github.com/sierra-research/tau-bench),
 the public tool-agent benchmark, already serialized as canonical `Trace` JSONL.
-Nothing to adapt. Validate the bundled run configuration, then run it:
+Nothing needs adapting. Configure an API key as described in `.env.example`,
+then run it from the repository root:
 
 ```bash
-uv run insight-agent validate --config examples/analyst.yaml
-uv run insight-agent --config examples/analyst.yaml
-open out/index.md
+uv run insight-agent --config examples/insight-analyst.yaml
 ```
+
+The final Insight collection is printed and written to `insights.yml`.
 
 The agent under test is a customer-service assistant working against stateful
 tools. All customer names, addresses and order IDs are τ-bench's own synthetic
 fixtures — there is no real user data here.
-
-The raw-corpus utilities remain available when you want to inspect the input
-independently of a configured run:
-
-```bash
-uv run insight-agent validate --traces examples/tau_bench_traces.jsonl
-uv run insight-agent coverage examples/tau_bench_traces.jsonl
-```
 
 | | |
 |---|---|
@@ -34,7 +27,7 @@ uv run insight-agent coverage examples/tau_bench_traces.jsonl
 | Distinct `logical_case_id`s | 153 |
 | Tools in catalog | 13, with runtime-recovered schemas |
 
-### What it produces
+### Evidence available to the Analyst
 
 ```
 Tool-issue rules evaluable : 14/19
@@ -68,9 +61,8 @@ Not a defect. The τ-bench export genuinely lacks the evidence:
 | `mapped_instrumentation_alias` | no instrumentation aliasing in the source |
 | `explicitly_rejected_ungrounded_identifier` | `complete_provenance_context` is not asserted |
 
-Reading that list is the point of `coverage`. Compare it against the bundled
-sample corpus (`uv run insight-agent demo`), which is synthesised specifically to make
-all nineteen rules fire.
+These abstentions reflect missing evidence in the corpus rather than detector
+failures.
 
 The schemas were recovered from the runtime, and a few tools genuinely present
 a different shape in different traces. Those per-trace catalogs are preserved

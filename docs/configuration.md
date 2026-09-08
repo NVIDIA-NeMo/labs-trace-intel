@@ -3,131 +3,123 @@
 
 # Run configuration
 
-`insight-agent --config` executes the trace source and evidence streams
-selected in a YAML file. Explicit CLI options can still override individual
-settings for a one-off experiment.
+The Insights Analyst can be configured with YAML, generated CLI options, or a
+combination of both. A YAML file is optional, but every run must select exactly
+one trace source and at least one evidence stream.
 
 ```yaml
-# analyst.yaml
+# insight-analyst.yaml
 trace:
-  # Paths are relative to this YAML file.
   filesystem:
     path: traces.jsonl
 
-output:
-  directory: out
+output_path: insights.yml
 
 evidence_streams:
-  anomaly_and_patterns:
-    contamination: 0.02
-    input_scaling: robust
-    cluster_candidates: [2, 3, 4, 5]
-    minimum_independent_traces: 3
-  tool_issues:
-    minimum_independent_cases: 3
-    retry_threshold: 3
+  anomaly_and_patterns: {}
+  tool_issues: {}
 
-analyst:
-  enabled: true
-  model: anthropic/claude-opus-5
-  # api_base: https://gateway.example/v1
-  # env_file: .env
-```
+# Optional LLM settings. Credentials remain in the environment.
+# model: openai/azure/openai/gpt-5.6-luna
+# api_base: https://gateway.example/v1
 
-The same config file can select either MLflow source supported by the CLI:
-
-```yaml
-# A live MLflow experiment.
-trace:
-  max_traces: 500 # optional limit supported by the MLflow loaders
-  mlflow_experiment:
-    experiment: customer-support-agent
-    tracking_uri: https://mlflow.example
-    filter: "trace.status = 'ERROR'" # optional
-```
-
-```yaml
-# A native MLflow trace export on disk.
-trace:
-  max_traces: 500 # optional limit supported by the MLflow loaders
-  mlflow_export:
-    path: exports/traces.json
+# Optionally reconcile with a previous JSON or YAML Insight collection.
+# existing_insights: previous-insights.yml
 ```
 
 Run it with:
 
 ```bash
-uv run insight-agent --config analyst.yaml
+uv run insight-agent --config insight-analyst.yaml
 ```
 
-## Continue from a previous run
+## Trace sources
 
-To carry Insights across runs, point `analyst.existing_insights` at an
-`insights.json` artifact from a previous run. The Insight compilation agent
-keeps the existing collection, merges semantic duplicates, and adds newly
-supported trace references. The current run writes the complete reconciled
-collection to `<output.directory>/analyst/insights.json`.
+Select one trace loader. For a canonical JSONL file:
 
 ```yaml
-analyst:
-  enabled: true
-  existing_insights: previous-run/analyst/insights.json
+trace:
+  filesystem:
+    path: traces.jsonl
 ```
 
-When the input file is that same path, the CLI reads it before replacing it, so
-the file acts as the latest Insight collection and older versions are not kept.
-To retain every version, use a new output directory for each run and update
-`analyst.existing_insights` to point at the preceding run's artifact.
+For a live MLflow experiment:
+
+```yaml
+trace:
+  max_traces: 500
+  mlflow_experiment:
+    experiment: customer-support-agent
+    tracking_uri: https://mlflow.example
+    filter: "trace.status = 'ERROR'"
+```
+
+For a native MLflow trace export:
+
+```yaml
+trace:
+  max_traces: 500
+  mlflow_export:
+    path: exports/traces.json
+```
+
+Relative paths currently resolve from the directory where `insight-agent` is
+run, including paths supplied by YAML.
+
+## Evidence streams
 
 The presence of a stream selects it for the run. Omit a stream when it should
-not run; at least one evidence stream must be configured:
+not run. An empty mapping selects the stream with its defaults:
 
 ```yaml
 evidence_streams:
   anomaly_and_patterns: {}
 ```
 
-The precedence order is: built-in defaults, YAML, then explicit CLI flags.
-The YAML schema and these nested CLI options come from the same Pydantic
-models, so their names, defaults, and validation stay aligned. Run
-`uv run insight-agent --help` to inspect every generated override.
-For example, this retains the YAML setup but changes the output directory and
-one anomaly-and-pattern setting for a one-off experiment:
+Run `uv run insight-agent --help` to see the generated options and configurable
+stream settings.
+
+## CLI-only configuration and overrides
+
+YAML is not required. A complete run can be configured through generated CLI
+options:
 
 ```bash
-uv run insight-agent --config analyst.yaml \
-  --output.directory experiment-out \
-  --evidence-streams.anomaly-and-patterns.minimum-independent-traces 5
+uv run insight-agent \
+  --trace.filesystem.path traces.jsonl \
+  --evidence-streams.anomaly-and-patterns.contamination 0.02
 ```
 
-The generated option names mirror their YAML paths, so the filesystem path can
-also be overridden directly:
+When YAML is used, explicit CLI values take priority and override only the
+specified nested value:
 
 ```bash
-uv run insight-agent --config analyst.yaml \
-  --trace.filesystem.path replacement-traces.jsonl
+uv run insight-agent --config insight-analyst.yaml \
+  --trace.filesystem.path replacement-traces.jsonl \
+  --output-path experiment-insights.yml
 ```
 
-Use `validate` to validate and inspect the resolved config before a run:
+## Continue from a previous run
 
-```bash
-uv run insight-agent validate --config analyst.yaml
+Set `existing_insights` to a previous JSON or YAML Insight collection. Existing
+Insights are retained, semantic duplicates are merged, and newly supported
+trace references can be added:
+
+```yaml
+existing_insights: previous-insights.yml
+output_path: insights.yml
 ```
 
-To validate a canonical trace corpus independently of a run configuration,
-select the other explicit validation target:
-
-```bash
-uv run insight-agent validate --traces traces.jsonl
-```
-
-Utility commands are generated from typed command models in the same way. For
-example, `uv run insight-agent run-analyst --help` shows its composed trace,
-output, evidence-stream, and Analyst settings. Existing concise options such
-as `-o` and `--model` remain aliases of their generated model paths.
+The output is a complete collection, so it can become `existing_insights` for
+the next run.
 
 ## Credentials
 
-Keep credentials out of YAML configuration files. Configure providers through
-their normal environment variables or credential mechanism; do not commit
-local `.env` files.
+Insight compilation requires `INSIGHT_AGENT_API_KEY`. The CLI also recognizes
+the provider-standard `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` fallbacks. Model
+and OpenAI-compatible endpoint settings can come from `INSIGHT_AGENT_MODEL` and
+`INSIGHT_AGENT_API_BASE`, or from the non-secret `model` and `api_base`
+configuration fields.
+
+The CLI loads an optional local `.env` file. Keep credentials out of YAML and
+source control.

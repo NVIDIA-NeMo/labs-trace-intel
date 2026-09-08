@@ -45,30 +45,14 @@ Then run the Analyst:
 ```bash
 uv sync --locked
 
-uv run insight-agent --config examples/analyst.yaml
-open out/index.md
+uv run insight-agent --config examples/insight-analyst.yaml
 ```
 
 `uv sync --locked` creates `.venv`, installs the package and development tools,
 and reproduces the dependency versions committed in `uv.lock`.
 
-This will write the outputs to an /out directory
-
-To see the
-deterministic stages alone, with no key and no cost:
-
-```bash
-uv run insight-agent --config examples/analyst.yaml --no-analyst.enabled
-```
-
-### Run directly from Git
-
-UV can build and run the CLI without cloning the repository:
-
-```bash
-uvx --from 'git+https://github.com/NVIDIA/nemo-platform-insights-preview.git' \
-  insight-agent demo --no-analyst.enabled
-```
+The command prints the complete Insight collection as YAML and writes it to
+`insights.yml`. Insight compilation requires an API key.
 
 The architecture is intentionally small:
 
@@ -78,9 +62,9 @@ TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insig
 
 ### Reusable run configuration
 
-The default command loads its trace, evidence-stream selection, output, and
-non-secret Analyst settings from YAML. Explicit CLI options still override
-the file, which is useful for one-off experiments. See
+The default command can load its trace source, evidence-stream selection,
+output path, and non-secret model settings from YAML. YAML is optional, and
+explicit CLI options override individual file values. See
 [run configuration](docs/configuration.md) for the full schema and examples.
 
 ### Code layout
@@ -93,7 +77,7 @@ src/insight_agent/
 │   ├── anomaly_and_patterns/  # anomaly-and-pattern stream implementation
 │   └── tool_issues/           # tool-issue stream implementation and coverage helper
 ├── insights_generation/  # LLM-backed synthesis and its configuration
-└── cli/                  # command orchestration and artifact writing
+└── cli/                  # command orchestration and final YAML output
 ```
 
 `traces.py` is intentionally the only shared domain module at package top level. The other
@@ -104,14 +88,12 @@ and [tool-issue](src/insight_agent/evidence_streams/tool_issues/README.md) packa
 their own configuration, analysis, and outputs. The canonical input format is documented with
 the public [`Trace` model](src/insight_agent/traces.py).
 
-### Reading the outputs
-./out/analyst contains the final output in insights.json. It also contains a prompt.md which is the full interpolated prompt sent to the Analyst Agent. 
+### Reading the output
 
-./out/anomaly_and_patterns contains the artifacts from the anomaly-and-pattern evidence stream.
-`digest.md` retains its native diagnostic summary; `problems.json` contains the generic handoff sent to Insights generation.
-
-out/tool_issues contains the artifacts from the tool-issue evidence stream.
-`cards.json` retains all native tool-issue cards; `problems.json` contains the recurrence-qualified handoff sent to Insights generation.
+The CLI prints and writes a YAML list of final Insights. Each Insight contains
+a name, description, and the trace references that support it. Intermediate
+evidence-stream artifacts are passed to Insight compilation in memory rather
+than written as a directory tree.
 
 ## Running the agent on your own traces
 
@@ -126,12 +108,12 @@ experiment:
 ```bash
 uv sync --locked --extra mlflow
 
-# In analyst.yaml, select the live loader:
+# In insight-analyst.yaml, select the live loader:
 # trace:
 #   mlflow_experiment:
 #     experiment: my-agent
 #     tracking_uri: https://mlflow.example.com
-  uv run --no-sync insight-agent --config analyst.yaml
+uv run --no-sync insight-agent --config insight-analyst.yaml
 ```
 
 Authentication uses the MLflow SDK's standard environment variables. Set
@@ -157,11 +139,11 @@ If the traces are already exported from MLflow, pass the native JSON directly:
 
 ```bash
 uv sync --locked --extra mlflow
-# In analyst.yaml, select the export loader:
+# In insight-analyst.yaml, select the export loader:
 # trace:
 #   mlflow_export:
 #     path: traces.json
-uv run --no-sync insight-agent --config analyst.yaml
+uv run --no-sync insight-agent --config insight-analyst.yaml
 ```
 
 The loader accepts complete JSON from `mlflow traces search --output json`, `mlflow traces get`,
@@ -179,28 +161,15 @@ parses each line directly with the Pydantic model; it does not normalize or rema
 If your traces are not in a compatible format, the repo ships with a skill for implementing a
 source-specific loader: [`.claude/skills/trace-loader/SKILL.md`](.claude/skills/trace-loader/SKILL.md).
 
-After converting your traces, validate the format:
+After converting your traces, run the analysis. The filesystem loader validates
+the canonical trace records while loading them:
 
 ```bash
-# Check the format
-uv run insight-agent validate --traces traces.jsonl
-
-# Check what your data actually supports
-uv run insight-agent coverage traces.jsonl
+uv run insight-agent --config insight-analyst.yaml
 ```
 
-Then run the full analysis:
-```bash
-uv run insight-agent --config analyst.yaml
-```
-
-Results are written to the `out` directory.
-
-For a dry run or a run without LLM synthesis:
-```bash
-uv run insight-agent run-analyst traces.jsonl -o out --dry-run
-uv run insight-agent --config analyst.yaml --no-analyst.enabled
-```
+Results are printed and written to the configured `output_path`, which defaults
+to `insights.yml`.
 
 ## Validation
 
