@@ -46,6 +46,9 @@ insight-agent = "insight_agent.cli:main"
 
 [tool.uv]
 managed = true
+# mlflow-skinny currently reaches databricks-sdk, which caps protobuf below 7.
+# Protobuf 7.35 contains the complete ParseDict recursion-depth fix.
+override-dependencies = ["protobuf>=7.35,<8"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/insight_agent"]
