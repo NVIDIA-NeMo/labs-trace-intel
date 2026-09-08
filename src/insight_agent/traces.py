@@ -1,4 +1,4 @@
-"""Normalized trace contracts shared by evidence streams and Insight compilation."""
+"""Normalized trace contracts shared by evidence streams and the Analyst."""
 
 from __future__ import annotations
 

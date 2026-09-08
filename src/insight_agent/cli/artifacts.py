@@ -67,7 +67,7 @@ def prepared_features(prepared: Any) -> list[dict[str, Any]]:
     """Flatten ``run_anomaly_and_patterns``'s ``prepared`` list into per-trace feature rows.
 
     Keeps the numeric vector, the trajectory tokens and the source pointer —
-    everything Insight compilation needs to see why a trace was scored the way it was —
+    everything an analyst needs to see why a trace was scored the way it was —
     without echoing the entire input corpus back into the output directory.
     """
 

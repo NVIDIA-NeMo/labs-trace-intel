@@ -1,8 +1,8 @@
-# IA2 cited evidence digest
+# Anomaly and pattern evidence digest
 
 ## Reader contract
 
-IA2 answers **what is unusual?** and **what recurs?** It does not author an Insight, prove causality, or turn an anomaly into an error. Insight compilation must inspect cited traces and may file zero Insights.
+This stream answers **what is unusual?** and **what recurs?** It does not author an Insight, prove causality, or turn an anomaly into an error. The Analyst must inspect cited traces and may file zero Insights.
 
 ## Inventory
 
@@ -39,7 +39,7 @@ These are observed tool/runtime outputs, not proof that the agent chose the wron
 | Signature | Traces | Events | Representative calls |
 |---|---:|---:|---|
 
-## Insight compilation rules
+## Analyst authoring rules
 
 1. File only recurring, operationally useful, evidence-backed Insights.
 2. Cite exact trace IDs and call IDs, then open raw evidence when needed.

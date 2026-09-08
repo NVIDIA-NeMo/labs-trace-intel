@@ -72,10 +72,10 @@ def test_build_cards_requires_three_independent_cases():
     cards = build_cards(findings, minimum_independent_cases=3)
 
     assert cards
-    assert any(card.eligible_for_insight_compilation for card in cards)
+    assert any(card.eligible_for_analyst for card in cards)
     for card in cards:
         expected = card.independent_case_count >= 3
-        assert card.eligible_for_insight_compilation is expected
+        assert card.eligible_for_analyst is expected
 
 
 def test_build_cards_at_a_higher_threshold_disqualifies_everything():
@@ -83,7 +83,7 @@ def test_build_cards_at_a_higher_threshold_disqualifies_everything():
     cards = build_cards(findings, minimum_independent_cases=99)
 
     assert cards
-    assert not any(card.eligible_for_insight_compilation for card in cards)
+    assert not any(card.eligible_for_analyst for card in cards)
 
 
 @pytest.mark.filterwarnings("error")

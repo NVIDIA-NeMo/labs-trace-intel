@@ -155,10 +155,10 @@ def test_tool_issue_stream_retains_all_findings_and_cards():
 
     assert isinstance(evidence.artifacts, ToolIssueEvidenceArtifacts)
     assert {finding["issue_type"] for finding in evidence.artifacts.findings} == set(FINDING_TYPES)
-    assert any(card.eligible_for_insight_compilation for card in evidence.artifacts.cards)
+    assert any(card.eligible_for_analyst for card in evidence.artifacts.cards)
     assert set(evidence.artifacts.catalog_coverage) == set(FINDING_TYPES)
     assert len(evidence.problems) == sum(
-        card.eligible_for_insight_compilation for card in evidence.artifacts.cards
+        card.eligible_for_analyst for card in evidence.artifacts.cards
     )
     assert [trace.id for trace in snapshot] == list(snapshot.traces_by_id)
 

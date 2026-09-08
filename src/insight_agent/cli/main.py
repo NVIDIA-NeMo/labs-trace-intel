@@ -9,9 +9,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import asyncio
+import importlib.util
 import json
-import os
 import sys
 from collections.abc import Sequence
 from importlib.resources import files
@@ -20,12 +19,33 @@ from typing import Any
 
 import numpy
 import sklearn
-from nooa import build_prompt_data
-from nooa.prompts import render_prompt_data
-from nooa.unifiedllm import CompletionClient
+from pydantic_settings import CliApp, CliSettingsSource, get_subcommand
 
 from insight_agent import __version__
 from insight_agent.cli.artifacts import prepared_features, write_json
+from insight_agent.cli.commands import (
+    UTILITY_CLI_SHORTCUTS,
+    UTILITY_COMMAND_NAMES,
+    CoverageCommand,
+    DemoCommand,
+    ExplainFailuresCommand,
+    RunAnalystCommand,
+    SchemaCommand,
+    TraceSourceCommandConfig,
+    UtilityCommands,
+    UtilityEvidenceConfig,
+    ValidateCommand,
+)
+from insight_agent.config import (
+    AnalystGenerationConfig,
+    EvidenceStreamsConfig,
+    FilesystemConfig,
+    OutputConfig,
+    RunConfig,
+    TraceConfig,
+    dump_run_config,
+    load_run_config,
+)
 from insight_agent.evidence_streams.anomaly_and_patterns import (
     AnomalyAndPatternsAnalysis,
     AnomalyAndPatternsArtifacts,
@@ -44,7 +64,6 @@ from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult
 from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
 from insight_agent.evidence_streams.tool_issues import (
     ToolIssueCard,
-    ToolIssueConfig,
     ToolIssueEvidenceArtifacts,
     detect,
     problems_from_cards,
@@ -52,7 +71,19 @@ from insight_agent.evidence_streams.tool_issues import (
     to_tool_issue_trace,
 )
 from insight_agent.evidence_streams.tool_issues.coverage import corpus_coverage, format_coverage
-from insight_agent.insights_generation import InsightCompilation
+from insight_agent.insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
+from insight_agent.insights_generation import (
+    InsightsGeneration,
+    InsightsGenerationError,
+    ResponseParseError,
+)
+from insight_agent.insights_generation.config import (
+    ENV_API_BASE,
+    ENV_API_KEY,
+    ENV_MODEL,
+    load_dotenv,
+    resolve,
+)
 from insight_agent.trace_loaders import (
     MLFLOW_DEFAULT_MAX_TRACES,
     FSDataLoader,
@@ -70,132 +101,58 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_SCHEMA = 2
 
-DEFAULT_MODEL = "openai/azure/openai/gpt-5.6-luna"
-DEFAULT_API_BASE = "https://inference-api.nvidia.com/v1"
-DEFAULT_MAX_TOKENS = 300_000
-DEFAULT_REASONING_EFFORT = "high"
-
-
+CLI_DESCRIPTION = (
+    "Analyze agent traces for recurring problems using configurable evidence streams "
+    "and optional LLM-authored Insights."
+)
 # -- shared plumbing -------------------------------------------------------
 
 
-def _add_file_corpus_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("traces", type=Path, help="canonical JSONL corpus")
-
-
-def _add_trace_source_arguments(parser: argparse.ArgumentParser) -> None:
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("traces", type=Path, nargs="?", help="canonical JSONL corpus")
-    source.add_argument(
-        "--mlflow-experiment",
-        metavar="NAME",
-        help="load traces directly from this MLflow experiment",
-    )
-    source.add_argument(
-        "--mlflow-export",
-        type=Path,
-        metavar="PATH",
-        help="load a native MLflow trace JSON export",
-    )
-    parser.add_argument(
-        "--mlflow-tracking-uri",
-        default=None,
-        help="MLflow tracking URI (default: MLFLOW_TRACKING_URI or the MLflow default)",
-    )
-    parser.add_argument(
-        "--mlflow-filter",
-        default=None,
-        help="MLflow trace search filter, for example `trace.status = 'ERROR'`",
-    )
-    parser.add_argument(
-        "--max-traces",
-        type=int,
-        default=MLFLOW_DEFAULT_MAX_TRACES,
-        help=(
-            f"maximum MLflow traces to materialize in memory (default: "
-            f"{MLFLOW_DEFAULT_MAX_TRACES}); online queries use 500-trace pages per MLflow's "
-            "REST limit: "
-            "https://mlflow.org/docs/latest/api_reference/rest-api.html#searchtracesv3"
-        ),
-    )
-
-
-def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "-o", "--out", type=Path, default=Path("out"), help="output directory (default: ./out)"
-    )
-    parser.add_argument("--quiet", action="store_true", help="suppress the stdout summary")
-
-
-def _cluster_candidates(value: str) -> tuple[int, ...]:
-    try:
-        return tuple(int(item.strip()) for item in value.split(","))
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("expected comma-separated integers") from exc
-
-
-def _add_anomaly_and_patterns_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--contamination", type=float, default=0.02)
-    parser.add_argument("--input-scaling", choices=("none", "robust"), default="none")
-    parser.add_argument(
-        "--cluster-candidates",
-        type=_cluster_candidates,
-        default=(2, 3, 4, 5, 6, 7, 8),
-    )
-    parser.add_argument("--min-independent-traces", type=int, default=3)
-    parser.add_argument(
-        "--feature", action="append", default=None, help="override the feature list (repeatable)"
-    )
-
-
-def _add_tool_issue_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--min-independent-cases", type=int, default=3)
-    parser.add_argument("--retry-threshold", type=int, default=3)
-    parser.add_argument("--all-cards", action="store_true")
-
-
-def _trace_loader(args: argparse.Namespace) -> TraceLoader:
+def _trace_loader(args: TraceSourceCommandConfig) -> TraceLoader:
     """Construct the selected trace source without leaking it downstream."""
-    experiment = getattr(args, "mlflow_experiment", None)
-    export_path = getattr(args, "mlflow_export", None)
-    if experiment:
+    if args.mlflow_experiment is not None:
+        source = args.mlflow_experiment
         return MLflowTraceLoader(
             MLflowTraceConfig(
-                experiment_name=experiment,
-                tracking_uri=getattr(args, "mlflow_tracking_uri", None),
-                filter_string=getattr(args, "mlflow_filter", None),
-                max_traces=getattr(args, "max_traces", MLFLOW_DEFAULT_MAX_TRACES),
+                experiment_name=source.experiment,
+                tracking_uri=source.tracking_uri,
+                filter_string=source.filter,
+                max_traces=args.max_traces,
             )
         )
 
-    if export_path:
-        mlflow_query_options = []
-        if getattr(args, "mlflow_tracking_uri", None) is not None:
-            mlflow_query_options.append("--mlflow-tracking-uri")
-        if getattr(args, "mlflow_filter", None) is not None:
-            mlflow_query_options.append("--mlflow-filter")
-        if mlflow_query_options:
-            options = ", ".join(mlflow_query_options)
-            raise ValueError(f"{options} require --mlflow-experiment")
+    if args.mlflow_export is not None:
         return MLflowFileTraceLoader(
             MLflowFileTraceConfig(
-                path=export_path,
-                max_traces=getattr(args, "max_traces", MLFLOW_DEFAULT_MAX_TRACES),
+                path=args.mlflow_export.path,
+                max_traces=args.max_traces,
             )
         )
 
-    mlflow_only = []
-    if getattr(args, "mlflow_tracking_uri", None) is not None:
-        mlflow_only.append("--mlflow-tracking-uri")
-    if getattr(args, "mlflow_filter", None) is not None:
-        mlflow_only.append("--mlflow-filter")
-    if getattr(args, "max_traces", MLFLOW_DEFAULT_MAX_TRACES) != MLFLOW_DEFAULT_MAX_TRACES:
-        mlflow_only.append("--max-traces")
-    if mlflow_only:
-        options = ", ".join(mlflow_only)
-        raise ValueError(f"{options} require --mlflow-experiment")
-
+    assert args.traces is not None
     return FSDataLoader(args.traces)
+
+
+def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
+    """Construct a trace loader directly from validated run configuration."""
+
+    max_traces = config.max_traces or MLFLOW_DEFAULT_MAX_TRACES
+    if config.filesystem is not None:
+        return FSDataLoader(config.filesystem.path)
+    if config.mlflow_experiment is not None:
+        source = config.mlflow_experiment
+        return MLflowTraceLoader(
+            MLflowTraceConfig(
+                experiment_name=source.experiment,
+                tracking_uri=source.tracking_uri,
+                filter_string=source.filter,
+                max_traces=max_traces,
+            )
+        )
+    assert config.mlflow_export is not None
+    return MLflowFileTraceLoader(
+        MLflowFileTraceConfig(path=config.mlflow_export.path, max_traces=max_traces)
+    )
 
 
 def _run_metadata(
@@ -223,7 +180,7 @@ def _run_metadata(
 # -- commands --------------------------------------------------------------
 
 
-def cmd_schema(args) -> int:
+def cmd_schema(args: SchemaCommand) -> int:
     text = json.dumps(Trace.model_json_schema(), indent=2, ensure_ascii=False) + "\n"
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
@@ -233,27 +190,37 @@ def cmd_schema(args) -> int:
     return EXIT_OK
 
 
-def cmd_validate(args) -> int:
+def cmd_validate(args: ValidateCommand) -> int:
+    if args.config is not None:
+        try:
+            config = load_run_config(args.config)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EXIT_ERROR
+        print(json.dumps(dump_run_config(config), indent=2, sort_keys=True))
+        return EXIT_OK
+
+    assert args.traces is not None
     try:
         snapshot = FSDataLoader(args.traces).load()
     except FSDataLoadError as error:
         payload = {"ok": False, "trace_count": 0, "errors": [str(error)]}
-        if args.json:
+        if args.json_output:
             sys.stdout.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
         else:
             print(f"error: {error}")
         return EXIT_SCHEMA
 
     payload = {"ok": True, "trace_count": snapshot.trace_count, "errors": []}
-    if args.json:
+    if args.json_output:
         sys.stdout.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     else:
         print(f"OK — loaded {snapshot.trace_count} trace(s).")
     return EXIT_OK
 
 
-def cmd_coverage(args) -> int:
-    loader = _trace_loader(args)
+def cmd_coverage(args: CoverageCommand) -> int:
+    loader = FSDataLoader(args.traces)
     findings = None
     if args.with_findings:
         findings = detect(
@@ -261,51 +228,53 @@ def cmd_coverage(args) -> int:
         )
 
     report = corpus_coverage(loader, findings=findings)
-    if args.json:
+    if args.json_output:
         sys.stdout.write(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     else:
         print(format_coverage(report, verbose=args.verbose))
     return EXIT_OK
 
 
-def cmd_explain_failures(args) -> int:
+def cmd_explain_failures(args: ExplainFailuresCommand) -> int:
     """Show, per call, how each engine decoded the result.
 
-    IA2 and IA3 use different failure decoders. IA2 unwraps text from
-    ``content``/``output``/``message``/``error``/``summary`` while IA3 unwraps
-    only ``content``; IA2 accepts ``is_error``/``ok``/``exit_code`` while IA3
-    accepts ``called``/a non-empty ``error``/shell exit lines. This command
-    makes the divergence visible rather than mysterious.
+    The anomaly-and-pattern and tool-issue streams use different failure
+    decoders. The former unwraps text from ``content``/``output``/``message``/
+    ``error``/``summary`` and accepts ``is_error``/``ok``/``exit_code``. The
+    latter unwraps only ``content`` and accepts ``called``/a non-empty
+    ``error``/shell exit lines. This command makes the divergence visible.
     """
     loader = _trace_loader(args)
     snapshot = loader.load()
-    ia2_traces = {trace.id: to_anomaly_and_patterns_trace(trace) for trace in snapshot}
+    pattern_traces = {trace.id: to_anomaly_and_patterns_trace(trace) for trace in snapshot}
     rows = []
 
     for trace in (to_tool_issue_trace(item) for item in snapshot):
-        ia2_calls = {c.call_id: c for c in ia2_traces[trace.trace_id].calls}
+        pattern_calls = {call.call_id: call for call in pattern_traces[trace.trace_id].calls}
         for call in trace.calls:
-            ia3_failed, ia3_marker = strict_failure(call)
-            ia2_call = ia2_calls.get(call.call_id)
-            if ia2_call is None:
+            tool_issue_failed, tool_issue_marker = strict_failure(call)
+            pattern_call = pattern_calls.get(call.call_id)
+            if pattern_call is None:
                 continue
-            ia2_failed, ia2_marker, _ = decode_explicit_failure(ia2_call.tool_name, ia2_call.result)
+            pattern_failed, pattern_marker, _ = decode_explicit_failure(
+                pattern_call.tool_name, pattern_call.result
+            )
             row = {
                 "trace_id": trace.trace_id,
                 "call_id": call.call_id,
                 "call_index": call.call_index,
                 "tool_name": call.tool_name,
-                "ia2_failed": ia2_failed,
-                "ia2_marker": ia2_marker,
-                "ia3_failed": ia3_failed,
-                "ia3_marker": ia3_marker,
-                "agree": ia2_failed == ia3_failed,
+                "anomaly_and_patterns_failed": pattern_failed,
+                "anomaly_and_patterns_marker": pattern_marker,
+                "tool_issues_failed": tool_issue_failed,
+                "tool_issues_marker": tool_issue_marker,
+                "agree": pattern_failed == tool_issue_failed,
             }
             if args.only_disagreements and row["agree"]:
                 continue
             rows.append(row)
 
-    if args.json:
+    if args.json_output:
         sys.stdout.write(json.dumps(rows, indent=2, ensure_ascii=False) + "\n")
         return EXIT_OK
 
@@ -313,58 +282,62 @@ def cmd_explain_failures(args) -> int:
         print("No disagreements." if args.only_disagreements else "No calls.")
         return EXIT_OK
 
-    print(f"{'trace':<28} {'call':<26} {'tool':<20} {'IA2':<24} {'IA3':<24}")
+    print(f"{'trace':<28} {'call':<26} {'tool':<20} {'patterns':<24} {'tool issues':<24}")
     print("-" * 126)
     for row in rows:
-        ia2 = f"{'FAIL' if row['ia2_failed'] else 'ok'} {row['ia2_marker'] or ''}".strip()
-        ia3 = f"{'FAIL' if row['ia3_failed'] else 'ok'} {row['ia3_marker'] or ''}".strip()
+        pattern_status = (
+            f"{'FAIL' if row['anomaly_and_patterns_failed'] else 'ok'} "
+            f"{row['anomaly_and_patterns_marker'] or ''}"
+        ).strip()
+        tool_issue_status = (
+            f"{'FAIL' if row['tool_issues_failed'] else 'ok'} {row['tool_issues_marker'] or ''}"
+        ).strip()
         flag = "" if row["agree"] else "  <-- disagree"
         print(
             f"{row['trace_id'][:27]:<28} {row['call_id'][:25]:<26} "
-            f"{row['tool_name'][:19]:<20} {ia2[:23]:<24} {ia3[:23]:<24}{flag}"
+            f"{row['tool_name'][:19]:<20} {pattern_status[:23]:<24} "
+            f"{tool_issue_status[:23]:<24}{flag}"
         )
 
     disagreements = sum(1 for r in rows if not r["agree"])
     print(f"\n{len(rows)} call(s), {disagreements} disagreement(s).")
     if disagreements:
         print(
-            "Disagreements usually mean result text is wrapped under a key IA3 does not "
-            'unwrap. Use {"content": ...} for textual results.'
+            "Disagreements usually mean result text is wrapped under a key the tool-issue "
+            'stream does not unwrap. Use {"content": ...} for textual results.'
         )
     return EXIT_OK
 
 
 def _registered_evidence_streams(
-    args: argparse.Namespace,
+    config: UtilityEvidenceConfig,
     *names: str,
 ) -> EvidenceStreamRegistry:
     requested = names or BUILTIN_STREAM_NAMES
-    anomaly_and_patterns: AnomalyAndPatternsConfig | None = None
-    if ANOMALY_AND_PATTERNS in requested:
-        anomaly_and_patterns = AnomalyAndPatternsConfig(
-            contamination=args.contamination,
-            input_scaling=args.input_scaling,
-            cluster_candidates=args.cluster_candidates,
-            minimum_independent_traces=args.min_independent_traces,
-            feature_names=tuple(args.feature) if args.feature is not None else None,
-        )
+    return registered_builtin_streams(
+        anomaly_and_patterns=(
+            config.anomaly_and_patterns if ANOMALY_AND_PATTERNS in requested else None
+        ),
+        tool_issues=config.tool_issues if TOOL_ISSUES in requested else None,
+    )
 
-    tool_issues: ToolIssueConfig | None = None
-    if TOOL_ISSUES in requested:
-        tool_issues = ToolIssueConfig(
-            minimum_independent_cases=args.min_independent_cases,
-            retry_threshold=args.retry_threshold,
-            include_audit_problems=args.all_cards,
-        )
+
+def _configured_evidence_streams(
+    config: EvidenceStreamsConfig,
+    names: Sequence[str],
+) -> EvidenceStreamRegistry:
+    """Register selected streams with the typed settings loaded for each one."""
 
     return registered_builtin_streams(
-        anomaly_and_patterns=anomaly_and_patterns,
-        tool_issues=tool_issues,
+        anomaly_and_patterns=(
+            config.anomaly_and_patterns if ANOMALY_AND_PATTERNS in names else None
+        ),
+        tool_issues=config.tool_issues if TOOL_ISSUES in names else None,
     )
 
 
 def _write_anomaly_and_patterns(
-    args: argparse.Namespace,
+    output: OutputConfig,
     loader: TraceLoader,
     snapshot: TraceSnapshot,
     evidence: EvidenceStreamResult,
@@ -374,11 +347,11 @@ def _write_anomaly_and_patterns(
         raise TypeError("anomaly-and-patterns stream returned unexpected artifacts")
     result = artifacts.result
 
-    if args.out == Path("-"):
+    if output.directory == Path("-"):
         sys.stdout.write(result.digest)
         return EXIT_OK
 
-    target = args.out / "ia2"
+    target = output.directory / "anomaly_and_patterns"
     target.mkdir(parents=True, exist_ok=True)
     (target / "digest.md").write_text(result.digest, encoding="utf-8")
     write_json(target / "anomalies.json", result.anomalies)
@@ -410,10 +383,10 @@ def _write_anomaly_and_patterns(
         ),
     )
 
-    if not args.quiet:
+    if not output.quiet:
         flagged = [row for row in result.anomalies if row.is_anomaly]
         groups = result.trajectory_groups
-        print(f"IA2 over {snapshot.trace_count} traces -> {target}")
+        print(f"Anomaly and pattern evidence over {snapshot.trace_count} traces -> {target}")
         print(f"  unusual traces        : {len(flagged)}")
         print(f"  trajectory clusters   : {len(groups['clusters']) if groups else 'not evaluable'}")
         print(f"  verdict groups        : {len(result.verdict_groups)}")
@@ -431,18 +404,8 @@ def _write_anomaly_and_patterns(
     return EXIT_OK
 
 
-def cmd_run_ia2(args: argparse.Namespace) -> int:
-    loader = _trace_loader(args)
-    snapshot = loader.load()
-
-    evidence = _registered_evidence_streams(args, ANOMALY_AND_PATTERNS).analyze(
-        ANOMALY_AND_PATTERNS, snapshot
-    )
-    return _write_anomaly_and_patterns(args, loader, snapshot, evidence)
-
-
 def _write_tool_issues(
-    args: argparse.Namespace,
+    output: OutputConfig,
     loader: TraceLoader,
     snapshot: TraceSnapshot,
     evidence: EvidenceStreamResult,
@@ -453,10 +416,10 @@ def _write_tool_issues(
 
     findings = list(artifacts.findings)
     cards = list(artifacts.cards)
-    eligible = [card for card in cards if card.eligible_for_insight_compilation]
+    eligible = [card for card in cards if card.eligible_for_analyst]
     include_audit = artifacts.config.include_audit_problems
     rendered = cards if (include_audit or not eligible) else eligible
-    target = args.out / "ia3"
+    target = output.directory / "tool_issues"
     target.mkdir(parents=True, exist_ok=True)
     write_json(target / "findings.json", findings)
     write_json(target / "cards.json", cards)
@@ -477,12 +440,12 @@ def _write_tool_issues(
         ),
     )
 
-    if not args.quiet:
-        print(f"IA3 over {snapshot.trace_count} traces -> {target}")
+    if not output.quiet:
+        print(f"Tool-issue evidence over {snapshot.trace_count} traces -> {target}")
         print(f"  findings              : {len(findings)}")
         print(f"  distinct issue types  : {len({f['issue_type'] for f in findings})}/19")
         print(f"  cards                 : {len(cards)}")
-        print(f"  eligible for compilation: {len(eligible)}")
+        print(f"  eligible for analyst  : {len(eligible)}")
         print(f"  cards                 : {target / 'cards.md'}")
         if cards and not eligible:
             distinct = loader.describe()["distinct_logical_cases"]
@@ -498,39 +461,29 @@ def _write_tool_issues(
     return EXIT_OK
 
 
-def cmd_run_ia3(args: argparse.Namespace) -> int:
-    loader = _trace_loader(args)
-    snapshot = loader.load()
-
-    evidence = _registered_evidence_streams(args, TOOL_ISSUES).analyze(TOOL_ISSUES, snapshot)
-    return _write_tool_issues(args, loader, snapshot, evidence)
-
-
 def _render_cards(cards: Sequence[ToolIssueCard], *, total: int | None = None) -> str:
-    lines = ["# IA3 evidence cards", ""]
-    eligible = [card for card in cards if card.eligible_for_insight_compilation]
+    lines = ["# Tool-issue evidence cards", ""]
+    eligible = [card for card in cards if card.eligible_for_analyst]
     total = len(cards) if total is None else total
     lines.append(
         f"{total} card(s) in total; {len(eligible)} reached the independent-case threshold "
-        "and are eligible for Insight compilation."
+        "and are eligible for the Analyst."
     )
     if total > len(cards):
         lines += [
             "",
             f"Showing the {len(cards)} eligible card(s). The remaining {total - len(cards)} "
-            "are in `cards.json`; re-run with `--all-cards` to render them here too.",
+            "are in `cards.json`; enable "
+            "`evidence_streams.tool_issues.include_audit_problems` to render them here too.",
         ]
     lines += [
         "",
         "A card is not an Insight. It is recurring, attributable evidence that a human or "
-        "the Insight compilation agent still has to interpret. `impact_status` is never "
-        "established here.",
+        "Analyst LLM still has to interpret. `impact_status` is never established here.",
         "",
     ]
-    for card in sorted(
-        cards, key=lambda item: (not item.eligible_for_insight_compilation, item.card_id)
-    ):
-        mark = "ELIGIBLE" if card.eligible_for_insight_compilation else "audit only"
+    for card in sorted(cards, key=lambda item: (not item.eligible_for_analyst, item.card_id)):
+        mark = "ELIGIBLE" if card.eligible_for_analyst else "audit only"
         lines += [
             f"## {card.card_id}  ({mark})",
             "",
@@ -552,86 +505,125 @@ def _render_cards(cards: Sequence[ToolIssueCard], *, total: int | None = None) -
     return "\n".join(lines)
 
 
-def _run_all(args: argparse.Namespace, loader: TraceLoader) -> int:
-    if not args.no_insights:
-        missing = _insight_preflight(args)
+def _run(
+    config: RunConfig,
+    loader: TraceLoader,
+    stream_names: Sequence[str] = BUILTIN_STREAM_NAMES,
+) -> int:
+    output = config.output
+    analyst = config.analyst
+    if analyst.enabled:
+        missing = _analyst_preflight(analyst)
         if missing:
             print(f"error: {missing}", file=sys.stderr)
-            print("       pass --no-insights to run IA2 and IA3 only.", file=sys.stderr)
+            print(
+                "       set analyst.enabled to false to run evidence streams only.",
+                file=sys.stderr,
+            )
             return EXIT_ERROR
 
     snapshot = loader.load()
-    args.out.mkdir(parents=True, exist_ok=True)
-    registry = _registered_evidence_streams(args)
-    anomaly_and_patterns, tool_issues = registry.analyze_all(snapshot)
-    if _write_anomaly_and_patterns(args, loader, snapshot, anomaly_and_patterns) != EXIT_OK:
-        return EXIT_ERROR
-    if not args.quiet:
-        print()
-
-    if _write_tool_issues(args, loader, snapshot, tool_issues) != EXIT_OK:
-        return EXIT_ERROR
-    if not args.quiet:
-        print()
-
-    insights_ran = False
-    if not args.no_insights:
-        code = _run_insights(args, loader, snapshot, (anomaly_and_patterns, tool_issues))
-        if code != EXIT_OK:
-            return code
-        insights_ran = True
-        if not args.quiet:
+    output.directory.mkdir(parents=True, exist_ok=True)
+    evidence = _configured_evidence_streams(config.evidence_streams, stream_names).analyze_all(
+        snapshot
+    )
+    writers = {
+        ANOMALY_AND_PATTERNS: _write_anomaly_and_patterns,
+        TOOL_ISSUES: _write_tool_issues,
+    }
+    for result in evidence:
+        if writers[result.stream_name](output, loader, snapshot, result) != EXIT_OK:
+            return EXIT_ERROR
+        if not output.quiet:
             print()
 
-    (args.out / "index.md").write_text(
-        _render_index(str(loader.describe()["source"]), has_insights=insights_ran),
+    analyst_ran = False
+    if analyst.enabled:
+        code = _run_insights(analyst, output, loader, snapshot, evidence)
+        if code != EXIT_OK:
+            return code
+        analyst_ran = True
+        if not output.quiet:
+            print()
+
+    (output.directory / "index.md").write_text(
+        _render_index(
+            str(loader.describe()["source"]),
+            stream_names=stream_names,
+            has_analyst=analyst_ran,
+        ),
         encoding="utf-8",
     )
-    if not args.quiet:
-        print(f"index: {args.out / 'index.md'}")
+    if not output.quiet:
+        print(f"index: {output.directory / 'index.md'}")
     return EXIT_OK
 
 
-def cmd_run_all(args: argparse.Namespace) -> int:
-    return _run_all(args, _trace_loader(args))
+def cmd_run(config: RunConfig) -> int:
+    stream_names = tuple(
+        name
+        for name, stream_config in (
+            (ANOMALY_AND_PATTERNS, config.evidence_streams.anomaly_and_patterns),
+            (TOOL_ISSUES, config.evidence_streams.tool_issues),
+        )
+        if stream_config is not None
+    )
+    return _run(config, _configured_trace_loader(config.trace), stream_names)
 
 
-def _insight_preflight(args: argparse.Namespace) -> str | None:
-    _load_inference_environment(getattr(args, "env_file", None))
-    if not _inference_api_key():
-        return "Insight compilation needs INFERENCE_API_KEY"
+def _analyst_preflight(config: AnalystGenerationConfig) -> str | None:
+    load_dotenv(config.env_file)
+    if not (resolve(ENV_API_KEY) or "").strip():
+        return "the Analyst needs an API key; set INSIGHT_AGENT_API_KEY"
+    if "litellm" in sys.modules:
+        litellm_available = sys.modules["litellm"] is not None
+    else:
+        litellm_available = importlib.util.find_spec("litellm") is not None
+    if not litellm_available:
+        return "the Analyst needs litellm, which is not installed"
     return None
 
 
-def _render_index(source: str, *, has_insights: bool) -> str:
+def _render_index(
+    source: str,
+    *,
+    stream_names: Sequence[str],
+    has_analyst: bool,
+) -> str:
     lines = [
         "# Insight Agent run",
         "",
         f"Trace source: `{source}`",
         "",
-        "## IA2 — what is unusual, and what recurs",
-        "",
-        "- [digest.md](ia2/digest.md) — the packet written for Insight compilation",
-        "- [anomalies.json](ia2/anomalies.json), [features.json](ia2/features.json)",
-        "- [trajectory_groups.json](ia2/trajectory_groups.json), "
-        "[verdict_groups.json](ia2/verdict_groups.json)",
-        "- [failure_groups.json](ia2/failure_groups.json), "
-        "[cross_tool_failure_groups.json](ia2/cross_tool_failure_groups.json)",
-        "",
-        "## IA3 — what is demonstrably wrong with tool use",
-        "",
-        "- [cards.md](ia3/cards.md) — recurrence-qualified evidence cards",
-        "- [cards.json](ia3/cards.json), [findings.json](ia3/findings.json)",
-        "- [coverage.json](ia3/coverage.json) — all nineteen finding types",
-        "",
     ]
-    if has_insights:
+    if ANOMALY_AND_PATTERNS in stream_names:
         lines += [
-            "## Insight compilation — authored Insights",
+            "## Anomalies and patterns — what is unusual, and what recurs",
             "",
-            "- [insights.json](insights/insights.json) — the authored Insights",
-            "- [prompt.txt](insights/prompt.txt) — the exact prompt sent",
-            "- [run.json](insights/run.json) — model and usage",
+            "- [digest.md](anomaly_and_patterns/digest.md) — the packet written for the Analyst",
+            "- [anomalies.json](anomaly_and_patterns/anomalies.json), [features.json](anomaly_and_patterns/features.json)",
+            "- [trajectory_groups.json](anomaly_and_patterns/trajectory_groups.json), "
+            "[verdict_groups.json](anomaly_and_patterns/verdict_groups.json)",
+            "- [failure_groups.json](anomaly_and_patterns/failure_groups.json), "
+            "[cross_tool_failure_groups.json](anomaly_and_patterns/cross_tool_failure_groups.json)",
+            "",
+        ]
+    if TOOL_ISSUES in stream_names:
+        lines += [
+            "## Tool issues — what is demonstrably wrong with tool use",
+            "",
+            "- [cards.md](tool_issues/cards.md) — recurrence-qualified evidence cards",
+            "- [cards.json](tool_issues/cards.json), [findings.json](tool_issues/findings.json)",
+            "- [coverage.json](tool_issues/coverage.json) — all nineteen finding types",
+            "",
+        ]
+    if has_analyst:
+        lines += [
+            "## Analyst — authored Insights",
+            "",
+            "- [insights.json](analyst/insights.json) — the authored Insights",
+            "- [prompt.md](analyst/prompt.md) — the exact prompt sent",
+            "- [run.json](analyst/run.json) — model, usage, prompt version",
             "",
             "This is the only LLM-authored artifact here, and the only one that is not",
             "reproducible. Everything above it is deterministic.",
@@ -647,16 +639,13 @@ def _render_index(source: str, *, has_insights: bool) -> str:
     return "\n".join(lines)
 
 
-def _insights_inputs(args):
-    """Load a snapshot and the evidence consumed by InsightCompilation.
+def _insights_inputs(args: RunAnalystCommand):
+    """Load a snapshot and the evidence consumed by InsightsGeneration.
 
     Either reads artifacts a previous run already produced, or computes them
-    in-process. Explicit `--digest`/`--cards` wins so a paid compilation call can be
+    in-process. Explicit `--digest`/`--cards` wins so a paid Analyst call can be
     re-issued against a frozen evidence set without re-running the engines.
     """
-    if bool(args.digest) != bool(args.cards):
-        raise ValueError("--digest and --cards must be given together")
-
     loader = _trace_loader(args)
     snapshot = loader.load()
 
@@ -681,7 +670,10 @@ def _insights_inputs(args):
             digest=digest,
         )
         anomaly_problems = problems_from_analysis(anomaly_result)
-        tool_problems = problems_from_cards(cards, include_audit=args.all_cards)
+        tool_problems = problems_from_cards(
+            cards,
+            include_audit=args.evidence_streams.tool_issues.include_audit_problems,
+        )
         evidence = (
             EvidenceStreamResult(
                 stream_name="anomaly-and-patterns",
@@ -698,7 +690,7 @@ def _insights_inputs(args):
                     findings=tuple(finding_rows),
                     cards=cards,
                     catalog_coverage={},
-                    config=ToolIssueConfig(include_audit_problems=args.all_cards),
+                    config=args.evidence_streams.tool_issues,
                 ),
             ),
         )
@@ -707,7 +699,7 @@ def _insights_inputs(args):
     return (
         loader,
         snapshot,
-        _registered_evidence_streams(args).analyze_all(snapshot),
+        _registered_evidence_streams(args.evidence_streams).analyze_all(snapshot),
     )
 
 
@@ -718,146 +710,146 @@ def _read_sibling(reference: Path, name: str) -> Any:
     return json.loads(candidate.read_text(encoding="utf-8"))
 
 
-def _load_inference_environment(path: Path | None) -> set[str]:
-    from dotenv import dotenv_values, load_dotenv
-
-    values = dotenv_values(path) if path else dotenv_values()
-    load_dotenv(path, override=False)
-    return {key for key, value in values.items() if value}
-
-
-def _inference_api_key() -> str | None:
-    return next(
-        (
-            os.environ.get(name)
-            for name in (
-                "INFERENCE_API_KEY",
-                "NVIDIA_INFERENCE_API_KEY",
-                "INSIGHT_AGENT_API_KEY",
-            )
-            if os.environ.get(name)
-        ),
-        None,
-    )
-
-
 def _run_insights(
-    args: argparse.Namespace,
+    analyst: AnalystGenerationConfig,
+    output: OutputConfig,
     loader: TraceLoader,
     snapshot: TraceSnapshot,
     evidence: Sequence[EvidenceStreamResult],
+    *,
+    dry_run: bool = False,
 ) -> int:
-    loaded = _load_inference_environment(getattr(args, "env_file", None))
-    model = (
-        args.model
-        or os.environ.get("INFERENCE_MODEL")
-        or os.environ.get("INSIGHT_AGENT_MODEL")
-        or DEFAULT_MODEL
-    )
-    api_base = (
-        getattr(args, "api_base", None)
-        or os.environ.get("INFERENCE_API_BASE")
-        or os.environ.get("INSIGHT_AGENT_API_BASE")
-        or DEFAULT_API_BASE
-    )
-    api_key = _inference_api_key()
-    client = CompletionClient(
-        model=model,
-        api_base=api_base,
-        api_key=api_key,
-        max_tokens=args.max_tokens,
-        reasoning_effort=DEFAULT_REASONING_EFFORT,
-        allowed_openai_params=["tool_choice", "reasoning_effort"],
-        drop_params=True,
-    )
-    compilation = InsightCompilation(llm=client)
-    presented = list(evidence)
-    problems_presented = sum(len(result.problems) for result in presented)
-    target = args.out / "insights"
-    target.mkdir(parents=True, exist_ok=True)
+    # Credentials are only needed here, so `.env` is only read here. A purely
+    # deterministic run never touches the filesystem for configuration.
+    loaded = load_dotenv(analyst.env_file)
+    model = analyst.model or resolve(ENV_MODEL) or ANALYST_DEFAULT_MODEL
+    api_base = analyst.api_base or resolve(ENV_API_BASE)
+    api_key = resolve(ENV_API_KEY)
 
     try:
-        prompt_data = asyncio.run(
-            build_prompt_data(compilation.compile_insights, presented, snapshot, [])
+        generation = InsightsGeneration(
+            snapshot=snapshot,
+            evidence=evidence,
+            corpus=loader.describe(),
+            prompt_version=analyst.prompt_version,
         )
-    except Exception as exc:  # noqa: BLE001 - CLI boundary
-        print(f"error: could not build Insight compilation prompt: {exc}", file=sys.stderr)
+    except (InsightsGenerationError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
-    prompt = render_prompt_data(prompt_data)
-    (target / "prompt.txt").write_text(prompt, encoding="utf-8")
-    if args.dry_run:
+    target = output.directory / "analyst"
+    target.mkdir(parents=True, exist_ok=True)
+
+    system, user = generation.build_prompt()
+    (target / "prompt.md").write_text(
+        f"<!-- system -->\n\n{system}\n\n<!-- user -->\n\n{user}\n", encoding="utf-8"
+    )
+
+    if dry_run:
+        approx = (len(system) + len(user)) // 4
         print("dry run — no API call made")
         print(f"  model                 : {model}")
-        print(f"  api base              : {api_base}")
+        print(f"  prompt version        : {analyst.prompt_version}")
+        if api_base:
+            print(f"  api base              : {api_base}")
         print(f"  credentials           : {'found' if api_key else 'NOT FOUND'}")
         if loaded:
             print(f"  loaded from .env      : {', '.join(sorted(loaded))}")
-        print(f"  problems              : {problems_presented}")
-        print(f"  prompt                : {target / 'prompt.txt'}")
-        print(f"  approx input tokens   : {len(prompt) // 4:,}")
+        print(f"  problems              : {generation.problems_presented}")
+        print(f"  prompt                : {target / 'prompt.md'}")
+        print(f"  approx input tokens   : {approx:,}")
         return EXIT_OK
 
-    if not api_key:
-        print("error: Insight compilation needs INFERENCE_API_KEY", file=sys.stderr)
-        return EXIT_ERROR
+    extra: dict[str, Any] = {}
+    if analyst.temperature is not None:
+        # Unset by default on purpose: temperature is rejected outright by some
+        # current models. Only sent when explicitly asked for.
+        extra["temperature"] = analyst.temperature
 
     try:
-        insights = asyncio.run(compilation.compile_insights(presented, snapshot, []))
-    except Exception as exc:  # noqa: BLE001 - CLI boundary
-        print(f"error: Insight compilation failed: {exc}", file=sys.stderr)
+        result = generation.generate(
+            model=model,
+            max_tokens=analyst.max_tokens,
+            api_base=api_base,
+            api_key=api_key,
+            max_tool_rounds=analyst.max_tool_rounds,
+            **extra,
+        )
+    except ResponseParseError as exc:
+        (target / "analyst_raw.txt").write_text(exc.raw, encoding="utf-8")
+        print(f"error: {exc}", file=sys.stderr)
+        print(f"       raw response saved to {target / 'analyst_raw.txt'}", file=sys.stderr)
+        return EXIT_ERROR
+    except InsightsGenerationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
-    rows = [insight.model_dump(mode="json") for insight in insights]
-    write_json(target / "insights.json", rows)
+    write_json(target / "insights.json", result.insights)
     write_json(
         target / "run.json",
         {
-            "model": model,
+            "model": result.model,
+            "usage": result.usage,
+            "prompt_version": result.prompt_version,
             "api_base": api_base,
-            "problems_presented": problems_presented,
-            "insight_count": len(rows),
+            "tool_calls": result.tool_calls,
+            "traces_fetched": list(result.traces_fetched),
+            "problems_presented": generation.problems_presented,
+            "insight_count": len(result.insights),
             "corpus": loader.describe(),
         },
     )
 
-    if not args.quiet:
-        print(f"Insight compilation over {problems_presented} problem(s) -> {target}")
-        print(f"  model                 : {model}")
-        print(f"  insights              : {len(rows)}")
-        print(f"  insights              : {target / 'insights.json'}")
-        if not rows:
+    if not output.quiet:
+        print(f"Analyst over {generation.problems_presented} problem(s) -> {target}")
+        print(f"  model                 : {result.model}")
+        if result.usage:
+            tokens = result.usage.get("total_tokens") or result.usage.get("prompt_tokens")
+            if tokens:
+                print(f"  tokens                : {tokens:,}")
+        if result.tool_calls:
             print(
-                "  note: zero Insights is valid when the evidence does not support a "
-                "specific, recurring, actionable problem."
+                f"  trace lookups         : {result.tool_calls} call(s), "
+                f"{len(result.traces_fetched)} distinct trace(s)"
+            )
+        print(f"  insights              : {len(result.insights)}")
+        print(f"  insights              : {target / 'insights.json'}")
+
+        if not result.insights:
+            print(
+                "  note: the Analyst filed zero Insights. That is a valid outcome — it means "
+                "the evidence did not support a specific, recurring, actionable problem."
             )
 
-        known = {
-            trace_id
-            for result in presented
-            for problem in result.problems
-            for trace_id in problem.supporting_trace_ids
-        }
-        cited = {trace_id for insight in insights for trace_id in insight.trace_refs}
-        unknown = sorted(cited - known)
+        # Reported, not enforced: there is no validator, but an Insight citing a
+        # trace that is not in the evidence is the failure mode most worth seeing.
+        # A trace the model opened for itself is legitimate evidence, so the
+        # known set has to include what it fetched — otherwise every prompt
+        # with trace lookup looks like it is inventing ids.
+        known = generation.known_trace_ids | set(result.traces_fetched)
+        unknown = sorted(result.cited_trace_ids - known) if known else []
         if unknown:
+            # Distinguish "read it but did not show us" from "does not exist".
             available = {trace.id for trace in snapshot}
-            fabricated = sorted(trace_id for trace_id in unknown if trace_id not in available)
+            fabricated = sorted(t for t in unknown if t not in available)
             print(
-                f"  note: {len(unknown)} cited trace id(s) are not in the evidence: "
-                f"{', '.join(unknown[:3])}{'...' if len(unknown) > 3 else ''}"
+                f"  note: {len(unknown)} cited trace id(s) are not in the evidence or the "
+                f"traces fetched: {', '.join(unknown[:3])}{'...' if len(unknown) > 3 else ''}"
             )
             if fabricated:
-                print(f"  WARNING: {len(fabricated)} cited trace id(s) do not exist in the corpus")
+                print(
+                    f"  WARNING: {len(fabricated)} of those do not exist in the corpus at all — "
+                    "treat this run's citations as unreliable."
+                )
     return EXIT_OK
 
 
-def cmd_run_insights(args: argparse.Namespace) -> int:
+def cmd_run_analyst(args: RunAnalystCommand) -> int:
     """Author Insights from a snapshot and its evidence streams.
 
     The only command in the package that calls out to a model, and the only
-    non-deterministic one. `run-all` and `demo` invoke it by default; pass
-    `--no-insights` to either for a purely deterministic run.
+    non-deterministic one. Config-driven executions and `demo` can invoke it;
+    disable the Analyst for a purely deterministic run.
     """
 
     try:
@@ -865,7 +857,14 @@ def cmd_run_insights(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR
-    return _run_insights(args, loader, snapshot, evidence)
+    return _run_insights(
+        args.analyst,
+        args.output,
+        loader,
+        snapshot,
+        evidence,
+        dry_run=args.dry_run,
+    )
 
 
 def _bundled_data_dir() -> Path:
@@ -875,151 +874,116 @@ def _bundled_data_dir() -> Path:
     return Path(str(files("insight_agent"))) / "data"
 
 
-def cmd_demo(args) -> int:
+def cmd_demo(args: DemoCommand) -> int:
     """End-to-end on the bundled data: the 'does this work at all' command."""
     source = _bundled_data_dir()
     corpus = source / "sample_corpus.jsonl"
 
     print(f"Using the bundled sample corpus: {corpus}\n")
 
-    args.traces = corpus
-    loaded = _trace_loader(args)
+    loaded = FSDataLoader(corpus)
     print(f"validate: {loaded.load().trace_count} trace(s), 0 error(s)")
 
     cov = corpus_coverage(loaded)
-    print(f"coverage: {cov['rules']['evaluable']}/{cov['rules']['total']} IA3 rules evaluable\n")
+    print(
+        f"coverage: {cov['rules']['evaluable']}/{cov['rules']['total']} "
+        "tool-issue rules evaluable\n"
+    )
 
-    return _run_all(args, loaded)
+    config = RunConfig(
+        trace=TraceConfig(filesystem=FilesystemConfig(path=corpus)),
+        output=args.output,
+        evidence_streams=EvidenceStreamsConfig(
+            anomaly_and_patterns=args.evidence_streams.anomaly_and_patterns,
+            tool_issues=args.evidence_streams.tool_issues,
+        ),
+        analyst=args.analyst,
+    )
+    return cmd_run(config)
 
 
 # -- parser ----------------------------------------------------------------
 
 
+def _utility_cli_source() -> CliSettingsSource[UtilityCommands]:
+    """Build every utility subcommand and option from its Pydantic model."""
+
+    return CliSettingsSource(
+        UtilityCommands,
+        cli_prog_name="insight-agent",
+        cli_shortcuts=UTILITY_CLI_SHORTCUTS,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
+    """Return the generated utility parser for tests and embedding."""
+
+    return _utility_cli_source().root_parser
+
+
+def _run_utility(argv: Sequence[str]) -> int:
+    source = _utility_cli_source()
+    commands = CliApp.run(
+        UtilityCommands,
+        cli_args=list(argv),
+        cli_settings_source=source,
+    )
+    command = get_subcommand(commands)
+    handlers = {
+        SchemaCommand: cmd_schema,
+        ValidateCommand: cmd_validate,
+        CoverageCommand: cmd_coverage,
+        ExplainFailuresCommand: cmd_explain_failures,
+        RunAnalystCommand: cmd_run_analyst,
+        DemoCommand: cmd_demo,
+    }
+    return handlers[type(command)](command)
+
+
+def _run_config_from_cli(argv: Sequence[str]) -> RunConfig:
+    """Layer generated Pydantic CLI values over one validated YAML config."""
+
+    bootstrap = argparse.ArgumentParser(add_help=False)
+    bootstrap.add_argument("--config", type=Path)
+    known, _ = bootstrap.parse_known_args(argv)
+
     parser = argparse.ArgumentParser(
         prog="insight-agent",
-        description=(
-            "Deterministic trace-evidence preprocessing. IA2 finds what is unusual and what "
-            "recurs; IA3 finds what is demonstrably wrong with tool use."
+        description=CLI_DESCRIPTION,
+        epilog=(
+            "Utility commands: schema, validate, coverage, explain-failures, run-analyst, demo"
         ),
     )
     parser.add_argument("--version", action="version", version=f"insight-agent {__version__}")
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    # schema
-    p = sub.add_parser("schema", help="print the canonical JSON Schema")
-    p.add_argument("--out", type=Path, default=None)
-    p.set_defaults(func=cmd_schema)
-
-    # validate
-    p = sub.add_parser("validate", help="parse a canonical Trace JSONL corpus")
-    p.add_argument("traces", type=Path)
-    p.add_argument("--json", action="store_true")
-    p.set_defaults(func=cmd_validate)
-
-    # coverage
-    p = sub.add_parser("coverage", help="report which IA3 rules this corpus can support")
-    _add_file_corpus_arguments(p)
-    p.add_argument("--json", action="store_true")
-    p.add_argument("-v", "--verbose", action="store_true", help="list every rule")
-    p.add_argument("--with-findings", action="store_true", help="also run IA3 and mark what fired")
-    p.set_defaults(func=cmd_coverage)
-
-    # explain-failures
-    p = sub.add_parser(
-        "explain-failures", help="compare IA2's and IA3's failure decoding call by call"
+    parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="YAML run configuration; generated CLI flags override its values",
     )
-    _add_trace_source_arguments(p)
-    p.add_argument("--only-disagreements", action="store_true")
-    p.add_argument("--json", action="store_true")
-    p.set_defaults(func=cmd_explain_failures)
+    cli_source = CliSettingsSource(
+        RunConfig,
+        root_parser=parser,
+    )
 
-    # run-ia2
-    p = sub.add_parser("run-ia2", help="anomalies, recurring patterns, and the Insight digest")
-    _add_trace_source_arguments(p)
-    _add_output_arguments(p)
-    _add_anomaly_and_patterns_arguments(p)
-    p.set_defaults(func=cmd_run_ia2)
-
-    # run-ia3
-    p = sub.add_parser("run-ia3", help="deterministic tool-issue detection and evidence cards")
-    _add_trace_source_arguments(p)
-    _add_output_arguments(p)
-    _add_tool_issue_arguments(p)
-    p.set_defaults(func=cmd_run_ia3)
-
-    # run-all
-    p = sub.add_parser("run-all", help="validate, then run IA2, IA3 and Insight compilation")
-    _add_trace_source_arguments(p)
-    _add_output_arguments(p)
-    _add_anomaly_and_patterns_arguments(p)
-    _add_tool_issue_arguments(p)
-    p.add_argument(
-        "--no-insights",
-        action="store_true",
-        help="skip Insight compilation and stop at IA2/IA3 evidence (no API key needed)",
+    initial: dict[str, Any] = {}
+    if known.config is not None:
+        initial = load_run_config(known.config).model_dump()
+    return CliApp.run(
+        RunConfig,
+        cli_args=list(argv),
+        cli_settings_source=cli_source,
+        **initial,
     )
-    p.add_argument("--model", default=None)
-    p.add_argument("--api-base", default=None)
-    p.add_argument("--env-file", type=Path, default=None)
-    p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
-    p.set_defaults(func=cmd_run_all, digest=None, cards=None, dry_run=False)
-
-    # run-insights
-    p = sub.add_parser(
-        "run-insights", help="author Insights from the IA2 digest and IA3 cards (calls an LLM)"
-    )
-    _add_trace_source_arguments(p)
-    _add_output_arguments(p)
-    p.add_argument(
-        "--model",
-        default=None,
-        help=f"LiteLLM model string (default: $INFERENCE_MODEL, else {DEFAULT_MODEL})",
-    )
-    p.add_argument(
-        "--api-base",
-        default=None,
-        help=f"OpenAI-compatible endpoint (default: {DEFAULT_API_BASE})",
-    )
-    p.add_argument(
-        "--env-file", type=Path, default=None, help="path to a .env (default: autodetect)"
-    )
-    p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
-    p.add_argument("--digest", type=Path, default=None, help="use an existing digest.md")
-    p.add_argument("--cards", type=Path, default=None, help="use an existing cards.json")
-    p.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="assemble and write the prompt, make no API call",
-    )
-    _add_anomaly_and_patterns_arguments(p)
-    _add_tool_issue_arguments(p)
-    p.set_defaults(func=cmd_run_insights)
-
-    # demo
-    p = sub.add_parser("demo", help="run everything on the bundled sample data")
-    _add_output_arguments(p)
-    _add_anomaly_and_patterns_arguments(p)
-    _add_tool_issue_arguments(p)
-    p.add_argument(
-        "--no-insights",
-        action="store_true",
-        help="skip Insight compilation and stop at IA2/IA3 evidence (no API key needed)",
-    )
-    p.add_argument("--model", default=None)
-    p.add_argument("--api-base", default=None)
-    p.add_argument("--env-file", type=Path, default=None)
-    p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
-    p.set_defaults(func=cmd_demo, digest=None, cards=None, dry_run=False)
-
-    return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
     try:
-        return args.func(args)
+        if raw_argv and raw_argv[0] in UTILITY_COMMAND_NAMES:
+            return _run_utility(raw_argv)
+        config = _run_config_from_cli(raw_argv)
+        return cmd_run(config)
     except FileNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ERROR

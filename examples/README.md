@@ -36,7 +36,7 @@ uv run insight-agent coverage examples/tau_bench_traces.jsonl
 ```
 Tool-issue rules evaluable : 14/19
 findings            : 64
-cards               : 3, all 3 eligible for Insight compilation
+cards               : 3, all 3 eligible for the Analyst
 ```
 
 | Card | Findings | Independent cases |
@@ -46,7 +46,7 @@ cards               : 3, all 3 eligible for Insight compilation
 | `unknown_tool:unknown_tool` | 6 | 4 |
 
 This is the useful part: unlike a small or synthetic corpus, enough recurs here
-that all three cards clear the three-independent-case gate, so Insight compilation
+that all three cards clear the three-independent-case gate, so the Analyst
 stage has real evidence to author from.
 
 `modified_retry_same_failure` is the one worth reading by hand — the agent
