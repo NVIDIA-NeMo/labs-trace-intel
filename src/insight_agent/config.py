@@ -19,7 +19,6 @@ from insight_agent.evidence_streams.tool_issues import ToolIssueConfig
 from insight_agent.insights_generation import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_MAX_TOOL_ROUNDS,
-    DEFAULT_PROMPT_VERSION,
 )
 
 
@@ -134,7 +133,6 @@ class AnalystGenerationConfig(ConfigModel):
     model: str | None = None
     api_base: str | None = None
     env_file: Path | None = None
-    prompt_version: str = DEFAULT_PROMPT_VERSION
     max_tool_rounds: int = Field(default=DEFAULT_MAX_TOOL_ROUNDS, ge=0)
     temperature: float | None = None
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, ge=1)

@@ -7,7 +7,7 @@ name = "insight-agent"
 version = "0.1.0rc1"
 description = "Insights Analyst trace-evidence processing with a canonical JSONL trace contract"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12,<3.14"
 license = { text = "Proprietary" }
 authors = [{ name = "Insight Agent contributors" }]
 keywords = ["agent-traces", "evaluation", "anomaly-detection", "tool-use"]
@@ -27,6 +27,7 @@ dependencies = [
     # `demo`, so its client is a base dependency rather than an extra. Disabling
     # the stage does not change what gets installed.
     "litellm>=1.55,<2",
+    "nooa>=0.0.10,<0.1",
 ]
 
 [project.urls]

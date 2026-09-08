@@ -9,6 +9,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib.util
 import json
 import sys
@@ -19,6 +20,9 @@ from typing import Any
 
 import numpy
 import sklearn
+from nooa import build_prompt_data
+from nooa.prompts import render_prompt_data
+from nooa.unifiedllm import CompletionClient
 from pydantic_settings import CliApp, CliSettingsSource, get_subcommand
 
 from insight_agent import __version__
@@ -72,11 +76,7 @@ from insight_agent.evidence_streams.tool_issues import (
 )
 from insight_agent.evidence_streams.tool_issues.coverage import corpus_coverage, format_coverage
 from insight_agent.insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
-from insight_agent.insights_generation import (
-    InsightsGeneration,
-    InsightsGenerationError,
-    ResponseParseError,
-)
+from insight_agent.insights_generation import InsightCompilation
 from insight_agent.insights_generation.config import (
     ENV_API_BASE,
     ENV_API_KEY,
@@ -105,6 +105,7 @@ CLI_DESCRIPTION = (
     "Analyze agent traces for recurring problems using configurable evidence streams "
     "and optional LLM-authored Insights."
 )
+DEFAULT_REASONING_EFFORT = "high"
 # -- shared plumbing -------------------------------------------------------
 
 
@@ -574,13 +575,13 @@ def cmd_run(config: RunConfig) -> int:
 def _analyst_preflight(config: AnalystGenerationConfig) -> str | None:
     load_dotenv(config.env_file)
     if not (resolve(ENV_API_KEY) or "").strip():
-        return "the Analyst needs an API key; set INSIGHT_AGENT_API_KEY"
+        return "Insight compilation needs an API key; set INSIGHT_AGENT_API_KEY"
     if "litellm" in sys.modules:
         litellm_available = sys.modules["litellm"] is not None
     else:
         litellm_available = importlib.util.find_spec("litellm") is not None
     if not litellm_available:
-        return "the Analyst needs litellm, which is not installed"
+        return "Insight compilation needs litellm, which is not installed"
     return None
 
 
@@ -619,11 +620,11 @@ def _render_index(
         ]
     if has_analyst:
         lines += [
-            "## Analyst — authored Insights",
+            "## Insight compilation — authored Insights",
             "",
             "- [insights.json](analyst/insights.json) — the authored Insights",
             "- [prompt.md](analyst/prompt.md) — the exact prompt sent",
-            "- [run.json](analyst/run.json) — model, usage, prompt version",
+            "- [run.json](analyst/run.json) — model, endpoint, and input summary",
             "",
             "This is the only LLM-authored artifact here, and the only one that is not",
             "reproducible. Everything above it is deterministic.",
@@ -640,11 +641,11 @@ def _render_index(
 
 
 def _insights_inputs(args: RunAnalystCommand):
-    """Load a snapshot and the evidence consumed by InsightsGeneration.
+    """Load a snapshot and the evidence consumed by InsightCompilation.
 
     Either reads artifacts a previous run already produced, or computes them
-    in-process. Explicit `--digest`/`--cards` wins so a paid Analyst call can be
-    re-issued against a frozen evidence set without re-running the engines.
+    in-process. Explicit `--digest`/`--cards` wins so a paid compilation call can
+    be re-issued against a frozen evidence set without re-running the engines.
     """
     loader = _trace_loader(args)
     snapshot = loader.load()
@@ -719,137 +720,119 @@ def _run_insights(
     *,
     dry_run: bool = False,
 ) -> int:
-    # Credentials are only needed here, so `.env` is only read here. A purely
-    # deterministic run never touches the filesystem for configuration.
     loaded = load_dotenv(analyst.env_file)
     model = analyst.model or resolve(ENV_MODEL) or ANALYST_DEFAULT_MODEL
     api_base = analyst.api_base or resolve(ENV_API_BASE)
     api_key = resolve(ENV_API_KEY)
-
-    try:
-        generation = InsightsGeneration(
-            snapshot=snapshot,
-            evidence=evidence,
-            corpus=loader.describe(),
-            prompt_version=analyst.prompt_version,
+    client_config: dict[str, Any] = {
+        "api_base": api_base,
+        "api_key": api_key,
+        "max_tokens": analyst.max_tokens,
+        "reasoning_effort": DEFAULT_REASONING_EFFORT,
+        "allowed_openai_params": ["tool_choice", "reasoning_effort"],
+        "drop_params": True,
+    }
+    if analyst.temperature is not None:
+        client_config["temperature"] = analyst.temperature
+    compilation = InsightCompilation(
+        llm=CompletionClient(
+            model=model,
+            **client_config,
         )
-    except (InsightsGenerationError, ValueError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return EXIT_ERROR
+    )
+    presented = list(evidence)
+    problems_presented = sum(len(result.problems) for result in presented)
 
     target = output.directory / "analyst"
     target.mkdir(parents=True, exist_ok=True)
 
-    system, user = generation.build_prompt()
-    (target / "prompt.md").write_text(
-        f"<!-- system -->\n\n{system}\n\n<!-- user -->\n\n{user}\n", encoding="utf-8"
-    )
+    try:
+        prompt_data = asyncio.run(
+            build_prompt_data(compilation.compile_insights, presented, snapshot, [])
+        )
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        print(f"error: could not build Insight compilation prompt: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+
+    prompt = render_prompt_data(prompt_data)
+    (target / "prompt.md").write_text(prompt, encoding="utf-8")
 
     if dry_run:
-        approx = (len(system) + len(user)) // 4
         print("dry run — no API call made")
         print(f"  model                 : {model}")
-        print(f"  prompt version        : {analyst.prompt_version}")
-        if api_base:
-            print(f"  api base              : {api_base}")
+        print(f"  api base              : {api_base}")
         print(f"  credentials           : {'found' if api_key else 'NOT FOUND'}")
         if loaded:
             print(f"  loaded from .env      : {', '.join(sorted(loaded))}")
-        print(f"  problems              : {generation.problems_presented}")
+        print(f"  problems              : {problems_presented}")
         print(f"  prompt                : {target / 'prompt.md'}")
-        print(f"  approx input tokens   : {approx:,}")
+        print(f"  approx input tokens   : {len(prompt) // 4:,}")
         return EXIT_OK
 
-    extra: dict[str, Any] = {}
-    if analyst.temperature is not None:
-        # Unset by default on purpose: temperature is rejected outright by some
-        # current models. Only sent when explicitly asked for.
-        extra["temperature"] = analyst.temperature
+    if not api_key:
+        print(
+            "error: Insight compilation needs an API key; set INSIGHT_AGENT_API_KEY",
+            file=sys.stderr,
+        )
+        return EXIT_ERROR
 
     try:
-        result = generation.generate(
-            model=model,
-            max_tokens=analyst.max_tokens,
-            api_base=api_base,
-            api_key=api_key,
-            max_tool_rounds=analyst.max_tool_rounds,
-            **extra,
-        )
-    except ResponseParseError as exc:
-        (target / "analyst_raw.txt").write_text(exc.raw, encoding="utf-8")
-        print(f"error: {exc}", file=sys.stderr)
-        print(f"       raw response saved to {target / 'analyst_raw.txt'}", file=sys.stderr)
-        return EXIT_ERROR
-    except InsightsGenerationError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        insights = asyncio.run(compilation.compile_insights(presented, snapshot, []))
+    except Exception as exc:  # noqa: BLE001 - CLI boundary
+        print(f"error: Insight compilation failed: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
-    write_json(target / "insights.json", result.insights)
+    rows = [insight.model_dump(mode="json") for insight in insights]
+    write_json(target / "insights.json", rows)
     write_json(
         target / "run.json",
         {
-            "model": result.model,
-            "usage": result.usage,
-            "prompt_version": result.prompt_version,
+            "model": model,
             "api_base": api_base,
-            "tool_calls": result.tool_calls,
-            "traces_fetched": list(result.traces_fetched),
-            "problems_presented": generation.problems_presented,
-            "insight_count": len(result.insights),
+            "problems_presented": problems_presented,
+            "insight_count": len(rows),
             "corpus": loader.describe(),
         },
     )
 
     if not output.quiet:
-        print(f"Analyst over {generation.problems_presented} problem(s) -> {target}")
-        print(f"  model                 : {result.model}")
-        if result.usage:
-            tokens = result.usage.get("total_tokens") or result.usage.get("prompt_tokens")
-            if tokens:
-                print(f"  tokens                : {tokens:,}")
-        if result.tool_calls:
-            print(
-                f"  trace lookups         : {result.tool_calls} call(s), "
-                f"{len(result.traces_fetched)} distinct trace(s)"
-            )
-        print(f"  insights              : {len(result.insights)}")
+        print(f"Insight compilation over {problems_presented} problem(s) -> {target}")
+        print(f"  model                 : {model}")
+        print(f"  insights              : {len(rows)}")
         print(f"  insights              : {target / 'insights.json'}")
 
-        if not result.insights:
+        if not rows:
             print(
-                "  note: the Analyst filed zero Insights. That is a valid outcome — it means "
-                "the evidence did not support a specific, recurring, actionable problem."
+                "  note: zero Insights is valid when the evidence does not support a "
+                "specific, recurring, actionable problem."
             )
 
-        # Reported, not enforced: there is no validator, but an Insight citing a
-        # trace that is not in the evidence is the failure mode most worth seeing.
-        # A trace the model opened for itself is legitimate evidence, so the
-        # known set has to include what it fetched — otherwise every prompt
-        # with trace lookup looks like it is inventing ids.
-        known = generation.known_trace_ids | set(result.traces_fetched)
-        unknown = sorted(result.cited_trace_ids - known) if known else []
+        known = {
+            trace_id
+            for result in presented
+            for problem in result.problems
+            for trace_id in problem.supporting_trace_ids
+        }
+        cited = {trace_id for insight in insights for trace_id in insight.trace_refs}
+        unknown = sorted(cited - known)
         if unknown:
-            # Distinguish "read it but did not show us" from "does not exist".
             available = {trace.id for trace in snapshot}
-            fabricated = sorted(t for t in unknown if t not in available)
+            fabricated = sorted(trace_id for trace_id in unknown if trace_id not in available)
             print(
-                f"  note: {len(unknown)} cited trace id(s) are not in the evidence or the "
-                f"traces fetched: {', '.join(unknown[:3])}{'...' if len(unknown) > 3 else ''}"
+                f"  note: {len(unknown)} cited trace id(s) are not in the evidence: "
+                f"{', '.join(unknown[:3])}{'...' if len(unknown) > 3 else ''}"
             )
             if fabricated:
-                print(
-                    f"  WARNING: {len(fabricated)} of those do not exist in the corpus at all — "
-                    "treat this run's citations as unreliable."
-                )
+                print(f"  WARNING: {len(fabricated)} cited trace id(s) do not exist in the corpus")
     return EXIT_OK
 
 
 def cmd_run_analyst(args: RunAnalystCommand) -> int:
     """Author Insights from a snapshot and its evidence streams.
 
-    The only command in the package that calls out to a model, and the only
-    non-deterministic one. Config-driven executions and `demo` can invoke it;
-    disable the Analyst for a purely deterministic run.
+    This runs the InsightCompilation agent, the package's only non-deterministic
+    stage. Config-driven executions and `demo` can invoke it; disable the stage
+    for a purely deterministic run.
     """
 
     try:
