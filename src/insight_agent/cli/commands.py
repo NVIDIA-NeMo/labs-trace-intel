@@ -17,7 +17,7 @@ from insight_agent.config import (
     OutputConfig,
     ToolIssueStreamConfig,
 )
-from insight_agent.trace_loaders import MLFLOW_DEFAULT_MAX_TRACES
+from insight_agent.trace_loaders.mlflow import MLFLOW_DEFAULT_MAX_TRACES
 
 
 class TraceSourceCommandConfig(ConfigModel):

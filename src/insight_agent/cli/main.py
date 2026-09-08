@@ -25,7 +25,6 @@ from nooa.prompts import render_prompt_data
 from nooa.unifiedllm import CompletionClient
 from pydantic_settings import CliApp, CliSettingsSource, get_subcommand
 
-from insight_agent import __version__
 from insight_agent.cli.artifacts import prepared_features, write_json
 from insight_agent.cli.commands import (
     UTILITY_CLI_SHORTCUTS,
@@ -50,7 +49,7 @@ from insight_agent.config import (
     dump_run_config,
     load_run_config,
 )
-from insight_agent.evidence_streams.anomaly_and_patterns import (
+from insight_agent.evidence_streams.anomaly_and_patterns.stream import (
     AnomalyAndPatternsAnalysis,
     AnomalyAndPatternsArtifacts,
     AnomalyAndPatternsConfig,
@@ -66,7 +65,8 @@ from insight_agent.evidence_streams.builtins import (
 )
 from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult
 from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
-from insight_agent.evidence_streams.tool_issues import (
+from insight_agent.evidence_streams.tool_issues.coverage import corpus_coverage, format_coverage
+from insight_agent.evidence_streams.tool_issues.stream import (
     ToolIssueCard,
     ToolIssueEvidenceArtifacts,
     detect,
@@ -74,9 +74,6 @@ from insight_agent.evidence_streams.tool_issues import (
     strict_failure,
     to_tool_issue_trace,
 )
-from insight_agent.evidence_streams.tool_issues.coverage import corpus_coverage, format_coverage
-from insight_agent.insights_generation import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
-from insight_agent.insights_generation import InsightCompilation
 from insight_agent.insights_generation.config import (
     ENV_API_BASE,
     ENV_API_KEY,
@@ -84,18 +81,20 @@ from insight_agent.insights_generation.config import (
     load_dotenv,
     resolve,
 )
-from insight_agent.trace_loaders import (
+from insight_agent.insights_generation.defaults import DEFAULT_MODEL as ANALYST_DEFAULT_MODEL
+from insight_agent.insights_generation.insight_compilation import InsightCompilation
+from insight_agent.trace_loaders.fs import FSDataLoader, FSDataLoadError
+from insight_agent.trace_loaders.mlflow import (
     MLFLOW_DEFAULT_MAX_TRACES,
-    FSDataLoader,
-    FSDataLoadError,
     MLflowFileTraceConfig,
     MLflowFileTraceLoader,
     MLflowTraceConfig,
     MLflowTraceLoader,
     MLflowTraceLoadError,
-    TraceLoader,
 )
+from insight_agent.trace_loaders.trace_loaders import TraceLoader
 from insight_agent.traces import Trace, TraceSnapshot
+from insight_agent.version import __version__
 
 EXIT_OK = 0
 EXIT_ERROR = 1

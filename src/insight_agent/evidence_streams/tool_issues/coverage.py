@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from insight_agent.evidence_streams._trace import walk_spans
-from insight_agent.evidence_streams.tool_issues import FINDING_TYPES
-from insight_agent.trace_loaders import TraceLoader
+from insight_agent.evidence_streams.tool_issues.stream import FINDING_TYPES
+from insight_agent.trace_loaders.trace_loaders import TraceLoader
 from insight_agent.traces import UNSET, SpanKind, Trace
 
 __all__ = ["RULE_REQUIREMENTS", "corpus_coverage", "format_coverage"]

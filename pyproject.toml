@@ -22,6 +22,7 @@ dependencies = [
     "jsonschema>=4.18,<5",
     "pydantic>=2.12,<3",
     "pydantic-settings>=2.12,<3",
+    "python-dotenv>=1.0,<2",
     "PyYAML>=6,<7",
     # The Analyst can run from the config-driven command and runs by default in
     # `demo`, so its client is a base dependency rather than an extra. Disabling
@@ -43,7 +44,7 @@ mlflow = ["mlflow-skinny>=3.6,<4"]
 dev = ["mlflow-skinny>=3.6,<4", "pytest>=8.0", "ruff>=0.6"]
 
 [project.scripts]
-insight-agent = "insight_agent.cli:main"
+insight-agent = "insight_agent.cli.main:main"
 
 [tool.uv]
 managed = true

@@ -9,9 +9,9 @@ from types import SimpleNamespace
 import pytest
 from mlflow.entities import Feedback
 
-from insight_agent.evidence_streams.anomaly_and_patterns import to_anomaly_and_patterns_trace
-from insight_agent.evidence_streams.tool_issues import MISSING, to_tool_issue_trace
-from insight_agent.trace_loaders import (
+from insight_agent.evidence_streams.anomaly_and_patterns.stream import to_anomaly_and_patterns_trace
+from insight_agent.evidence_streams.tool_issues.stream import MISSING, to_tool_issue_trace
+from insight_agent.trace_loaders.mlflow import (
     MLflowFileTraceConfig,
     MLflowFileTraceLoader,
     MLflowTraceConfig,

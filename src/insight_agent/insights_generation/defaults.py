@@ -1,0 +1,3 @@
+DEFAULT_MODEL = "openai/azure/openai/gpt-5.6-luna"
+DEFAULT_MAX_TOKENS = 300_000
+DEFAULT_MAX_TOOL_ROUNDS = 50

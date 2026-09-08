@@ -14,9 +14,9 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from pydantic_settings import SettingsConfigDict
 
-from insight_agent.evidence_streams.anomaly_and_patterns import AnomalyAndPatternsConfig
-from insight_agent.evidence_streams.tool_issues import ToolIssueConfig
-from insight_agent.insights_generation import (
+from insight_agent.evidence_streams.anomaly_and_patterns.stream import AnomalyAndPatternsConfig
+from insight_agent.evidence_streams.tool_issues.stream import ToolIssueConfig
+from insight_agent.insights_generation.defaults import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_MAX_TOOL_ROUNDS,
 )

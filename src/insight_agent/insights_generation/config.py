@@ -18,6 +18,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 __all__ = [
     "ENV_API_BASE",
     "ENV_API_KEY",
@@ -39,35 +41,6 @@ _FALLBACKS = {
     ENV_API_BASE: ("OPENAI_API_BASE", "OPENAI_BASE_URL"),
     ENV_API_KEY: ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
 }
-
-
-def _parse(text: str) -> dict[str, str]:
-    """Minimal ``.env`` parser.
-
-    Deliberately dependency-free: python-dotenv arrives with litellm, but the
-    deterministic half of this package must not acquire a dependency through
-    the back door. Handles ``KEY=value``, ``export KEY=value``, ``#`` comments,
-    blank lines, and single or double quoted values.
-    """
-
-    values: dict[str, str] = {}
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].lstrip()
-        key, sep, value = line.partition("=")
-        if not sep:
-            continue
-        key = key.strip()
-        if not key:
-            continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        values[key] = value
-    return values
 
 
 def find_dotenv(start: Path | str | None = None) -> Path | None:
@@ -103,7 +76,7 @@ def load_dotenv(path: Path | str | None = None, *, override: bool = False) -> di
         return {}
 
     applied: dict[str, str] = {}
-    for key, value in _parse(resolved.read_text(encoding="utf-8")).items():
+    for key, value in dotenv_values(resolved).items():
         if not value:
             # An unfilled template line. Leaving it out means a real
             # environment variable of the same name still applies.

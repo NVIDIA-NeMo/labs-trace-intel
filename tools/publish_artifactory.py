@@ -19,6 +19,8 @@ from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from dotenv import dotenv_values
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DIST_DIR = REPO_ROOT / "dist"
 
@@ -48,19 +50,9 @@ def _load_artifactory_env(path: Path) -> None:
         return
 
     allowed = {ENV_PYPI_URL, ENV_TOKEN}
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
+    for key, value in dotenv_values(path).items():
+        if key not in allowed or key in os.environ:
             continue
-        if line.startswith("export "):
-            line = line[len("export ") :].lstrip()
-        key, separator, value = line.partition("=")
-        key = key.strip()
-        if not separator or key not in allowed or key in os.environ:
-            continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
         if value:
             os.environ[key] = value
 
