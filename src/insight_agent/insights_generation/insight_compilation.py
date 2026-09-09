@@ -48,17 +48,6 @@ class InsightCompilation(Agent):
         we can do about this issue! And it's OK. Experts do this too. You can
         validate by examining the referenced traces.
 
-        Treat proposed problems as claims to verify, not established facts.
-        Check each cited invocation against its latest applicable request and
-        client rules. Make sure you understand the sequence of spans,
-        completions and tool calls when looking at a sequence of data. Typically
-        data is ordered by time.
-
-        Separate observed impact from possible risk. Avoid alarmist wording,
-        categorical claims about the agent, and generic demands to add
-        guardrails. Suggest a specific correction only when it follows from the
-        evidence.
-
         After validating, you must merge the new insights with the existing
         insights, and across evidence streams.
 
@@ -89,10 +78,7 @@ class InsightCompilation(Agent):
         update the trace_refs on existing insights to match new traces you
         identified. Only use trace_refs that come from evidence streams, don't
         worry about searching the trace snapshot to find traces that match a
-        particular insight. When merging new findings, retain only trace_refs
-        verified to support the resulting claim. Repeated reports of one
-        incident are not independent occurrences. Do not infer frequency or
-        percentages because we are only looking at a subset of the trace data.
+        particular insight. When you merge insights, also merge the trace_refs.
 
         Return the list of ranked, validated and merged insights. Include
         existing insights.
