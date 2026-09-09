@@ -49,23 +49,29 @@ def _nvidia_header(style: str) -> str:
     raise ValueError(f"Unsupported comment style: {style}")
 
 
+def _header_offset(content: str, style: str) -> int:
+    if content.startswith("#!"):
+        end = content.find("\n")
+        return end + 1 if end >= 0 else 0
+
+    if style == "html" and content.startswith("---\n"):
+        end = content.find("\n---\n", len("---\n"))
+        return end + len("\n---\n") if end >= 0 else 0
+
+    return 0
+
+
 def _has_nvidia_header(content: str, style: str) -> bool:
     header = _nvidia_header(style)
-    if content.startswith("#!"):
-        _, separator, remainder = content.partition("\n")
-        return bool(separator) and remainder.startswith(header)
-    return content.startswith(header)
+    return content.startswith(header, _header_offset(content, style))
 
 
 def _add_nvidia_header(path: Path, content: str, style: str) -> None:
     header = _nvidia_header(style)
-    if content.startswith("#!"):
-        shebang, separator, remainder = content.partition("\n")
-        spacer = "\n" if remainder else ""
-        updated = f"{shebang}{separator}{header}{spacer}{remainder}"
-    else:
-        spacer = "\n" if content else ""
-        updated = f"{header}{spacer}{content}"
+    offset = _header_offset(content, style)
+    prefix, remainder = content[:offset], content[offset:]
+    spacer = "\n" if remainder else ""
+    updated = f"{prefix}{header}{spacer}{remainder}"
     path.write_text(updated, encoding="utf-8")
 
 
