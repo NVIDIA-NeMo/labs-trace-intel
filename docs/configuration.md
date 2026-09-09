@@ -76,6 +76,25 @@ evidence_streams:
   anomaly_and_patterns: {}
 ```
 
+Ethos divergence checks observed agent behavior against a business-purpose document.
+Select it by providing an existing, non-empty UTF-8 Markdown file:
+
+```yaml
+evidence_streams:
+  ethos_divergence:
+    ethos_path: /path/to/ethos.md
+```
+
+It can run alone or alongside the other streams and uses the same model and
+credentials as insight compilation. Relative paths resolve from the working directory.
+For a CLI-only run:
+
+```bash
+uv run insight-agent \
+  --trace.filesystem.path traces.jsonl \
+  --evidence-streams.ethos-divergence.ethos-path /path/to/ethos.md
+```
+
 Run `uv run insight-agent --help` to see the generated options and configurable
 stream settings.
 

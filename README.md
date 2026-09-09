@@ -19,7 +19,7 @@ Future iterations will aim to improve the scalability and reliability of the age
 ## V2 Analyst Agent Architecture
 This version of the Analyst Agent implements a series of preprocessing steps that we call "evidence streams".
 
-There are 2 current evidence streams, and we can expect to add more in the future:
+There are 3 current evidence streams, and we can expect to add more in the future:
 
 1) **Anomaly and Pattern Analysis** - Which traces are unusual, and which patterns recur?
 
@@ -30,6 +30,10 @@ There are 2 current evidence streams, and we can expect to add more in the futur
 2) **Tool Issue Detection** - Which tool use problems recur across the trace sample?
 
     The tools in each trace are checked against a set of deterministic rules to detect specific tool calling issues. 
+
+3) **Ethos Divergence** - Where does observed agent behavior violate the business purpose and requirements in a supplied `ethos.md`?
+
+    An LLM checks the traces against the document. Select it with `--evidence-streams.ethos-divergence.ethos-path /path/to/ethos.md`.
 
 After the evidence streams run, each returns candidate `Problem` objects with a description and supporting trace IDs. Those Problems are passed to the Analyst Agent to guide its analysis. The Analyst can also look up normalized supporting traces from the same snapshot and uses that evidence as a starting point for more detailed exploration and synthesis.
 

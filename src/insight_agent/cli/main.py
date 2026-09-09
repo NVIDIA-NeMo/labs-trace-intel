@@ -67,12 +67,15 @@ def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
 async def _run_evidence_streams(
     config: EvidenceStreamsConfig,
     snapshot: TraceSnapshot,
+    llm: CompletionClient | None = None,
 ) -> list[EvidenceStreamResult]:
     """Run the configured evidence streams concurrently in registration order."""
 
     registry = registered_builtin_streams(
         anomaly_and_patterns=config.anomaly_and_patterns,
         tool_issues=config.tool_issues,
+        ethos_divergence=config.ethos_divergence,
+        llm=llm,
     )
     return list(
         await asyncio.gather(
@@ -81,8 +84,8 @@ async def _run_evidence_streams(
     )
 
 
-def _build_insight_compilation(config: RunConfig, api_key: str) -> InsightCompilation:
-    """Construct the opinionated LLM-backed Insight compilation agent."""
+def _build_llm(config: RunConfig, api_key: str) -> CompletionClient:
+    """Construct the LLM client used by detection and insight compilation."""
 
     client_config: dict[str, Any] = {
         "api_base": config.api_base or resolve(ENV_API_BASE),
@@ -92,12 +95,14 @@ def _build_insight_compilation(config: RunConfig, api_key: str) -> InsightCompil
         "allowed_openai_params": ["tool_choice", "reasoning_effort"],
         "drop_params": True,
     }
-    return InsightCompilation(
-        llm=CompletionClient(
-            model=config.model or resolve(ENV_MODEL) or DEFAULT_MODEL,
-            **client_config,
-        )
+    return CompletionClient(
+        model=config.model or resolve(ENV_MODEL) or DEFAULT_MODEL,
+        **client_config,
     )
+
+
+def _build_insight_compilation(config: RunConfig, api_key: str) -> InsightCompilation:
+    return InsightCompilation(llm=_build_llm(config, api_key))
 
 
 async def _generate_insights(config: RunConfig) -> list[Insight]:
@@ -108,7 +113,8 @@ async def _generate_insights(config: RunConfig) -> list[Insight]:
 
     loader = _configured_trace_loader(config.trace)
     snapshot = await asyncio.to_thread(loader.load)
-    evidence = await _run_evidence_streams(config.evidence_streams, snapshot)
+    llm = _build_llm(config, api_key) if config.evidence_streams.ethos_divergence else None
+    evidence = await _run_evidence_streams(config.evidence_streams, snapshot, llm)
     existing_insights = load_insights(config.existing_insights) if config.existing_insights else []
 
     compilation = _build_insight_compilation(config, api_key)

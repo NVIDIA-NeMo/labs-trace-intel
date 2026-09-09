@@ -14,6 +14,9 @@ from pydantic_settings import (
 )
 
 from insight_agent.evidence_streams.anomaly_and_patterns.stream import AnomalyAndPatternsConfig
+from insight_agent.evidence_streams.ethos_divergence.ethos_divergence_detector import (
+    EthosDivergenceConfig,
+)
 from insight_agent.evidence_streams.tool_issues.stream import ToolIssueConfig
 
 _CONFIG_MODEL_SETTINGS = SettingsConfigDict(
@@ -114,7 +117,7 @@ class ToolIssueStreamConfig(ToolIssueConfig):
 
 
 class EvidenceStreamsConfig(ConfigModel):
-    """Selected deterministic evidence streams and their configuration."""
+    """Selected evidence streams and their configuration."""
 
     anomaly_and_patterns: AnomalyAndPatternsStreamConfig | None = Field(
         default=None,
@@ -125,9 +128,14 @@ class EvidenceStreamsConfig(ConfigModel):
         description="Deterministic tool-issue evidence",
     )
 
+    ethos_divergence: EthosDivergenceConfig | None = None
+
     @model_validator(mode="after")
     def at_least_one_stream_is_configured(self) -> EvidenceStreamsConfig:
-        if self.anomaly_and_patterns is None and self.tool_issues is None:
+        if all(
+            stream is None
+            for stream in (self.anomaly_and_patterns, self.tool_issues, self.ethos_divergence)
+        ):
             raise ValueError("at least one evidence stream must be configured")
         return self
 

@@ -52,7 +52,7 @@ def test_generation_carries_existing_insights_into_compilation(tmp_path, monkeyp
         lambda config: SimpleNamespace(load=lambda: TraceSnapshot([])),
     )
 
-    async def fake_evidence(config, snapshot):
+    async def fake_evidence(config, snapshot, llm):
         return []
 
     monkeypatch.setattr(cli, "_run_evidence_streams", fake_evidence)
