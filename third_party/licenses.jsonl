@@ -28,7 +28,10 @@
 {"name": "h11", "license": "MIT", "compatible": true}
 {"name": "hf-xet", "license": "APACHE-2.0", "compatible": true}
 {"name": "httpcore", "license": "BSD-3-CLAUSE", "compatible": true}
+{"name": "httpcore2", "license": "BSD-3-CLAUSE", "compatible": true}
 {"name": "httpx", "license": "BSD-3-CLAUSE", "compatible": true}
+{"name": "httpx2", "license": "BSD-3-CLAUSE", "compatible": true}
+{"name": "httpx2-jsfetch", "license": "BSD-3-CLAUSE", "compatible": true}
 {"name": "huggingface-hub", "license": "APACHE-2.0", "compatible": true}
 {"name": "idna", "license": "BSD-3-CLAUSE", "compatible": true}
 {"name": "importlib-metadata", "license": "APACHE-2.0", "compatible": true}
@@ -38,6 +41,7 @@
 {"name": "joblib", "license": "BSD-3-CLAUSE", "compatible": true}
 {"name": "jsonschema", "license": "MIT", "compatible": true}
 {"name": "jsonschema-specifications", "license": "MIT", "compatible": true}
+{"name": "langsmith", "license": "MIT", "compatible": true}
 {"name": "litellm", "license": "MIT", "compatible": true}
 {"name": "markupsafe", "license": "BSD-3-CLAUSE", "compatible": true}
 {"name": "mlflow-skinny", "license": "APACHE-2.0", "compatible": true}
@@ -54,6 +58,7 @@
 {"name": "opentelemetry-proto", "license": "APACHE-2.0", "compatible": true}
 {"name": "opentelemetry-sdk", "license": "APACHE-2.0", "compatible": true}
 {"name": "opentelemetry-semantic-conventions", "license": "APACHE-2.0", "compatible": true}
+{"name": "orjson", "license": "MPL-2.0 AND (APACHE-2.0 OR MIT)", "compatible": true}
 {"name": "packaging", "license": "APACHE-2.0 OR BSD-2-CLAUSE", "compatible": true}
 {"name": "propcache", "license": "APACHE-2.0", "compatible": true}
 {"name": "protobuf", "license": "BSD-3-CLAUSE", "compatible": true}
@@ -69,6 +74,7 @@
 {"name": "referencing", "license": "MIT", "compatible": true}
 {"name": "regex", "license": "APACHE-2.0 AND CNRI-PYTHON", "compatible": true}
 {"name": "requests", "license": "APACHE-2.0", "compatible": true}
+{"name": "requests-toolbelt", "license": "APACHE-2.0", "compatible": true}
 {"name": "rpds-py", "license": "MIT", "compatible": true}
 {"name": "s3transfer", "license": "APACHE-2.0", "compatible": true}
 {"name": "scikit-learn", "license": "BSD-3-CLAUSE", "compatible": true}
@@ -83,10 +89,15 @@
 {"name": "tiktoken", "license": "MIT", "compatible": true}
 {"name": "tokenizers", "license": "APACHE-2.0", "compatible": true}
 {"name": "tqdm", "license": "MIT AND MPL-2.0", "compatible": true}
+{"name": "truststore", "license": "MIT", "compatible": true}
 {"name": "typing-extensions", "license": "PSF-2.0", "compatible": true}
 {"name": "typing-inspection", "license": "MIT", "compatible": true}
 {"name": "urllib3", "license": "MIT", "compatible": true}
+{"name": "uuid-utils", "license": "BSD-3-CLAUSE", "compatible": true}
 {"name": "uvicorn", "license": "BSD-3-CLAUSE", "compatible": true}
+{"name": "websockets", "license": "BSD-3-CLAUSE", "compatible": true}
 {"name": "wrapt", "license": "BSD-2-CLAUSE", "compatible": true}
+{"name": "xxhash", "license": "BSD-2-CLAUSE", "compatible": true}
 {"name": "yarl", "license": "APACHE-2.0", "compatible": true}
 {"name": "zipp", "license": "MIT", "compatible": true}
+{"name": "zstandard", "license": "BSD-3-CLAUSE", "compatible": true}

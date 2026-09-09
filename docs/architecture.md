@@ -7,8 +7,11 @@ The insights analyst takes in agent runtime execution traces and identifies
 different problems (known as Insights) identified in the agent.
 
 The trace loader ingests traces from different formats and agent observability
-providers and converts it into a canonical TraceSnapshot that is shared by the
-rest of the pipeline.
+providers and converts them into a canonical `TraceSnapshot` shared by the rest
+of the pipeline. `FSDataLoader` reads canonical JSONL directly. The MLflow
+loaders, LangSmith Trace Loader, and LangSmith Trace Export File Loader map
+provider records into the same local models without exposing provider SDK
+classes downstream.
 
 Evidence streams are different issue detectors that run on top of the
 TraceSnapshot and detect different kinds of problems with the agent.
@@ -23,7 +26,7 @@ TraceLoader -> EvidenceStream(s) -> Insight compilation
 ```mermaid
 flowchart TB
     source["Structured traces<br/>S3, filesystem, or provider export"]
-    loader["TraceLoader<br/>read and produce canonical traces"]
+    loader["TraceLoader<br/>filesystem or provider-native traces"]
     snapshot["TraceSnapshot<br/>normalized Trace + Span records"]
 
     stream1["EvidenceStream<br/>anomaly and pattern analysis"]

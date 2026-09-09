@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -70,13 +71,37 @@ class MLflowExportConfig(ConfigModel):
     path: Path
 
 
+class LangSmithTraceSourceConfig(ConfigModel):
+    """Settings owned by the LangSmith Trace Loader."""
+
+    project: str
+    api_url: str | None = None
+    filter: str | None = None
+    tree_filter: str | None = None
+    start_time: datetime | None = None
+
+    @model_validator(mode="after")
+    def start_time_has_timezone(self) -> LangSmithTraceSourceConfig:
+        if self.start_time is not None and (
+            self.start_time.tzinfo is None or self.start_time.utcoffset() is None
+        ):
+            raise ValueError("start_time must include a timezone")
+        return self
+
+
+class LangSmithTraceExportFileSourceConfig(ConfigModel):
+    """Settings owned by the LangSmith Trace Export File Loader."""
+
+    path: Path
+
+
 class TraceConfig(ConfigModel):
     """Shared trace settings and exactly one configured loader."""
 
     max_traces: int | None = Field(
         default=None,
         ge=1,
-        description="Maximum traces loaded by an MLflow source",
+        description="Maximum complete traces loaded by a provider source",
     )
     filesystem: FilesystemConfig | None = Field(
         default=None,
@@ -90,12 +115,26 @@ class TraceConfig(ConfigModel):
         default=None,
         description="Native MLflow export loader",
     )
+    langsmith: LangSmithTraceSourceConfig | None = Field(
+        default=None,
+        description="LangSmith Trace Loader",
+    )
+    langsmith_trace_export_file: LangSmithTraceExportFileSourceConfig | None = Field(
+        default=None,
+        description="LangSmith Trace Export File Loader",
+    )
 
     @model_validator(mode="after")
     def source_has_required_settings(self) -> TraceConfig:
         configured = sum(
             source is not None
-            for source in (self.filesystem, self.mlflow_experiment, self.mlflow_export)
+            for source in (
+                self.filesystem,
+                self.mlflow_experiment,
+                self.mlflow_export,
+                self.langsmith,
+                self.langsmith_trace_export_file,
+            )
         )
         if configured != 1:
             raise ValueError("trace must configure exactly one loader")

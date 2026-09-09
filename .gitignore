@@ -13,9 +13,10 @@ build/
 dist/
 .pytest_cache/
 .ruff_cache/
+.codex/environments/
 out/
 .DS_Store
 tmp
 
 # Scratch space for onboarding a real corpus
-local/
+local

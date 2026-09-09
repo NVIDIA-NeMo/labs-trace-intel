@@ -1,0 +1,440 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
+
+import json
+import re
+import threading
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
+from uuid import UUID
+
+import pytest
+from langsmith import Client
+from langsmith.schemas import Run
+
+from insight_agent.trace_loaders.langsmith import (
+    LANGSMITH_DEFAULT_MAX_TRACES,
+    LangSmithTraceConfig,
+    LangSmithTraceLoader,
+    LangSmithTraceLoadError,
+)
+from insight_agent.traces import SpanKind
+
+PROJECT_ID = UUID("10000000-0000-0000-0000-000000000000")
+TRACE_ID = UUID("20000000-0000-0000-0000-000000000000")
+LLM_ID = UUID("30000000-0000-0000-0000-000000000000")
+TOOL_ID = UUID("40000000-0000-0000-0000-000000000000")
+START = datetime(2026, 9, 2, 12, tzinfo=timezone.utc)
+
+
+def langsmith_run(
+    run_id: UUID,
+    *,
+    trace_id: UUID = TRACE_ID,
+    parent_id: UUID | None = None,
+    name: str = "agent",
+    run_type: str = "chain",
+    offset: int = 0,
+    duration: int | None = 1,
+    inputs=None,
+    outputs=None,
+    error: str | None = None,
+    status: str | None = "success",
+    extra=None,
+    total_cost: float | None = None,
+    app_path: str | None = None,
+) -> Run:
+    start = START + timedelta(seconds=offset)
+    end = start + timedelta(seconds=duration) if duration is not None else None
+    return Run(
+        id=run_id,
+        trace_id=trace_id,
+        parent_run_id=parent_id,
+        name=name,
+        run_type=run_type,
+        start_time=start,
+        end_time=end,
+        inputs=inputs,
+        outputs=outputs,
+        error=error,
+        status=status,
+        extra=extra,
+        total_cost=total_cost,
+        app_path=app_path,
+    )
+
+
+class FakeLangSmithClient:
+    api_url = "https://langsmith.test/api/v1"
+
+    def __init__(self, roots: list[Run], runs: list[Run], *, project_id: UUID = PROJECT_ID):
+        self.roots = roots
+        self.runs = runs
+        self.project_id = project_id
+        self.project_calls = []
+        self.list_calls = []
+
+    def read_project(self, **kwargs):
+        self.project_calls.append(kwargs)
+        return SimpleNamespace(id=self.project_id)
+
+    def list_runs(self, **kwargs):
+        self.list_calls.append(kwargs)
+        if kwargs.get("is_root"):
+            return iter(self.roots[: kwargs.get("limit", len(self.roots))])
+        selected = set(re.findall(r'"([0-9a-f-]{36})"', kwargs["trace_filter"]))
+        return iter(item for item in self.runs if str(item.trace_id) in selected)
+
+
+def trace_runs() -> list[Run]:
+    root = langsmith_run(
+        TRACE_ID,
+        inputs={"messages": [{"role": "user", "content": "Find the weather"}]},
+        outputs={"answer": None},
+        extra={
+            "metadata": {
+                "thread_id": "thread-7",
+                "session_id": "session-lower-priority",
+            }
+        },
+        total_cost=0.0125,
+        app_path=f"/o/acme/projects/p/r/{TRACE_ID}",
+    )
+    llm = langsmith_run(
+        LLM_ID,
+        parent_id=TRACE_ID,
+        name="acompletion",
+        run_type="llm",
+        offset=1,
+        inputs={"model": "test-model"},
+        outputs={"content": "I should use the weather tool."},
+        total_cost=0.005,
+    )
+    tool = langsmith_run(
+        TOOL_ID,
+        parent_id=TRACE_ID,
+        name="get_weather",
+        run_type="tool",
+        offset=2,
+        inputs={"city": "Denver"},
+        outputs={"temperature": 72},
+        error="TimeoutError: upstream timed out",
+        status="error",
+    )
+    return [tool, llm, root]
+
+
+def test_loader_queries_bounded_roots_then_hydrates_and_normalizes_complete_traces():
+    runs = trace_runs()
+    root = runs[-1]
+    client = FakeLangSmithClient([root], runs)
+    start_time = START - timedelta(days=1)
+    loader = LangSmithTraceLoader(
+        LangSmithTraceConfig(
+            project_name="glamr-ux",
+            filter='eq(status, "success")',
+            tree_filter='eq(name, "get_weather")',
+            start_time=start_time,
+            max_traces=25,
+        ),
+        client=client,
+    )
+
+    snapshot = loader.load()
+
+    assert client.project_calls == [{"project_name": "glamr-ux"}]
+    assert client.list_calls[0] == {
+        "project_id": str(PROJECT_ID),
+        "is_root": True,
+        "filter": 'eq(status, "success")',
+        "tree_filter": 'eq(name, "get_weather")',
+        "start_time": start_time,
+        "select": ["id", "name", "run_type", "trace_id", "start_time"],
+        "limit": 25,
+    }
+    assert client.list_calls[1]["project_id"] == str(PROJECT_ID)
+    assert client.list_calls[1]["trace_filter"] == f'eq(id, "{TRACE_ID}")'
+    assert "filter" not in client.list_calls[1]
+    assert "limit" not in client.list_calls[1]
+
+    assert snapshot.trace_count == 1
+    trace = next(iter(snapshot))
+    assert trace.id == str(TRACE_ID)
+    assert trace.aggregate.cost_usd == 0.0175
+    assert trace.aggregate.latency_ms == 3000
+    assert trace.attributes["logical_case_id"] == "thread-7"
+    assert [span.id for span in trace.root_spans] == [str(TRACE_ID)]
+    root_span = trace.root_spans[0]
+    assert root_span.input == {"messages": [{"role": "user", "content": "Find the weather"}]}
+    assert root_span.output == {"answer": None}
+    assert root_span.kind is SpanKind.CHAIN
+    assert [span.id for span in root_span.children] == [str(LLM_ID), str(TOOL_ID)]
+    assert [span.kind for span in root_span.children] == [SpanKind.LLM, SpanKind.TOOL]
+    tool_span = root_span.children[-1]
+    assert tool_span.tool_name == "get_weather"
+    assert tool_span.attributes["status"] == "ERROR"
+    assert tool_span.error == "TimeoutError: upstream timed out"
+    assert tool_span.attributes["duration_ms"] == 1000
+    assert tool_span.attributes["source_pointer"]["run_id"] == str(TOOL_ID)
+    assert root_span.attributes["source_pointer"]["app_path"].endswith(str(TRACE_ID))
+    assert tool_span.tool_call is not None
+    assert tool_span.tool_call.index == 0
+    assert tool_span.tool_call.result_count == 1
+
+    assert loader.report.trace_count == 1
+    assert loader.report.run_count == 3
+    assert loader.report.unresolved_parent_count == 0
+    assert loader.describe() == {
+        "source": f"langsmith:https://langsmith.test/api/v1#projects/{PROJECT_ID}",
+        "trace_count": 1,
+        "call_count": 1,
+        "distinct_logical_cases": 1,
+        "run_count": 3,
+        "unresolved_parent_count": 0,
+        "project_name": "glamr-ux",
+        "project_id": str(PROJECT_ID),
+        "api_url": "https://langsmith.test/api/v1",
+        "filter": 'eq(status, "success")',
+        "tree_filter": 'eq(name, "get_weather")',
+        "start_time": start_time.isoformat(),
+        "max_traces": 25,
+    }
+
+
+def test_loader_uses_langsmith_sdk_query_contract_without_importing_provider_objects():
+    root, child = trace_runs()[-1], trace_runs()[1]
+    root_record = root.model_dump(mode="json", exclude_none=True)
+    child_record = child.model_dump(mode="json", exclude_none=True)
+    # The legacy Run wire model cannot distinguish this explicit top-level null
+    # from a missing output; both arrive as Run.outputs=None.
+    child_record["outputs"] = None
+    # The SDK populates attachments from the server's storage coordinates.
+    root_record.pop("attachments", None)
+    child_record.pop("attachments", None)
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def send_json(self, payload):
+            contents = json.dumps(payload).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(contents)))
+            self.end_headers()
+            self.wfile.write(contents)
+
+        def do_GET(self):
+            requests.append(("GET", self.path, None))
+            self.send_json(
+                [
+                    {
+                        "id": str(PROJECT_ID),
+                        "tenant_id": "90000000-0000-0000-0000-000000000000",
+                        "reference_dataset_id": None,
+                        "name": "glamr-ux",
+                        "start_time": START.isoformat(),
+                    }
+                ]
+            )
+
+        def do_POST(self):
+            size = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(size))
+            requests.append(("POST", self.path, body))
+            if body.get("is_root"):
+                self.send_json({"runs": [root_record]})
+            elif body.get("cursor") == "hydration-page-2":
+                self.send_json({"runs": [child_record]})
+            else:
+                self.send_json(
+                    {
+                        "runs": [root_record],
+                        "cursors": {"next": "hydration-page-2"},
+                    }
+                )
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    api_url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        client = Client(api_url=api_url, auto_batch_tracing=False)
+        loader = LangSmithTraceLoader(
+            LangSmithTraceConfig(project_name="glamr-ux"),
+            client=client,
+        )
+        snapshot = loader.load()
+    finally:
+        server.shutdown()
+        thread.join()
+
+    assert snapshot.trace_count == 1
+    trace = next(iter(snapshot))
+    assert [span.id for span in trace.root_spans] == [str(TRACE_ID)]
+    assert [span.id for span in trace.root_spans[0].children] == [str(LLM_ID)]
+    assert "output" not in trace.root_spans[0].children[0].model_dump()
+    assert requests[0][0:2] == ("GET", "/sessions?limit=1&name=glamr-ux&include_stats=False")
+    assert requests[1][2]["is_root"] is True
+    assert requests[1][2]["limit"] == 100
+    assert requests[2][2]["trace_filter"] == f'eq(id, "{TRACE_ID}")'
+    assert requests[3][2]["cursor"] == "hydration-page-2"
+
+
+def test_loader_uses_explicit_api_url_and_maps_unknown_pending_run():
+    root = langsmith_run(
+        TRACE_ID,
+        run_type="prompt",
+        outputs=None,
+        duration=None,
+        status="pending",
+        extra={"metadata": {"conversation_id": "conversation-3"}},
+    )
+    loader = LangSmithTraceLoader(
+        LangSmithTraceConfig(project_name="project", api_url="http://localhost/api/v1"),
+        client=FakeLangSmithClient([root], [root]),
+    )
+
+    trace = next(iter(loader.load()))
+
+    assert trace.attributes["logical_case_id"] == "conversation-3"
+    assert trace.root_spans[0].kind is SpanKind.UNKNOWN
+    assert trace.root_spans[0].attributes["subtype"] == "PROMPT"
+    assert trace.root_spans[0].attributes["status"] == "UNKNOWN"
+    assert trace.root_spans[0].end_time is None
+    assert "output" not in trace.root_spans[0].model_dump()
+    assert loader.describe()["api_url"] == "http://localhost/api/v1"
+
+
+def test_loader_detaches_and_reports_unresolved_parent():
+    missing_parent = UUID("50000000-0000-0000-0000-000000000000")
+    root = langsmith_run(TRACE_ID)
+    child = langsmith_run(TOOL_ID, parent_id=missing_parent, run_type="tool", offset=1)
+    loader = LangSmithTraceLoader(
+        LangSmithTraceConfig(project_name="project"),
+        client=FakeLangSmithClient([root], [child, root]),
+    )
+
+    trace = next(iter(loader.load()))
+
+    assert [span.id for span in trace.root_spans] == [str(TRACE_ID), str(TOOL_ID)]
+    assert trace.root_spans[1].attributes["source_pointer"]["unresolved_parent_run_id"] == str(
+        missing_parent
+    )
+    assert loader.report.unresolved_parent_count == 1
+
+
+def test_loader_hydrates_root_ids_in_bounded_batches():
+    roots = []
+    runs = []
+    for value in range(51):
+        trace_id = UUID(int=value + 1)
+        root = langsmith_run(trace_id, trace_id=trace_id, offset=value)
+        child = langsmith_run(
+            UUID(int=value + 1000),
+            trace_id=trace_id,
+            parent_id=trace_id,
+            run_type="tool",
+            offset=value + 1,
+        )
+        roots.append(root)
+        runs.extend((root, child))
+    client = FakeLangSmithClient(roots, list(reversed(runs)))
+    loader = LangSmithTraceLoader(
+        LangSmithTraceConfig(project_name="many", max_traces=51),
+        client=client,
+    )
+
+    snapshot = loader.load()
+
+    assert snapshot.trace_count == 51
+    hydration_calls = client.list_calls[1:]
+    assert len(hydration_calls) == 2
+    assert hydration_calls[0]["trace_filter"].startswith("in(id, [")
+    assert hydration_calls[0]["trace_filter"].count('"00000000-') == 50
+    assert hydration_calls[1]["trace_filter"] == f'eq(id, "{UUID(int=51)}")'
+    assert [trace.id for trace in snapshot] == [str(UUID(int=i)) for i in range(1, 52)]
+    assert all(len(trace.root_spans) == 1 for trace in snapshot)
+    assert all(len(trace.root_spans[0].children) == 1 for trace in snapshot)
+
+
+def test_loader_paginates_root_selection_above_server_page_limit():
+    roots = [
+        langsmith_run(UUID(int=value + 1), trace_id=UUID(int=value + 1), offset=value)
+        for value in range(102)
+    ]
+    client = FakeLangSmithClient(roots, roots)
+    loader = LangSmithTraceLoader(
+        LangSmithTraceConfig(project_name="many", max_traces=101),
+        client=client,
+    )
+
+    snapshot = loader.load()
+
+    assert snapshot.trace_count == 101
+    assert "limit" not in client.list_calls[0]
+
+
+def test_loader_rejects_missing_selected_root_in_hydration():
+    root = langsmith_run(TRACE_ID)
+    client = FakeLangSmithClient([root], [])
+
+    with pytest.raises(LangSmithTraceLoadError, match="did not return Runs"):
+        LangSmithTraceLoader(LangSmithTraceConfig(project_name="project"), client=client).load()
+
+
+def test_loader_rejects_run_for_unselected_trace():
+    root = langsmith_run(TRACE_ID)
+    other_trace = UUID("60000000-0000-0000-0000-000000000000")
+    other = langsmith_run(other_trace, trace_id=other_trace)
+
+    class UnexpectedClient(FakeLangSmithClient):
+        def list_runs(self, **kwargs):
+            self.list_calls.append(kwargs)
+            return iter([root]) if kwargs.get("is_root") else iter([root, other])
+
+    with pytest.raises(LangSmithTraceLoadError, match="unselected trace"):
+        LangSmithTraceLoader(
+            LangSmithTraceConfig(project_name="project"),
+            client=UnexpectedClient([root], [root, other]),
+        ).load()
+
+
+def test_loader_rejects_parent_cycle():
+    root = langsmith_run(TRACE_ID)
+    first = langsmith_run(LLM_ID, parent_id=TOOL_ID, run_type="llm", offset=1)
+    second = langsmith_run(TOOL_ID, parent_id=LLM_ID, run_type="tool", offset=2)
+
+    with pytest.raises(LangSmithTraceLoadError, match="contains a parent cycle"):
+        LangSmithTraceLoader(
+            LangSmithTraceConfig(project_name="project"),
+            client=FakeLangSmithClient([root], [root, first, second]),
+        ).load()
+
+
+def test_describe_before_load_uses_unresolved_coordinates():
+    loader = LangSmithTraceLoader(LangSmithTraceConfig(project_name="project"), client=object())
+
+    description = loader.describe()
+
+    assert description["source"] == "langsmith:<configured>#projects/<unresolved>"
+    assert description["trace_count"] == 0
+    assert description["run_count"] == 0
+    assert description["max_traces"] == LANGSMITH_DEFAULT_MAX_TRACES
+
+
+@pytest.mark.parametrize("max_traces", [0, -1])
+def test_config_max_traces_must_be_positive(max_traces):
+    with pytest.raises(ValueError, match="max_traces must be at least 1"):
+        LangSmithTraceConfig(project_name="project", max_traces=max_traces)
+
+
+def test_config_requires_project_name_and_timezone_aware_start():
+    with pytest.raises(ValueError, match="project_name must not be empty"):
+        LangSmithTraceConfig(project_name=" ")
+    with pytest.raises(ValueError, match="start_time must include a timezone"):
+        LangSmithTraceConfig(project_name="project", start_time=datetime(2026, 9, 2))

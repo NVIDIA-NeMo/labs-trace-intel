@@ -28,6 +28,13 @@ from insight_agent.insights_generation.config import (
 from insight_agent.insights_generation.defaults import DEFAULT_MAX_TOKENS, DEFAULT_MODEL
 from insight_agent.insights_generation.insight_compilation import InsightCompilation
 from insight_agent.trace_loaders.fs import FSDataLoader
+from insight_agent.trace_loaders.langsmith import (
+    LANGSMITH_DEFAULT_MAX_TRACES,
+    LangSmithTraceConfig,
+    LangSmithTraceExportFileConfig,
+    LangSmithTraceExportFileLoader,
+    LangSmithTraceLoader,
+)
 from insight_agent.trace_loaders.mlflow import (
     MLFLOW_DEFAULT_MAX_TRACES,
     MLflowFileTraceConfig,
@@ -45,9 +52,27 @@ DEFAULT_REASONING_EFFORT = "high"
 def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
     """Construct the trace loader selected by the run configuration."""
 
-    max_traces = config.max_traces or MLFLOW_DEFAULT_MAX_TRACES
     if config.filesystem is not None:
         return FSDataLoader(config.filesystem.path)
+    if config.langsmith is not None:
+        source = config.langsmith
+        return LangSmithTraceLoader(
+            LangSmithTraceConfig(
+                project_name=source.project,
+                api_url=source.api_url,
+                filter=source.filter,
+                tree_filter=source.tree_filter,
+                start_time=source.start_time,
+                max_traces=config.max_traces or LANGSMITH_DEFAULT_MAX_TRACES,
+            )
+        )
+    if config.langsmith_trace_export_file is not None:
+        return LangSmithTraceExportFileLoader(
+            LangSmithTraceExportFileConfig(
+                path=config.langsmith_trace_export_file.path,
+                max_traces=config.max_traces or LANGSMITH_DEFAULT_MAX_TRACES,
+            )
+        )
     if config.mlflow_experiment is not None:
         source = config.mlflow_experiment
         return MLflowTraceLoader(
@@ -55,12 +80,15 @@ def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
                 experiment_name=source.experiment,
                 tracking_uri=source.tracking_uri,
                 filter_string=source.filter,
-                max_traces=max_traces,
+                max_traces=config.max_traces or MLFLOW_DEFAULT_MAX_TRACES,
             )
         )
     assert config.mlflow_export is not None
     return MLflowFileTraceLoader(
-        MLflowFileTraceConfig(path=config.mlflow_export.path, max_traces=max_traces)
+        MLflowFileTraceConfig(
+            path=config.mlflow_export.path,
+            max_traces=config.max_traces or MLFLOW_DEFAULT_MAX_TRACES,
+        )
     )
 
 

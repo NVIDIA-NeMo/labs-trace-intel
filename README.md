@@ -102,12 +102,40 @@ than written as a directory tree.
 ## Running the agent on your own traces
 
 Evidence streams consume a normalized `TraceSnapshot`. Choose the source loader that matches
-where your traces already live; neither path changes the downstream analysis.
+where your traces already live; none of these paths changes the downstream analysis.
+
+### Read LangSmith traces
+
+Install the optional LangSmith client, set `LANGSMITH_API_KEY`, and select either the LangSmith API
+or a trace export file created by `langsmith trace export --full`:
+
+```yaml
+trace:
+  max_traces: 100
+  langsmith:
+    project: my-agent
+    start_time: 2026-09-01T00:00:00Z
+
+# Or replace langsmith with:
+# langsmith_trace_export_file:
+#   path: traces/
+```
+
+```bash
+uv sync --locked --extra langsmith
+export LANGSMITH_API_KEY=<api-key>
+uv run --no-sync insight-agent --config insight-analyst.yaml
+```
+
+The LangSmith Trace Loader currently supports LangSmith's v1 query API as tested against
+self-hosted LangSmith 0.15. See [run configuration](docs/configuration.md#langsmith) for endpoint
+and workspace environment variables, filters, CLI overrides, export requirements, and
+compatibility details.
 
 ### Read an MLflow experiment directly
 
-Install the optional lightweight MLflow client, point it at your tracking server, and name the
-experiment:
+Install the optional lightweight MLflow client, then select the tracking server and experiment in
+the run configuration:
 
 ```bash
 uv sync --locked --extra mlflow
@@ -120,16 +148,7 @@ uv sync --locked --extra mlflow
 uv run --no-sync insight-agent --config insight-analyst.yaml
 ```
 
-Authentication uses the MLflow SDK's standard environment variables. Set
-`MLFLOW_TRACKING_USERNAME` and `MLFLOW_TRACKING_PASSWORD` for HTTP Basic authentication, or
-`MLFLOW_TRACKING_TOKEN` for a bearer token; Basic authentication takes precedence when both are
-present. TLS options include `MLFLOW_TRACKING_SERVER_CERT_PATH`, `MLFLOW_TRACKING_CLIENT_CERT_PATH`,
-and `MLFLOW_TRACKING_INSECURE_TLS` (not recommended). See MLflow's
-[authentication and encryption documentation](https://mlflow.org/docs/latest/self-hosting/architecture/tracking-server/#authentication-and-encryption).
-There are intentionally no Analyst auth flags, which keeps credentials in MLflow's configuration;
-provider-specific or custom auth may require its corresponding MLflow extra or plugin.
-
-Add `filter: "trace.status = 'ERROR'"` under `trace.mlflow_experiment` to select a subset. MLflow's
+MLflow's
 [trace search filters](https://mlflow.org/docs/latest/genai/tracing/search-traces/) can target
 timestamps, names, span types, tags, and metadata. Set `trace.max_traces` in YAML (or override it
 with `--trace.max-traces`) to control the final number of complete traces materialized in memory;

@@ -522,8 +522,38 @@
         },
         {
           "package": {
+            "name": "httpcore2",
+            "version": "2.12.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
             "name": "httpx",
             "version": "0.28.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "httpx2",
+            "version": "2.12.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "httpx2-jsfetch",
+            "version": "1.0",
             "ecosystem": "PyPI"
           },
           "licenses": [
@@ -614,6 +644,16 @@
           "package": {
             "name": "jsonschema-specifications",
             "version": "2025.9.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
+            "name": "langsmith",
+            "version": "0.12.2",
             "ecosystem": "PyPI"
           },
           "licenses": [
@@ -782,6 +822,16 @@
         },
         {
           "package": {
+            "name": "orjson",
+            "version": "3.12.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MPL-2.0 AND (Apache-2.0 OR MIT)"
+          ]
+        },
+        {
+          "package": {
             "name": "packaging",
             "version": "26.3",
             "ecosystem": "PyPI"
@@ -932,6 +982,16 @@
         },
         {
           "package": {
+            "name": "requests-toolbelt",
+            "version": "1.0.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "Apache-2.0"
+          ]
+        },
+        {
+          "package": {
             "name": "rpds-py",
             "version": "2026.6.3",
             "ecosystem": "PyPI"
@@ -1072,6 +1132,16 @@
         },
         {
           "package": {
+            "name": "truststore",
+            "version": "0.10.4",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "MIT"
+          ]
+        },
+        {
+          "package": {
             "name": "typing-extensions",
             "version": "4.16.0",
             "ecosystem": "PyPI"
@@ -1102,6 +1172,16 @@
         },
         {
           "package": {
+            "name": "uuid-utils",
+            "version": "0.17.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
             "name": "uvicorn",
             "version": "0.52.4",
             "ecosystem": "PyPI"
@@ -1112,8 +1192,28 @@
         },
         {
           "package": {
+            "name": "websockets",
+            "version": "17.1",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
+        },
+        {
+          "package": {
             "name": "wrapt",
             "version": "2.4.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-2-Clause"
+          ]
+        },
+        {
+          "package": {
+            "name": "xxhash",
+            "version": "4.0.1",
             "ecosystem": "PyPI"
           },
           "licenses": [
@@ -1139,6 +1239,16 @@
           "licenses": [
             "MIT"
           ]
+        },
+        {
+          "package": {
+            "name": "zstandard",
+            "version": "0.25.0",
+            "ecosystem": "PyPI"
+          },
+          "licenses": [
+            "BSD-3-Clause"
+          ]
         }
       ]
     }
@@ -1152,15 +1262,15 @@
   "license_summary": [
     {
       "name": "MIT",
-      "count": 26
+      "count": 28
     },
     {
       "name": "Apache-2.0",
-      "count": 24
+      "count": 25
     },
     {
       "name": "BSD-3-Clause",
-      "count": 17
+      "count": 23
     },
     {
       "name": "non-standard",
@@ -1168,7 +1278,7 @@
     },
     {
       "name": "BSD-2-Clause",
-      "count": 2
+      "count": 3
     },
     {
       "name": "PSF-2.0",
@@ -1208,6 +1318,10 @@
     },
     {
       "name": "MPL-2.0",
+      "count": 1
+    },
+    {
+      "name": "MPL-2.0 AND (Apache-2.0 OR MIT)",
       "count": 1
     }
   ]
