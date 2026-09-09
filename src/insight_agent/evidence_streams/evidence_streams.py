@@ -26,7 +26,8 @@ class EvidenceStreamResult(BaseModel):
 
 
 class EvidenceStream(Protocol):
-    name: str
+    @property
+    def name(self) -> str: ...
 
     def validate_configuration(self) -> None:
         """Raise when the stream cannot run with its current configuration."""

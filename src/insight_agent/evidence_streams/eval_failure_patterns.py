@@ -3,7 +3,7 @@
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from nooa import Agent, strategy
 from nooa.config import CodeActConfig
@@ -25,7 +25,7 @@ from insight_agent.traces import TraceSnapshot
 
 
 def _trace_index(snapshot: TraceSnapshot) -> list[dict[str, object]]:
-    rows = []
+    rows: list[dict[str, object]] = []
     for trace in sorted(snapshot, key=lambda item: item.id):
         spans = [visit.span for visit in walk_spans(trace)]
         rows.append(
@@ -44,6 +44,10 @@ class _EvalFailureReport(BaseModel):
     problems: tuple[Problem, ...]
 
 
+class _EvalFailureAgent(Protocol):
+    async def find_problems(self, index: list[dict[str, object]]) -> _EvalFailureReport: ...
+
+
 class EvalFailurePatternsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -54,7 +58,7 @@ def _build_agent(
     snapshot: TraceSnapshot,
     llm: UnifiedLLM,
     config: EvalFailurePatternsConfig,
-) -> Agent:
+) -> _EvalFailureAgent:
     fetched: set[str] = set()
     fetch_calls = 0
 
@@ -87,7 +91,7 @@ def _build_agent(
                 )
             )
         )
-        async def find_problems(self, index: list[dict[str, object]]) -> _EvalFailureReport:
+        async def find_problems(self, index: list[dict[str, object]]) -> _EvalFailureReport:  # ty: ignore[empty-body] -- Nooa implements the ellipsis method.
             """Find recurring Problems linked to recorded evaluation signals.
 
             Fetch every supporting trace. Describe the observed failure behavior and the

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -124,16 +125,25 @@ def test_loader_reads_native_cli_export_and_preserves_hierarchy_and_provenance(t
     assert root_span.input == {"messages": [{"role": "user", "content": "find it"}]}
     assert [span.id for span in root_span.children] == ["llm-1", "tool-1"]
     assert [span.kind for span in root_span.children] == [SpanKind.LLM, SpanKind.TOOL]
-    assert root_span.attributes["langsmith"]["tags"] == ["production"]
-    export_metadata = root_span.attributes["langsmith"]["extra"]["langsmith_cli_export"]
-    assert export_metadata["token_usage"]["total_tokens"] == 12
+    langsmith = root_span.attributes["langsmith"]
+    assert isinstance(langsmith, dict)
+    assert langsmith["tags"] == ["production"]
+    extra = langsmith["extra"]
+    assert isinstance(extra, dict)
+    export_metadata = extra["langsmith_cli_export"]
+    assert isinstance(export_metadata, dict)
+    token_usage = export_metadata["token_usage"]
+    assert isinstance(token_usage, dict)
+    assert token_usage["total_tokens"] == 12
     assert export_metadata["events"] == [{"name": "start"}]
     assert export_metadata["feedback_stats"] == {"quality": {"avg": 1.0}}
     assert export_metadata["additional_fields"] == {"future_cli_field": {"kept": True}}
     tool_span = root_span.children[1]
     assert tool_span.error == "TimeoutError"
     assert tool_span.tool_name == "search"
-    assert tool_span.attributes["source_pointer"]["line_number"] == 1
+    tool_pointer = tool_span.attributes["source_pointer"]
+    assert isinstance(tool_pointer, dict)
+    assert tool_pointer["line_number"] == 1
 
     assert loader.report.trace_count == 1
     assert loader.report.run_count == 3
@@ -188,7 +198,9 @@ def test_loader_accepts_stitched_jsonl_and_groups_each_complete_trace(tmp_path):
     assert [trace.id for trace in loader.load()] == ["trace-1", "trace-2"]
     assert loader.describe()["export_trace_count"] == 2
     trace_2 = loader.load().get_trace_by_id("trace-2")
-    assert trace_2.root_spans[0].children[0].attributes["source_pointer"]["line_number"] == 3
+    pointer = trace_2.root_spans[0].children[0].attributes["source_pointer"]
+    assert isinstance(pointer, dict)
+    assert pointer["line_number"] == 3
 
 
 def test_loader_selects_newest_whole_traces_before_applying_bound(tmp_path):
@@ -316,7 +328,7 @@ def test_loader_rejects_missing_paths_and_directories_without_exports(tmp_path):
 @pytest.mark.parametrize("max_traces", [0, -1])
 def test_config_rejects_nonpositive_trace_bounds(max_traces):
     with pytest.raises(ValueError, match="max_traces must be at least 1"):
-        LangSmithTraceExportFileConfig(path="export", max_traces=max_traces)
+        LangSmithTraceExportFileConfig(path=Path("export"), max_traces=max_traces)
 
 
 def test_loader_normalizes_timestamps_to_utc(tmp_path):

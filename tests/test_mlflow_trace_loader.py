@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from mlflow import MlflowClient
 from mlflow.entities import Feedback
 
 from insight_agent.evidence_streams.anomaly_and_patterns.stream import to_anomaly_and_patterns_trace
@@ -35,7 +36,7 @@ class FakePage:
         return iter(self.items)
 
 
-class FakeClient:
+class FakeClient(MlflowClient):
     tracking_uri = "http://mlflow.test"
 
     def __init__(self, *, pages=(), experiment_id="17"):
@@ -50,7 +51,7 @@ class FakeClient:
             else SimpleNamespace(experiment_id=self.experiment_id)
         )
 
-    def search_traces(self, **kwargs):
+    def search_traces(self, *args, **kwargs):
         self.search_calls.append(kwargs)
         return self.pages.pop(0)
 
@@ -155,7 +156,9 @@ def test_file_loader_reads_native_mlflow_search_json_without_conversion(tmp_path
         "export_path": str(path.resolve()),
         "trace_id": "tr-9df8a4c934051e916458d472ac87ee2a",
     }
-    assert normalized.attributes["mlflow"]["assessments"] == assessments
+    mlflow = normalized.attributes["mlflow"]
+    assert isinstance(mlflow, dict)
+    assert mlflow["assessments"] == assessments
     assert normalized.evaluator_results == {"quality": assessment}
     assert loader.describe()["continuation_token_present"] is True
 
@@ -463,12 +466,13 @@ def test_unresolved_parents_are_detached_but_remain_visible_in_provenance_and_de
 
     normalized = next(iter(loader.load()))
 
-    assert (
-        normalized.root_spans[0].attributes["source_pointer"]["unresolved_parent_span_id"]
-        == "outside"
-    )
-    assert normalized.attributes["source_pointer"]["tracking_uri"] == "http://mlflow.test"
-    assert normalized.root_spans[0].attributes["source_pointer"]["span_id"] == "child"
+    span_pointer = normalized.root_spans[0].attributes["source_pointer"]
+    assert isinstance(span_pointer, dict)
+    assert span_pointer["unresolved_parent_span_id"] == "outside"
+    trace_pointer = normalized.attributes["source_pointer"]
+    assert isinstance(trace_pointer, dict)
+    assert trace_pointer["tracking_uri"] == "http://mlflow.test"
+    assert span_pointer["span_id"] == "child"
     assert loader.describe() == {
         "source": "mlflow:http://mlflow.test#experiment/17",
         "trace_count": 1,
@@ -542,13 +546,13 @@ def test_empty_search_page_with_a_continuation_token_is_rejected():
         MLflowTraceLoader(MLflowTraceConfig(experiment_name="experiment"), client=client).load()
 
 
-def test_provider_errors_are_reported_with_experiment_context():
+def test_provider_errors_are_reported_with_experiment_context(monkeypatch):
     client = FakeClient()
 
     def fail_search(**kwargs):
         raise PermissionError("403 forbidden")
 
-    client.search_traces = fail_search
+    monkeypatch.setattr(client, "search_traces", fail_search)
 
     with pytest.raises(
         MLflowTraceLoadError,

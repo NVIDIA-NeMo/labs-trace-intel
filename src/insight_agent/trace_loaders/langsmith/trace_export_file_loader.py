@@ -327,7 +327,7 @@ def _validate_complete_trace(
     return _ExportTrace(path=path, runs=records, root=root, line_numbers=line_numbers)
 
 
-def _parse_run(value: Any, *, path: Path, line_number: int) -> _ExportRun:
+def _parse_run(value: object, *, path: Path, line_number: int) -> _ExportRun:
     if not isinstance(value, Mapping):
         raise LangSmithTraceLoadError(f"{path}:{line_number}: Run must be a JSON object")
 
@@ -403,7 +403,7 @@ def _parse_run(value: Any, *, path: Path, line_number: int) -> _ExportRun:
     )
 
 
-def _required_string(value: Any, path: Path, line_number: int, field_name: str) -> str:
+def _required_string(value: object, path: Path, line_number: int, field_name: str) -> str:
     if not isinstance(value, str) or not value:
         raise LangSmithTraceLoadError(
             f"{path}:{line_number}: {field_name} must be a non-empty string"
@@ -411,7 +411,7 @@ def _required_string(value: Any, path: Path, line_number: int, field_name: str) 
     return value
 
 
-def _optional_string(value: Any, path: Path, line_number: int, field_name: str) -> str | None:
+def _optional_string(value: object, path: Path, line_number: int, field_name: str) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str) or not value:
@@ -422,7 +422,7 @@ def _optional_string(value: Any, path: Path, line_number: int, field_name: str) 
 
 
 def _timestamp(
-    value: Any,
+    value: object,
     path: Path,
     line_number: int,
     field_name: str,
@@ -447,7 +447,7 @@ def _timestamp(
 
 
 def _optional_mapping(
-    value: Any, path: Path, line_number: int, field_name: str
+    value: object, path: Path, line_number: int, field_name: str
 ) -> Mapping[str, Any] | None:
     if value is None:
         return None
@@ -474,7 +474,7 @@ def _total_cost(costs: Mapping[str, Any] | None, path: Path, line_number: int) -
     return cost
 
 
-def _json_value(value: Any) -> JsonValue:
+def _json_value(value: object) -> JsonValue:
     # Values arrived from json.loads; this also detaches mutable caller-owned
     # mappings and rejects non-finite numbers accepted by Python's JSON parser.
     try:

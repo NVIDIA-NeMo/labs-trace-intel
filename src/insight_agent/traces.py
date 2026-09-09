@@ -232,7 +232,7 @@ class Trace(_TraceModel):
 class TraceSnapshot:
     """A reiterable in-memory view of normalized traces, indexed by ID."""
 
-    def __init__(self, traces: Iterable[Trace]):
+    def __init__(self, traces: Iterable[Trace]) -> None:
         traces_by_id: dict[str, Trace] = {}
         for trace in traces:
             if trace.id in traces_by_id:

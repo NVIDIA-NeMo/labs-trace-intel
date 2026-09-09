@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -73,7 +74,7 @@ evidence_streams:
 
     assert isinstance(loader, LangSmithTraceExportFileLoader)
     assert loader.config == LangSmithTraceExportFileConfig(
-        path="exports/langsmith-traces",
+        path=Path("exports/langsmith-traces"),
         max_traces=25,
     )
 

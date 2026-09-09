@@ -11,8 +11,8 @@ from insight_agent.traces import TraceSnapshot
 
 class IssueDetector(Agent):
     async def detect_issues(
-        self, trace_snapshot: TraceSnapshot, issue_description: str, **extra
-    ) -> list[Problem]:
+        self, trace_snapshot: TraceSnapshot, issue_description: str, **extra: object
+    ) -> list[Problem]:  # ty: ignore[empty-body] -- Nooa generates the ellipsis method at runtime.
         """
         Your job is to detect a specific kind of issue in an LLM agent,
         henceforth called the Agent Under Test or AUT.

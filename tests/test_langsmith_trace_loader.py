@@ -67,12 +67,12 @@ def langsmith_run(
     )
 
 
-class FakeLangSmithClient:
+class FakeLangSmithClient(Client):
     api_url = "https://langsmith.test/api/v1"
 
     def __init__(self, roots: list[Run], runs: list[Run], *, project_id: UUID = PROJECT_ID):
         self.roots = roots
-        self.runs = runs
+        self._fake_runs = runs
         self.project_id = project_id
         self.project_calls = []
         self.list_calls = []
@@ -86,7 +86,7 @@ class FakeLangSmithClient:
         if kwargs.get("is_root"):
             return iter(self.roots[: kwargs.get("limit", len(self.roots))])
         selected = set(re.findall(r'"([0-9a-f-]{36})"', kwargs["trace_filter"]))
-        return iter(item for item in self.runs if str(item.trace_id) in selected)
+        return iter(item for item in self._fake_runs if str(item.trace_id) in selected)
 
 
 def trace_runs() -> list[Run]:
@@ -178,8 +178,14 @@ def test_loader_queries_bounded_roots_then_hydrates_and_normalizes_complete_trac
     assert tool_span.attributes["status"] == "ERROR"
     assert tool_span.error == "TimeoutError: upstream timed out"
     assert tool_span.attributes["duration_ms"] == 1000
-    assert tool_span.attributes["source_pointer"]["run_id"] == str(TOOL_ID)
-    assert root_span.attributes["source_pointer"]["app_path"].endswith(str(TRACE_ID))
+    tool_pointer = tool_span.attributes["source_pointer"]
+    assert isinstance(tool_pointer, dict)
+    assert tool_pointer["run_id"] == str(TOOL_ID)
+    root_pointer = root_span.attributes["source_pointer"]
+    assert isinstance(root_pointer, dict)
+    app_path = root_pointer["app_path"]
+    assert isinstance(app_path, str)
+    assert app_path.endswith(str(TRACE_ID))
     assert tool_span.tool_call is not None
     assert tool_span.tool_call.index == 0
     assert tool_span.tool_call.result_count == 1
@@ -217,7 +223,7 @@ def test_loader_uses_langsmith_sdk_query_contract_without_importing_provider_obj
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *args):
+        def log_message(self, format, *args):
             pass
 
         def send_json(self, payload):
@@ -322,9 +328,9 @@ def test_loader_detaches_and_reports_unresolved_parent():
     trace = next(iter(loader.load()))
 
     assert [span.id for span in trace.root_spans] == [str(TRACE_ID), str(TOOL_ID)]
-    assert trace.root_spans[1].attributes["source_pointer"]["unresolved_parent_run_id"] == str(
-        missing_parent
-    )
+    pointer = trace.root_spans[1].attributes["source_pointer"]
+    assert isinstance(pointer, dict)
+    assert pointer["unresolved_parent_run_id"] == str(missing_parent)
     assert loader.report.unresolved_parent_count == 1
 
 
@@ -417,7 +423,7 @@ def test_loader_rejects_parent_cycle():
 
 
 def test_describe_before_load_uses_unresolved_coordinates():
-    loader = LangSmithTraceLoader(LangSmithTraceConfig(project_name="project"), client=object())
+    loader = LangSmithTraceLoader(LangSmithTraceConfig(project_name="project"))
 
     description = loader.describe()
 

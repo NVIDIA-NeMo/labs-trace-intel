@@ -16,7 +16,7 @@ class InsightCompilation(Agent):
         evidence_streams: list[EvidenceStreamResult],
         trace_snapshot: TraceSnapshot,
         existing_insights: list[Insight],
-    ) -> list[Insight]:
+    ) -> list[Insight]:  # ty: ignore[empty-body] -- Nooa generates the ellipsis method at runtime.
         """
         Your job is to be the last step of the insight creation process. An
         insight is a bug report or problem that is identified by looking at the

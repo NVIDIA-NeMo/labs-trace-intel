@@ -52,7 +52,7 @@ def test_ethos_rejects_missing_and_empty_documents(tmp_path):
         ethos.EthosDivergenceConfig(ethos_path=path)
     path.write_text(" \n", encoding="utf-8")
     stream = ethos.EthosDivergenceEvidenceStream(
-        config=ethos.EthosDivergenceConfig(ethos_path=path), llm=object()
+        config=ethos.EthosDivergenceConfig(ethos_path=path), llm=FakeLLMClient()
     )
     with pytest.raises(ValueError, match="non-empty"):
         stream.validate_configuration()

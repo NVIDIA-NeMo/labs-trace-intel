@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
+from insight_agent.evidence_streams.anomaly_and_patterns.stream import PreparedTrace
 from insight_agent.evidence_streams.tool_issues.stream import MISSING
 
 __all__ = ["dump_json", "jsonable", "prepared_features", "write_json"]
@@ -29,7 +30,7 @@ __all__ = ["dump_json", "jsonable", "prepared_features", "write_json"]
 MISSING_MARKER = "<missing>"
 
 
-def jsonable(value: Any) -> Any:
+def jsonable(value: object) -> JsonValue:
     """Recursively convert ``value`` into JSON-safe primitives."""
 
     if value is MISSING:
@@ -48,25 +49,27 @@ def jsonable(value: Any) -> Any:
     if isinstance(value, (list, tuple, set, frozenset)):
         items = sorted(value, key=repr) if isinstance(value, (set, frozenset)) else value
         return [jsonable(item) for item in items]
-    if hasattr(value, "item") and hasattr(value, "dtype"):  # numpy scalar
-        return jsonable(value.item())
-    if hasattr(value, "tolist"):  # numpy array
-        return jsonable(value.tolist())
+    item = getattr(value, "item", None)
+    if callable(item) and hasattr(value, "dtype"):  # numpy scalar
+        return jsonable(item())
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):  # numpy array
+        return jsonable(tolist())
     return str(value)
 
 
-def dump_json(value: Any, *, indent: int | None = 2) -> str:
+def dump_json(value: object, *, indent: int | None = 2) -> str:
     return json.dumps(jsonable(value), indent=indent, ensure_ascii=False, sort_keys=False) + "\n"
 
 
-def write_json(path: str | Path, value: Any, *, indent: int | None = 2) -> Path:
+def write_json(path: str | Path, value: object, *, indent: int | None = 2) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(dump_json(value, indent=indent), encoding="utf-8")
     return path
 
 
-def prepared_features(prepared: Any) -> list[dict[str, Any]]:
+def prepared_features(prepared: Iterable[PreparedTrace]) -> list[dict[str, Any]]:
     """Flatten ``run_anomaly_and_patterns``'s ``prepared`` list into per-trace feature rows.
 
     Keeps the numeric vector, the trajectory tokens and the source pointer —

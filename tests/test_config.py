@@ -51,4 +51,5 @@ def test_config_file_is_optional_when_cli_provides_trace_input() -> None:
     assert config.config is None
     assert config.trace.filesystem is not None
     assert config.trace.filesystem.path == Path("traces.jsonl")
+    assert config.evidence_streams.eval_failure_patterns is not None
     assert config.evidence_streams.eval_failure_patterns.max_tool_rounds == 72

@@ -56,6 +56,7 @@ dev = [
     "mlflow-skinny>=3.6,<4",
     "pytest>=8.0",
     "ruff>=0.6",
+    "ty>=0.0.80",
 ]
 
 [project.scripts]
@@ -89,8 +90,11 @@ line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "TID252"]
+select = ["E", "F", "I", "UP", "B", "TID252", "ANN"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

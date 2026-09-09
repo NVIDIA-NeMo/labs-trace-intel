@@ -660,7 +660,7 @@ def _logical_case(trace: Trace) -> str:
     return str(logical_case_id) if logical_case_id is not None else trace.id
 
 
-def _span_field(provider_span: MLflowSpan, attribute_key: str, value: Any) -> JsonValue | UNSET:
+def _span_field(provider_span: MLflowSpan, attribute_key: str, value: object) -> JsonValue | UNSET:
     attributes = provider_span.attributes
     if attribute_key not in attributes:
         return UNSET
@@ -672,7 +672,7 @@ def _span_field(provider_span: MLflowSpan, attribute_key: str, value: Any) -> Js
     return _json_value(value)
 
 
-def _json_value(value: Any) -> JsonValue:
+def _json_value(value: object) -> JsonValue:
     try:
         return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
     except (TypeError, ValueError) as error:

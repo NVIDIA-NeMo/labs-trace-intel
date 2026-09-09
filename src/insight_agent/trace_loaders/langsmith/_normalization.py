@@ -11,7 +11,7 @@ import math
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Protocol
 
 from pydantic import JsonValue
 
@@ -31,13 +31,13 @@ class _LangSmithRun(Protocol):
     """Run-shaped data shared by SDK responses and parsed trace exports."""
 
     @property
-    def id(self) -> Any: ...
+    def id(self) -> object: ...
 
     @property
-    def parent_run_id(self) -> Any: ...
+    def parent_run_id(self) -> object: ...
 
     @property
-    def start_time(self) -> Any: ...
+    def start_time(self) -> object: ...
 
 
 class LangSmithTraceLoadError(RuntimeError):
@@ -256,7 +256,7 @@ def _normalize_run(
     )
 
 
-def _map_run_kind(run_type: Any) -> tuple[SpanKind, str | None]:
+def _map_run_kind(run_type: object) -> tuple[SpanKind, str | None]:
     provider_type = str(run_type or "UNKNOWN").upper()
     aliases = {
         "LLM": SpanKind.LLM,
@@ -289,7 +289,7 @@ def _map_run_status(run: _LangSmithRun) -> tuple[str, str | None]:
     return "UNKNOWN", None
 
 
-def _optional_datetime(value: Any, run_id: str, field_name: str) -> datetime | None:
+def _optional_datetime(value: object, run_id: str, field_name: str) -> datetime | None:
     if value is None:
         return None
     if not isinstance(value, datetime):
@@ -303,7 +303,7 @@ def _optional_datetime(value: Any, run_id: str, field_name: str) -> datetime | N
     return value.astimezone(timezone.utc)
 
 
-def _optional_json_field(value: Any) -> JsonValue | UNSET:
+def _optional_json_field(value: object) -> JsonValue | UNSET:
     if value is None:
         return UNSET
     return _json_value(value)
@@ -319,7 +319,7 @@ def walk_spans(spans: Sequence[Span]) -> Iterator[Span]:
         pending.extend(reversed(span.children))
 
 
-def _json_value(value: Any) -> JsonValue:
+def _json_value(value: object) -> JsonValue:
     try:
         return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
     except (TypeError, ValueError) as error:
@@ -391,7 +391,7 @@ def _logical_case_id(root: _LangSmithRun) -> str | None:
     return None
 
 
-def required_id(value: Any, field_name: str, context: str) -> str:
+def required_id(value: object, field_name: str, context: str) -> str:
     """Read one required provider identifier as a string."""
 
     identifier = getattr(value, field_name, None)

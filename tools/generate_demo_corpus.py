@@ -24,7 +24,9 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict, Unpack
+
+from pydantic import JsonValue
 
 from insight_agent.traces import UNSET, Span, SpanKind, ToolCall, Trace, TraceAggregate
 
@@ -74,10 +76,22 @@ VERDICT_COMPLETED = "completed"
 MISSING_RESULT = object()
 
 
+class _CallFields(TypedDict, total=False):
+    result_missing: bool
+    result_count: int
+    explicit_error: bool
+    outcome_marker: str
+    extra: dict[str, JsonValue]
+    result_id: str
+    instrumentation_alias_of: str
+    prior_user_text: str
+    returned_data: JsonValue
+
+
 class TraceBuilder:
     """Build one canonical trace for the bundled synthetic corpus."""
 
-    def __init__(self, trace_id: str, logical_case_id: str, task_text: str):
+    def __init__(self, trace_id: str, logical_case_id: str, task_text: str) -> None:
         self.trace_id = trace_id
         self.logical_case_id = logical_case_id
         self.task_text = task_text
@@ -102,12 +116,12 @@ class TraceBuilder:
     def call(
         self,
         tool_name: str,
-        arguments: Any,
+        arguments: JsonValue,
         *,
-        result: Any = MISSING_RESULT,
+        result: object = MISSING_RESULT,
         call_id: str | None = None,
         duration_ms: float = 120.0,
-        **fields: Any,
+        **fields: Unpack[_CallFields],
     ) -> TraceBuilder:
         index = self.call_count
         self.call_count += 1

@@ -115,15 +115,15 @@ STATE_PATTERNS = tuple(
 )
 
 
-def stable_json(value: Any) -> str:
+def stable_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def digest(value: Any) -> str:
+def digest(value: object) -> str:
     return hashlib.sha256(stable_json(value).encode("utf-8")).hexdigest()
 
 
-def parse_json(value: Any) -> Any:
+def parse_json(value: object) -> object:
     if not isinstance(value, str):
         return value
     try:
@@ -132,7 +132,7 @@ def parse_json(value: Any) -> Any:
         return None
 
 
-def result_text(value: Any) -> str:
+def result_text(value: object) -> str:
     parsed = parse_json(value)
     if isinstance(parsed, Mapping):
         content = parsed.get("content")
@@ -140,7 +140,7 @@ def result_text(value: Any) -> str:
     return value if isinstance(value, str) else stable_json(value)
 
 
-def compact(value: Any, limit: int = 900) -> str:
+def compact(value: object, limit: int = 900) -> str:
     text = " ".join(result_text(value).split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
@@ -173,7 +173,7 @@ class TraceRecord:
 
 
 def schema_errors(
-    catalog: Mapping[str, Mapping[str, Any] | None], tool_name: str, arguments: Any
+    catalog: Mapping[str, Mapping[str, Any] | None], tool_name: str, arguments: object
 ) -> list[dict[str, Any]]:
     """Apply the active catalog/JSON Schema without coercing evidence."""
 
@@ -285,7 +285,7 @@ def _finding(
     return payload
 
 
-def _flatten_strings(value: Any, prefix: str = "$") -> Iterable[tuple[str, str, str]]:
+def _flatten_strings(value: object, prefix: str = "$") -> Iterable[tuple[str, str, str]]:
     if isinstance(value, Mapping):
         for key, child in value.items():
             yield from _flatten_strings(child, f"{prefix}.{key}")
@@ -682,7 +682,7 @@ def problems_from_cards(
     return tuple(problems)
 
 
-def _input_text(value: Any) -> str:
+def _input_text(value: object) -> str:
     if isinstance(value, str):
         return value
 

@@ -213,15 +213,19 @@ License generation requires `osv-scanner` on `PATH`; CI pins the same 2.3.3
 release used by NeMo Platform. `make update-licenses` refreshes the OSV
 dependency inventory.
 
+Ruff requires annotations outside tests. ty uses its defaults and checks all Python
+files, including tests.
+
 Run the same read-only checks used by CI:
 
 ```bash
 uv lock --check
 make check-copyright-headers
 make check-licenses
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked ty check
+uv run --locked pytest
 uv build
 ```
 

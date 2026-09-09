@@ -23,6 +23,7 @@ from typing import Any, Literal
 
 import numpy as np
 from pydantic import BaseModel, Field, FiniteFloat, field_validator
+from scipy.sparse import csr_matrix
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.ensemble import IsolationForest
@@ -138,11 +139,11 @@ class PreparedTrace:
     last_agent_excerpt: str
 
 
-def _stable_json(value: Any) -> str:
+def _stable_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
 
-def _result_text(result: Any) -> str:
+def _result_text(result: object) -> str:
     if isinstance(result, str):
         return result
     if isinstance(result, Mapping):
@@ -201,7 +202,7 @@ def denoise_output(text: str, *, max_chars: int = 8_000) -> str:
 
 def decode_explicit_failure(
     tool_name: str,
-    result: Any,
+    result: object,
     error: str | None = None,
 ) -> tuple[bool, str | None, str]:
     """Conservatively decode only structured or native explicit failure evidence."""
@@ -480,7 +481,7 @@ def select_anomalies(
 
 
 def _choose_cluster_count(
-    matrix: Any, candidates: Sequence[int], *, random_state: int
+    matrix: csr_matrix, candidates: Sequence[int], *, random_state: int
 ) -> tuple[int, list[dict[str, float]]]:
     valid = [k for k in candidates if 2 <= k < matrix.shape[0]]
     if not valid:
@@ -703,7 +704,7 @@ def group_failures_cross_tool(
     )
 
 
-def _markdown(value: Any) -> str:
+def _markdown(value: object) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ")
 
 
