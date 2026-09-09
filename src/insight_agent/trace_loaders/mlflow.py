@@ -503,14 +503,21 @@ def _normalize_trace(
 
     metadata = dict(provider_trace.info.trace_metadata or {})
     logical_case_id = _logical_case_id(metadata, ordered, effective_parents)
+    assessments = [assessment.to_dictionary() for assessment in provider_trace.info.assessments]
+    evaluator_results: dict[str, JsonValue] = {}
+    for row in assessments:
+        name = row.get("assessment_name")
+        if not isinstance(name, str) or not name or row.get("valid") is False:
+            continue
+        if name in evaluator_results:
+            raise MLflowTraceLoadError(f"duplicate active assessment {name!r}")
+        evaluator_results[name] = _json_value(row)
     attributes: dict[str, JsonValue] = {
         "source_pointer": base_pointer,
         "mlflow": {
             "request_time": provider_trace.info.request_time,
             "trace_metadata": _json_value(metadata),
-            "assessments": _json_value(
-                [a.to_dictionary() for a in provider_trace.info.assessments]
-            ),
+            "assessments": _json_value(assessments),
         },
     }
     if logical_case_id is not None:
@@ -520,6 +527,7 @@ def _normalize_trace(
         id=trace_id,
         root_spans=root_spans,
         aggregate=TraceAggregate(latency_ms=_trace_latency_ms(ordered)),
+        evaluator_results=evaluator_results,
         attributes=attributes,
     )
     return (
@@ -668,9 +676,7 @@ def _json_value(value: Any) -> JsonValue:
     try:
         return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
     except (TypeError, ValueError) as error:
-        raise MLflowTraceLoadError(
-            f"MLflow span input/output is not JSON-serializable: {error}"
-        ) from error
+        raise MLflowTraceLoadError(f"MLflow value is not JSON-serializable: {error}") from error
 
 
 def _datetime_from_ns(value: int | None) -> datetime | None:

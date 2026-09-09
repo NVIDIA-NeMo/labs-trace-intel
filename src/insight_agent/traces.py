@@ -207,6 +207,10 @@ class Trace(_TraceModel):
     aggregate: TraceAggregate = Field(
         description="Whole-trace measurements; use an empty object when none are available."
     )
+    evaluator_results: dict[str, JsonValue] = Field(
+        default_factory=dict,
+        description="Normalized evaluation signals keyed by adapter-assigned names.",
+    )
     attributes: dict[str, JsonValue] = Field(
         default_factory=dict,
         description="Additional lossless trace-level source metadata; do not invent values.",

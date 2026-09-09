@@ -117,26 +117,25 @@ def native_trace_dict(trace_id="tr-9df8a4c934051e916458d472ac87ee2a"):
     return record
 
 
-def test_loader_preserves_mlflow_assessments():
-    assessment = Feedback(name="quality", value=0.25)
-    expected = assessment.to_dictionary()
-    provider_trace = trace(
-        "tr-1",
-        assessments=[assessment],
-    )
+def test_loader_rejects_duplicate_active_mlflow_assessments():
+    assessments = [
+        Feedback(name="quality", value=0.9),
+        Feedback(name="quality", value=0.1),
+    ]
     loader = MLflowTraceLoader(
         MLflowTraceConfig(experiment_name="experiment"),
-        client=FakeClient(pages=[FakePage([provider_trace])]),
+        client=FakeClient(pages=[FakePage([trace("tr-1", assessments=assessments)])]),
     )
-    normalized = next(iter(loader.load()))
 
-    assert normalized.attributes["mlflow"]["assessments"] == [expected]
+    with pytest.raises(MLflowTraceLoadError, match="duplicate active assessment 'quality'"):
+        loader.load()
 
 
 def test_file_loader_reads_native_mlflow_search_json_without_conversion(tmp_path):
     record = native_trace_dict()
     assessment = Feedback(name="quality", value=0.25).to_dictionary()
-    record["info"]["assessments"] = [assessment]
+    assessments = [assessment, Feedback(name="quality", value=0.1, valid=False).to_dictionary()]
+    record["info"]["assessments"] = assessments
     path = tmp_path / "traces.json"
     path.write_text(
         json.dumps({"traces": [record], "next_page_token": "more"}),
@@ -156,7 +155,8 @@ def test_file_loader_reads_native_mlflow_search_json_without_conversion(tmp_path
         "export_path": str(path.resolve()),
         "trace_id": "tr-9df8a4c934051e916458d472ac87ee2a",
     }
-    assert normalized.attributes["mlflow"]["assessments"] == [assessment]
+    assert normalized.attributes["mlflow"]["assessments"] == assessments
+    assert normalized.evaluator_results == {"quality": assessment}
     assert loader.describe()["continuation_token_present"] is True
 
 

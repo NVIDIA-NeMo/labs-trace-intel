@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 
-from nooa.unifiedllm import CompletionClient
+from nooa.unifiedllm import UnifiedLLM
 from pydantic import BaseModel, ConfigDict, FilePath
 
 from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult, Problem
@@ -39,9 +39,12 @@ considered outside the scope of the agent.
 
 
 async def detect_ethos_divergence(
-    trace_snapshot: TraceSnapshot, llm: CompletionClient, ethos: str
+    trace_snapshot: TraceSnapshot, llm: UnifiedLLM, ethos: str
 ) -> list[Problem]:
-    return await IssueDetector(llm=llm).detect_issues(trace_snapshot, ETHOS_DIVERGENCE, ethos=ethos)
+    async with llm:
+        return await IssueDetector(llm=llm).detect_issues(
+            trace_snapshot, ETHOS_DIVERGENCE, ethos=ethos
+        )
 
 
 class EthosDivergenceConfig(BaseModel):
@@ -53,7 +56,7 @@ class EthosDivergenceConfig(BaseModel):
 class EthosDivergenceEvidenceStream:
     name = "ethos-divergence"
 
-    def __init__(self, config: EthosDivergenceConfig, llm: CompletionClient) -> None:
+    def __init__(self, config: EthosDivergenceConfig, llm: UnifiedLLM) -> None:
         self.config = config
         self.llm = llm
         self.ethos = ""

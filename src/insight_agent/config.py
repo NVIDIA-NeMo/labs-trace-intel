@@ -18,6 +18,7 @@ from insight_agent.evidence_streams.anomaly_and_patterns.stream import AnomalyAn
 from insight_agent.evidence_streams.ethos_divergence.ethos_divergence_detector import (
     EthosDivergenceConfig,
 )
+from insight_agent.evidence_streams.eval_failure_patterns import EvalFailurePatternsConfig
 from insight_agent.evidence_streams.tool_issues.stream import ToolIssueConfig
 
 _CONFIG_MODEL_SETTINGS = SettingsConfigDict(
@@ -166,6 +167,10 @@ class EvidenceStreamsConfig(ConfigModel):
         default=None,
         description="Deterministic tool-issue evidence",
     )
+    eval_failure_patterns: EvalFailurePatternsConfig | None = Field(
+        default=None,
+        description="LLM review of evaluation-linked failures",
+    )
 
     ethos_divergence: EthosDivergenceConfig | None = None
 
@@ -173,7 +178,12 @@ class EvidenceStreamsConfig(ConfigModel):
     def at_least_one_stream_is_configured(self) -> EvidenceStreamsConfig:
         if all(
             stream is None
-            for stream in (self.anomaly_and_patterns, self.tool_issues, self.ethos_divergence)
+            for stream in (
+                self.anomaly_and_patterns,
+                self.tool_issues,
+                self.ethos_divergence,
+                self.eval_failure_patterns,
+            )
         ):
             raise ValueError("at least one evidence stream must be configured")
         return self

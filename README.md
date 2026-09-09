@@ -19,7 +19,7 @@ Future iterations will aim to improve the scalability and reliability of the age
 ## V2 Analyst Agent Architecture
 This version of the Analyst Agent implements a series of preprocessing steps that we call "evidence streams".
 
-There are 3 current evidence streams, and we can expect to add more in the future:
+Current evidence streams:
 
 1) **Anomaly and Pattern Analysis** - Which traces are unusual, and which patterns recur?
 
@@ -34,6 +34,10 @@ There are 3 current evidence streams, and we can expect to add more in the futur
 3) **Ethos Divergence** - Where does observed agent behavior violate the business purpose and requirements in a supplied `ethos.md`?
 
     An LLM checks the traces against the document. Select it with `--evidence-streams.ethos-divergence.ethos-path /path/to/ethos.md`.
+
+4) **Evaluation Failure Patterns** - What recurring behavior is linked to recorded evaluation results?
+
+    Adapters must populate `Trace.evaluator_results`; the LLM does not discover evaluation fields.
 
 After the evidence streams run, each returns candidate `Problem` objects with a description and supporting trace IDs. Those Problems are passed to the Analyst Agent to guide its analysis. The Analyst can also look up normalized supporting traces from the same snapshot and uses that evidence as a starting point for more detailed exploration and synthesis.
 
@@ -79,7 +83,8 @@ src/insight_agent/
 ├── trace_loaders/        # loader contracts and source-specific trace loaders
 ├── evidence_streams/     # evidence-stream contracts and implementations
 │   ├── anomaly_and_patterns/  # anomaly-and-pattern stream implementation
-│   └── tool_issues/           # tool-issue stream implementation and coverage helper
+│   ├── tool_issues/           # tool-issue stream implementation and coverage helper
+│   └── eval_failure_patterns.py  # LLM review of evaluation-linked failures
 ├── insights_generation/  # LLM-backed synthesis and its configuration
 └── cli/                  # command orchestration and final YAML output
 ```

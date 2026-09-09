@@ -22,6 +22,8 @@ output_path: insights.yml
 evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
+  # Select when traces contain evaluator_results.
+  # eval_failure_patterns: {max_tool_rounds: 72}
 
 # Optional LLM settings. Credentials remain in the environment.
 # model: openai/azure/openai/gpt-5.6-luna

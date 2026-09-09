@@ -4,6 +4,7 @@
 import asyncio
 
 import pytest
+from nooa.unifiedllm import FakeLLMClient
 from pydantic import ValidationError
 
 from insight_agent.cli.main import _run_evidence_streams, get_config
@@ -24,7 +25,7 @@ def test_ethos_cli_runs_registered_detector(tmp_path, monkeypatch):
         ]
     )
     snapshot = TraceSnapshot([])
-    llm = object()
+    llm = FakeLLMClient()
     problem = Problem(description="Issued a refund", supporting_trace_ids=("trace-1",))
 
     class FakeDetector:
@@ -39,7 +40,7 @@ def test_ethos_cli_runs_registered_detector(tmp_path, monkeypatch):
             return [problem]
 
     monkeypatch.setattr(ethos, "IssueDetector", FakeDetector)
-    results = asyncio.run(_run_evidence_streams(config.evidence_streams, snapshot, llm))
+    results = asyncio.run(_run_evidence_streams(config.evidence_streams, snapshot, lambda: llm))
     assert len(results) == 1
     assert results[0].stream_name == "ethos-divergence"
     assert results[0].problems == (problem,)

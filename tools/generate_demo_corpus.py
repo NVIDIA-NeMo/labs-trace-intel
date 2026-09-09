@@ -210,6 +210,7 @@ class TraceBuilder:
             id=self.trace_id,
             root_spans=self.spans,
             aggregate=TraceAggregate(cost_usd=cost, latency_ms=self.duration_ms or None),
+            evaluator_results={"observed_verdict": verdict},
             attributes=attributes,
         )
 
