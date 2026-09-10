@@ -664,6 +664,7 @@ name = "insight-agent"
 version = "0.1.0rc1"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "jsonschema" },
     { name = "litellm" },
     { name = "nooa" },
@@ -694,6 +695,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "jsonschema", specifier = ">=4.18,<5" },
     { name = "langsmith", marker = "extra == 'langsmith'", specifier = ">=0.12,<0.13" },
     { name = "litellm", specifier = ">=1.55,<2" },

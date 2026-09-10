@@ -53,6 +53,37 @@ trace:
     path: traces.jsonl
 ```
 
+### Intake
+
+Select a bounded NeMo Platform Intake query using the shared trace limit:
+
+```yaml
+trace:
+  max_traces: 500
+  intake:
+    base_url: https://platform.example.com
+    workspace: example-workspace
+    query:
+      started_at_gte: 2026-08-28T00:00:00Z
+      started_at_lte: 2026-08-29T00:00:00Z
+      sort: -started_at
+```
+
+Use `--trace.max-traces` to override the shared limit from the CLI. An explicit
+shared limit takes precedence over `trace.intake.query.max_traces`.
+The loader returns an in-memory `TraceSnapshot`; it does not write snapshot or
+manifest files.
+
+Intake reads optional bearer authentication from `NMP_ACCESS_TOKEN`. For an
+authenticated deployment, export the token before running; with the NeMo Platform
+CLI installed, use `nemo auth login --base-url https://platform.example.com` and
+`export NMP_ACCESS_TOKEN="$(nemo auth token)"`.
+
+The loader fetches evaluator results for the selected sessions and attaches only
+results targeting spans in each trace. Select `eval_failure_patterns: {}` under
+`evidence_streams` to use those results in analysis. It uses the same model and
+credentials as Insight compilation.
+
 ### LangSmith
 
 For the LangSmith Trace Loader, configure the API project to query:

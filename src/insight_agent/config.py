@@ -20,6 +20,7 @@ from insight_agent.evidence_streams.ethos_divergence.ethos_divergence_detector i
 )
 from insight_agent.evidence_streams.eval_failure_patterns import EvalFailurePatternsConfig
 from insight_agent.evidence_streams.tool_issues.stream import ToolIssueConfig
+from insight_agent.trace_loaders.intake import IntakeTraceLoaderConfig
 
 _CONFIG_MODEL_SETTINGS = SettingsConfigDict(
     extra="forbid",
@@ -116,6 +117,10 @@ class TraceConfig(ConfigModel):
         default=None,
         description="Native MLflow export loader",
     )
+    intake: IntakeTraceLoaderConfig | None = Field(
+        default=None,
+        description="Bounded NeMo Platform Intake query",
+    )
     langsmith: LangSmithTraceSourceConfig | None = Field(
         default=None,
         description="LangSmith Trace Loader",
@@ -133,6 +138,7 @@ class TraceConfig(ConfigModel):
                 self.filesystem,
                 self.mlflow_experiment,
                 self.mlflow_export,
+                self.intake,
                 self.langsmith,
                 self.langsmith_trace_export_file,
             )

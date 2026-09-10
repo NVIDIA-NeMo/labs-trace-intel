@@ -27,6 +27,7 @@ from insight_agent.insights_generation.config import (
 from insight_agent.insights_generation.defaults import DEFAULT_MAX_TOKENS, DEFAULT_MODEL
 from insight_agent.insights_generation.insight_compilation import InsightCompilation
 from insight_agent.trace_loaders.fs import FSDataLoader
+from insight_agent.trace_loaders.intake import IntakeTraceLoader
 from insight_agent.trace_loaders.langsmith import (
     LANGSMITH_DEFAULT_MAX_TRACES,
     LangSmithTraceConfig,
@@ -53,6 +54,12 @@ def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
 
     if config.filesystem is not None:
         return FSDataLoader(config.filesystem.path)
+    if config.intake is not None:
+        source = config.intake
+        if config.max_traces is not None:
+            query = source.query.model_copy(update={"max_traces": config.max_traces})
+            source = source.model_copy(update={"query": query})
+        return IntakeTraceLoader(config=source)
     if config.langsmith is not None:
         source = config.langsmith
         return LangSmithTraceLoader(
