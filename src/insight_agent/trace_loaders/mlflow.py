@@ -140,28 +140,34 @@ class MLflowTraceLoader:
                     f"{tracking_uri}"
                 )
             experiment_id = str(experiment.experiment_id)
-            keyed_traces: list[tuple[tuple[int, str], Trace]] = []
+            sort_keys: dict[str, tuple[int, str]] = {}
+            logical_cases: set[str] = set()
             unresolved_parent_count = 0
             span_count = 0
             call_count = 0
-            for page in self._search_trace_pages(client, experiment_id):
-                for provider_trace in page:
-                    trace, detached, trace_span_count, trace_call_count = _normalize_trace(
-                        provider_trace,
-                        source_pointer={
-                            "provider": "mlflow",
-                            "tracking_uri": tracking_uri,
-                            "experiment_name": self.config.experiment_name,
-                            "experiment_id": experiment_id,
-                        },
-                    )
-                    keyed_traces.append((_trace_sort_key(provider_trace), trace))
-                    unresolved_parent_count += detached
-                    span_count += trace_span_count
-                    call_count += trace_call_count
 
-            normalized = [trace for _, trace in sorted(keyed_traces, key=lambda item: item[0])]
-            snapshot = TraceSnapshot(normalized)
+            def traces() -> Iterator[Trace]:
+                nonlocal unresolved_parent_count, span_count, call_count
+                for page in self._search_trace_pages(client, experiment_id):
+                    for provider_trace in page:
+                        trace, detached, trace_span_count, trace_call_count = _normalize_trace(
+                            provider_trace,
+                            source_pointer={
+                                "provider": "mlflow",
+                                "tracking_uri": tracking_uri,
+                                "experiment_name": self.config.experiment_name,
+                                "experiment_id": experiment_id,
+                            },
+                        )
+                        sort_keys[trace.id] = _trace_sort_key(provider_trace)
+                        logical_cases.add(_logical_case(trace))
+                        unresolved_parent_count += detached
+                        span_count += trace_span_count
+                        call_count += trace_call_count
+                        yield trace
+
+            snapshot = TraceSnapshot(traces())
+            snapshot.sort(sort_keys.__getitem__)
         except (MLflowTraceLoadError, ModuleNotFoundError):
             raise
         except Exception as error:
@@ -176,7 +182,7 @@ class MLflowTraceLoader:
             span_count=span_count,
             unresolved_parent_count=unresolved_parent_count,
             call_count=call_count,
-            distinct_logical_cases=len({_logical_case(trace) for trace in normalized}),
+            distinct_logical_cases=len(logical_cases),
         )
         return snapshot
 
@@ -280,42 +286,47 @@ class MLflowFileTraceLoader:
 
         resolved_path = self.config.path.resolve()
         try:
-            contents = self.config.path.read_bytes()
-            records, continuation_token_present = _parse_mlflow_export(contents, self.config.path)
-            selected = records[: self.config.max_traces]
-            provider_traces = [_mlflow_trace_from_dict(record) for record in selected]
-            keyed_traces: list[tuple[tuple[int, str], Trace]] = []
+            records, continuation_token_present, digest, export_trace_count = _read_mlflow_export(
+                self.config.path, self.config.max_traces
+            )
+            sort_keys: dict[str, tuple[int, str]] = {}
+            logical_cases: set[str] = set()
             unresolved_parent_count = 0
             span_count = 0
             call_count = 0
             seen: set[str] = set()
-            for provider_trace in provider_traces:
-                trace_id = _trace_id(provider_trace)
-                if trace_id in seen:
-                    raise MLflowTraceLoadError(
-                        f"MLflow export {str(self.config.path)!r} contains duplicate trace id "
-                        f"{trace_id!r}"
-                    )
-                seen.add(trace_id)
-                if not provider_trace.data.spans:
-                    raise MLflowTraceLoadError(
-                        f"MLflow export trace {trace_id!r} has no spans; export complete traces "
-                        "without --no-include-spans"
-                    )
-                trace, detached, trace_span_count, trace_call_count = _normalize_trace(
-                    provider_trace,
-                    source_pointer={
-                        "provider": "mlflow",
-                        "export_path": str(resolved_path),
-                    },
-                )
-                keyed_traces.append((_trace_sort_key(provider_trace), trace))
-                unresolved_parent_count += detached
-                span_count += trace_span_count
-                call_count += trace_call_count
 
-            normalized = [trace for _, trace in sorted(keyed_traces, key=lambda item: item[0])]
-            snapshot = TraceSnapshot(normalized)
+            def traces() -> Iterator[Trace]:
+                nonlocal unresolved_parent_count, span_count, call_count
+                for provider_trace in map(_mlflow_trace_from_dict, records):
+                    trace_id = _trace_id(provider_trace)
+                    if trace_id in seen:
+                        raise MLflowTraceLoadError(
+                            f"MLflow export {str(self.config.path)!r} contains duplicate trace id "
+                            f"{trace_id!r}"
+                        )
+                    seen.add(trace_id)
+                    if not provider_trace.data.spans:
+                        raise MLflowTraceLoadError(
+                            f"MLflow export trace {trace_id!r} has no spans; export complete traces "
+                            "without --no-include-spans"
+                        )
+                    trace, detached, trace_span_count, trace_call_count = _normalize_trace(
+                        provider_trace,
+                        source_pointer={
+                            "provider": "mlflow",
+                            "export_path": str(resolved_path),
+                        },
+                    )
+                    sort_keys[trace.id] = _trace_sort_key(provider_trace)
+                    logical_cases.add(_logical_case(trace))
+                    unresolved_parent_count += detached
+                    span_count += trace_span_count
+                    call_count += trace_call_count
+                    yield trace
+
+            snapshot = TraceSnapshot(traces())
+            snapshot.sort(sort_keys.__getitem__)
         except (MLflowTraceLoadError, FileNotFoundError, ModuleNotFoundError):
             raise
         except Exception as error:
@@ -324,14 +335,14 @@ class MLflowFileTraceLoader:
             ) from error
 
         self._continuation_token_present = continuation_token_present
-        self._digest = hashlib.sha256(contents).hexdigest()
-        self._export_trace_count = len(records)
+        self._digest = digest
+        self._export_trace_count = export_trace_count
         self.report = MLflowLoadReport(
             trace_count=snapshot.trace_count,
             span_count=span_count,
             unresolved_parent_count=unresolved_parent_count,
             call_count=call_count,
-            distinct_logical_cases=len({_logical_case(trace) for trace in normalized}),
+            distinct_logical_cases=len(logical_cases),
         )
         return snapshot
 
@@ -371,6 +382,17 @@ def _mlflow_trace_from_dict(record: dict[str, Any]) -> MLflowTrace:
         trace_id = info.get("trace_id") if isinstance(info, dict) else None
         context = f" trace {trace_id!r}" if trace_id else ""
         raise MLflowTraceLoadError(f"Failed to parse MLflow export{context}: {error}") from error
+
+
+def _read_mlflow_export(path: Path, max_traces: int) -> tuple[list[dict[str, Any]], bool, str, int]:
+    contents = path.read_bytes()
+    records, continuation_token_present = _parse_mlflow_export(contents, path)
+    return (
+        records[:max_traces],
+        continuation_token_present,
+        hashlib.sha256(contents).hexdigest(),
+        len(records),
+    )
 
 
 def _parse_mlflow_export(contents: bytes, path: Path) -> tuple[list[dict[str, Any]], bool]:

@@ -29,7 +29,7 @@ def _spans(trace: Trace) -> Iterator[Span]:
         pending.extend(reversed(span.children))
 
 
-def _parse_trace(raw: str, *, path: Path, line_number: int) -> Trace:
+def _parse_trace(raw: str | bytes, *, path: Path, line_number: int) -> Trace:
     try:
         return Trace.model_validate_json(raw)
     except ValidationError as error:
@@ -56,28 +56,36 @@ class FSDataLoader:
         if self._snapshot is not None:
             return self._snapshot
 
-        traces: list[Trace] = []
-        with self.path.open(encoding="utf-8") as corpus:
-            for line_number, raw in enumerate(corpus, start=1):
-                if raw.strip():
-                    traces.append(_parse_trace(raw, path=self.path, line_number=line_number))
-        if not traces:
-            raise FSDataLoadError(f"{self.path}: contains no traces")
+        call_count = 0
+        cases: set[str] = set()
+
+        def traces() -> Iterator[Trace]:
+            nonlocal call_count
+            with self.path.open("rb") as corpus:
+                for line_number, raw in enumerate(corpus, start=1):
+                    if raw.isspace():
+                        continue
+                    trace = _parse_trace(raw, path=self.path, line_number=line_number)
+                    call_count += sum(span.kind is SpanKind.TOOL for span in _spans(trace))
+                    cases.add(str(trace.attributes.get("logical_case_id") or trace.id))
+                    yield trace
+
         try:
-            self._snapshot = TraceSnapshot(traces)
+            snapshot = TraceSnapshot(traces())
+        except FSDataLoadError:
+            raise
         except ValueError as error:
             raise FSDataLoadError(f"{self.path}: {error}") from error
+        if not snapshot:
+            raise FSDataLoadError(f"{self.path}: contains no traces")
+        self._snapshot = snapshot
         self._description = {
             "source": f"fs:{self.path.resolve()}",
-            "trace_count": len(traces),
-            "call_count": sum(
-                span.kind is SpanKind.TOOL for trace in traces for span in _spans(trace)
-            ),
-            "distinct_logical_cases": len(
-                {str(trace.attributes.get("logical_case_id") or trace.id) for trace in traces}
-            ),
+            "trace_count": len(snapshot),
+            "call_count": call_count,
+            "distinct_logical_cases": len(cases),
         }
-        return self._snapshot
+        return snapshot
 
     def describe(self) -> TraceDescription:
         self.load()

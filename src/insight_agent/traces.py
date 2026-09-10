@@ -5,9 +5,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+import sqlite3
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import closing
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 from pydantic.experimental.missing_sentinel import MISSING
@@ -229,25 +234,84 @@ class Trace(_TraceModel):
         return self
 
 
-class TraceSnapshot:
-    """A reiterable in-memory view of normalized traces, indexed by ID."""
+class _DiskTraceIndex(Mapping[str, Trace]):
+    """Temporary SQLite storage for normalized traces."""
 
     def __init__(self, traces: Iterable[Trace]) -> None:
-        traces_by_id: dict[str, Trace] = {}
-        for trace in traces:
-            if trace.id in traces_by_id:
-                raise ValueError(f"snapshot contains duplicate trace id {trace.id!r}")
-            traces_by_id[trace.id] = trace
-        self.traces_by_id = traces_by_id
+        self._directory = TemporaryDirectory(prefix="insight-agent-traces-")
+        self._path = Path(self._directory.name) / "traces.sqlite3"
+        try:
+            with closing(sqlite3.connect(self._path)) as connection, connection:
+                connection.execute(
+                    "CREATE TABLE traces (id TEXT PRIMARY KEY, position INTEGER, payload TEXT)"
+                )
+                connection.execute("CREATE INDEX trace_order ON traces(position)")
+                for position, trace in enumerate(traces):
+                    try:
+                        connection.execute(
+                            "INSERT INTO traces VALUES (?, ?, ?)",
+                            (trace.id, position, trace.model_dump_json()),
+                        )
+                    except sqlite3.IntegrityError as error:
+                        raise ValueError(
+                            f"snapshot contains duplicate trace id {trace.id!r}"
+                        ) from error
+        except BaseException:
+            self._directory.cleanup()
+            raise
+
+    def __len__(self) -> int:
+        with closing(sqlite3.connect(self._path)) as connection:
+            return connection.execute("SELECT COUNT(*) FROM traces").fetchone()[0]
+
+    def __iter__(self) -> Iterator[str]:
+        with closing(sqlite3.connect(self._path)) as connection:
+            for (trace_id,) in connection.execute("SELECT id FROM traces ORDER BY position"):
+                yield trace_id
+
+    def __getitem__(self, trace_id: str) -> Trace:
+        with closing(sqlite3.connect(self._path)) as connection:
+            row = connection.execute(
+                "SELECT payload FROM traces WHERE id = ?", (trace_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(trace_id)
+            return Trace.model_validate_json(row[0])
+
+    def iter_traces(self) -> Iterator[Trace]:
+        with closing(sqlite3.connect(self._path)) as connection:
+            for (payload,) in connection.execute("SELECT payload FROM traces ORDER BY position"):
+                yield Trace.model_validate_json(payload)
+
+    def sort(self, key: Callable[[str], Any]) -> None:
+        trace_ids = sorted(self, key=key)
+        with closing(sqlite3.connect(self._path)) as connection, connection:
+            connection.executemany(
+                "UPDATE traces SET position = ? WHERE id = ?", enumerate(trace_ids)
+            )
+
+
+class TraceSnapshot:
+    """A disk-backed, reiterable snapshot of complete normalized traces."""
+
+    def __init__(self, traces: Iterable[Trace]) -> None:
+        self.traces_by_id = _DiskTraceIndex(traces)
 
     def __iter__(self) -> Iterator[Trace]:
-        return iter(self.traces_by_id.values())
+        return self.traces_by_id.iter_traces()
 
     def __len__(self) -> int:
         return len(self.traces_by_id)
 
+    def __repr__(self) -> str:
+        return f"TraceSnapshot(trace_count={len(self)})"
+
     def get_trace_by_id(self, trace_id: str) -> Trace:
         return self.traces_by_id[trace_id]
+
+    def sort(self, key: Callable[[str], Any]) -> None:
+        """Order the index using loader metadata, without loading trace payloads."""
+        self.traces_by_id.sort(key)
 
     @property
     def trace_count(self) -> int:

@@ -25,7 +25,7 @@ from insight_agent.traces import TraceSnapshot
 
 def _trace_index(snapshot: TraceSnapshot) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for trace in sorted(snapshot, key=lambda item: item.id):
+    for trace in snapshot:
         spans = [visit.span for visit in walk_spans(trace)]
         rows.append(
             {
@@ -36,7 +36,7 @@ def _trace_index(snapshot: TraceSnapshot) -> list[dict[str, object]]:
                 "errors": sorted({span.error for span in spans if span.error}),
             }
         )
-    return rows
+    return sorted(rows, key=lambda row: str(row["trace_id"]))
 
 
 class _EvalFailureReport(BaseModel):

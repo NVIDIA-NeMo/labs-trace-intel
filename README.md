@@ -103,9 +103,7 @@ the public [`Trace` model](src/insight_agent/traces.py).
 ### Reading the output
 
 The CLI prints and writes a YAML list of final Insights. Each Insight contains
-a name, description, and the trace references that support it. Intermediate
-evidence-stream artifacts are passed to Insight compilation in memory rather
-than written as a directory tree.
+a name, description, and the trace references that support it.
 
 ## Running the agent on your own traces
 

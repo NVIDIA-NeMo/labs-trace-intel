@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -156,47 +156,52 @@ class LangSmithTraceExportFileLoader:
                     f"{trace_id!r}"
                 )
             seen_export_trace_ids.add(trace_id)
-        selected = sorted(
+        export_trace_count = len(traces_from_export)
+        traces_from_export = sorted(
             traces_from_export,
             key=lambda trace: trace_sort_key(trace.root, trace.root.trace_id),
             reverse=True,
         )[: self.config.max_traces]
-        normalized: list[tuple[tuple[datetime, str], Trace]] = []
         run_count = 0
         call_count = 0
         logical_cases: set[str] = set()
 
-        for export_trace in selected:
-            path = export_trace.path
-            provider_runs = export_trace.runs
-            root = export_trace.root
-            trace_id = root.trace_id
-            trace, unresolved = normalize_trace(
-                trace_id,
-                root,
-                provider_runs,
-                source_pointer={
-                    "provider": "langsmith",
-                    "export_path": str(export_path),
-                    "export_file": path.name,
-                },
-                langsmith_attributes={"export_file": path.name},
-                run_source_pointers={
-                    run.id: {"line_number": export_trace.line_numbers[run.id]}
-                    for run in provider_runs
-                },
-            )
-            if unresolved:
-                # _parse_trace_export_file rejects this first; keep the invariant
-                # explicit if the shared normalizer changes later.
-                raise LangSmithTraceLoadError(f"LangSmith export file {str(path)!r} is incomplete")
-            normalized.append((trace_sort_key(root, trace_id), trace))
-            run_count += len(provider_runs)
-            call_count += sum(span.kind is SpanKind.TOOL for span in walk_spans(trace.root_spans))
-            logical_cases.add(str(trace.attributes.get("logical_case_id") or trace.id))
+        def traces() -> Iterator[Trace]:
+            nonlocal run_count, call_count
+            for export_trace in reversed(traces_from_export):
+                path = export_trace.path
+                provider_runs = export_trace.runs
+                root = export_trace.root
+                trace_id = root.trace_id
+                trace, unresolved = normalize_trace(
+                    trace_id,
+                    root,
+                    provider_runs,
+                    source_pointer={
+                        "provider": "langsmith",
+                        "export_path": str(export_path),
+                        "export_file": path.name,
+                    },
+                    langsmith_attributes={"export_file": path.name},
+                    run_source_pointers={
+                        run.id: {"line_number": export_trace.line_numbers[run.id]}
+                        for run in provider_runs
+                    },
+                )
+                if unresolved:
+                    # _parse_trace_export_file rejects this first; keep the invariant
+                    # explicit if the shared normalizer changes later.
+                    raise LangSmithTraceLoadError(
+                        f"LangSmith export file {str(path)!r} is incomplete"
+                    )
+                run_count += len(provider_runs)
+                call_count += sum(
+                    span.kind is SpanKind.TOOL for span in walk_spans(trace.root_spans)
+                )
+                logical_cases.add(str(trace.attributes.get("logical_case_id") or trace.id))
+                yield trace
 
-        traces = [trace for _, trace in sorted(normalized, key=lambda item: item[0])]
-        snapshot = TraceSnapshot(traces)
+        snapshot = TraceSnapshot(traces())
 
         self._snapshot = snapshot
         self.report = LangSmithTraceLoadReport(
@@ -212,8 +217,8 @@ class LangSmithTraceExportFileLoader:
             "run_count": run_count,
             "unresolved_parent_count": 0,
             "export_path": str(export_path),
-            "export_trace_count": len(traces_from_export),
-            "truncated": len(traces_from_export) > snapshot.trace_count,
+            "export_trace_count": export_trace_count,
+            "truncated": export_trace_count > snapshot.trace_count,
             "max_traces": self.config.max_traces,
         }
         return snapshot

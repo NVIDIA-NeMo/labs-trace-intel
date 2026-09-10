@@ -478,7 +478,7 @@ def detect_trace(
                     mechanism_key=state_matches[0],
                 )
             )
-        if call.result is not MISSING:
+        if trace.complete_provenance_context and call.result is not MISSING:
             prior_results.append(output)
 
     for orphan in trace.orphan_results:
@@ -784,7 +784,7 @@ class ToolIssueEvidenceStream:
             raise TypeError("tool-issues requires ToolIssueConfig")
 
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        traces = [to_tool_issue_trace(trace) for trace in snapshot]
+        traces = (to_tool_issue_trace(trace) for trace in snapshot)
         findings = detect(
             traces,
             retry_threshold=self.config.retry_threshold,
