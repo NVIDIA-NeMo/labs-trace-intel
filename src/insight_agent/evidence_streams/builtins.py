@@ -26,12 +26,23 @@ from insight_agent.evidence_streams.tool_issues.stream import (
     ToolIssueConfig,
     ToolIssueEvidenceStream,
 )
+from insight_agent.evidence_streams.user_dissatisfaction import (
+    UserDissatisfactionConfig,
+    UserDissatisfactionEvidenceStream,
+)
 
+USER_DISSATISFACTION = UserDissatisfactionEvidenceStream.name
 ANOMALY_AND_PATTERNS = AnomalyAndPatternsEvidenceStream.name
 TOOL_ISSUES = ToolIssueEvidenceStream.name
 ETHOS_DIVERGENCE = EthosDivergenceEvidenceStream.name
 EVAL_FAILURE_PATTERNS = EvalFailurePatternsEvidenceStream.name
-BUILTIN_STREAM_NAMES = (ANOMALY_AND_PATTERNS, TOOL_ISSUES, ETHOS_DIVERGENCE, EVAL_FAILURE_PATTERNS)
+BUILTIN_STREAM_NAMES = (
+    ANOMALY_AND_PATTERNS,
+    TOOL_ISSUES,
+    ETHOS_DIVERGENCE,
+    EVAL_FAILURE_PATTERNS,
+    USER_DISSATISFACTION,
+)
 
 
 def registered_builtin_streams(
@@ -40,6 +51,7 @@ def registered_builtin_streams(
     tool_issues: ToolIssueConfig | None = None,
     ethos_divergence: EthosDivergenceConfig | None = None,
     eval_failure_patterns: EvalFailurePatternsConfig | None = None,
+    user_dissatisfaction: UserDissatisfactionConfig | None = None,
     llm_factory: Callable[[], UnifiedLLM] | None = None,
 ) -> EvidenceStreamRegistry:
     """Construct and register the built-ins with supplied typed configuration."""
@@ -59,6 +71,12 @@ def registered_builtin_streams(
         registry.register(
             EvalFailurePatternsEvidenceStream(llm=llm_factory(), config=eval_failure_patterns)
         )
+    if user_dissatisfaction is not None:
+        if llm_factory is None:
+            raise ValueError("user-dissatisfaction requires an LLM client factory")
+        registry.register(
+            UserDissatisfactionEvidenceStream(config=user_dissatisfaction, llm=llm_factory())
+        )
     return registry
 
 
@@ -68,5 +86,6 @@ __all__ = [
     "ETHOS_DIVERGENCE",
     "EVAL_FAILURE_PATTERNS",
     "TOOL_ISSUES",
+    "USER_DISSATISFACTION",
     "registered_builtin_streams",
 ]

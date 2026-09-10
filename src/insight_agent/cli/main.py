@@ -109,6 +109,7 @@ async def _run_evidence_streams(
         anomaly_and_patterns=config.anomaly_and_patterns,
         tool_issues=config.tool_issues,
         ethos_divergence=config.ethos_divergence,
+        user_dissatisfaction=config.user_dissatisfaction,
         eval_failure_patterns=config.eval_failure_patterns,
         llm_factory=llm_factory,
     )

@@ -208,6 +208,65 @@ uv run insight-agent \
   --evidence-streams.ethos-divergence.ethos-path /path/to/ethos.md
 ```
 
+User dissatisfaction extracts initiating user messages with NeMo OO, screens each
+message locally with Nemotron 3 Nano 4B Q4_K_M, then uses the existing hosted issue
+detector to verify and group complaints. A single `complaint` flags the trace,
+even if a later message expresses satisfaction. The only classification labels
+are `complaint` and `no_complaint`; reasoning and explanations are disabled.
+Repeated span histories do not count as additional user messages.
+Extraction includes later user turns identified by source actor metadata and
+decodes original event bodies from embedded conversation histories. Generated
+workflow documents in a model's `user` role are not user feedback.
+
+Provide a [llama.cpp server executable](https://github.com/ggml-org/llama.cpp/releases/tag/b10793)
+and the [NVIDIA GGUF model](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF/tree/ba223d14e45525f7fae81db77ea8cabeb2fc6c25).
+The tested runtime is llama.cpp b10793 on Apple M5 (24 GiB), with the model file
+`NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf` (2.84 GB), revision
+`ba223d14e45525f7fae81db77ea8cabeb2fc6c25`. Its SHA-256 is
+`be5d9a656a51922f24f1f09a759cebb694e1f5d9728bf0ef9f8c972c5a0b5ef2`.
+No PyTorch, Transformers, or optional Python extra is needed.
+
+```yaml
+evidence_streams:
+  user_dissatisfaction:
+    model_path: /path/to/NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf
+    llama_server: /path/to/llama-server  # Defaults to llama-server on PATH.
+```
+
+```bash
+uv run insight-agent --config insight-analyst.yaml
+```
+
+The stream starts one local server for the screening phase, loads the model once,
+and stops the server before hosted verification. It binds only to localhost,
+uses one inference slot, and requests GPU offloading. Each request contains only
+the classification instructions and one user message. Relative paths resolve
+from the working directory; `model_path` also expands `~`.
+
+The 8,192-token context budget includes the full chat template and instructions,
+the individual user message, and a 32-token output allowance. A message that does
+not fit is marked `too_long` and its trace reaches hosted analysis intact; input
+is never silently truncated. Empty input is recorded as `no_user_messages`, not
+satisfaction. These are screening statuses, not additional model labels.
+Extraction coverage and ordered per-message labels and token counts are retained
+in `EvidenceStreamResult.artifacts`. Classification is evaluated on English text.
+
+The opt-in model evaluation checks ten synthetic complaints in two groups, three
+neutral controls, and extraction of repeated histories and later user turns:
+
+```bash
+INSIGHT_AGENT_EVAL_MODEL_PATH=/path/to/model.gguf \
+INSIGHT_AGENT_EVAL_LLAMA_SERVER=/path/to/llama-server \
+uv run --locked pytest tests/evals/test_dissatisfaction_models.py -s
+```
+
+It uses the configured inference credentials for hosted extraction and grouping,
+and writes classification and grouping results to `tmp/user-dissatisfaction-mini-eval.json`.
+`INSIGHT_AGENT_EVAL_MODEL` optionally overrides the hosted model, which defaults to
+`openai/azure/openai/gpt-5.6-luna`; it does not change the local classifier.
+These model evaluations are skipped in the ordinary test suite unless the model
+path environment variable is set.
+
 Run `uv run insight-agent --help` to see the generated options and configurable
 stream settings.
 
