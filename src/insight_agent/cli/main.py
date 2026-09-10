@@ -26,6 +26,7 @@ from insight_agent.insights_generation.config import (
 )
 from insight_agent.insights_generation.defaults import DEFAULT_MAX_TOKENS, DEFAULT_MODEL
 from insight_agent.insights_generation.insight_compilation import InsightCompilation
+from insight_agent.insights_generation.validation import ProblemValidation
 from insight_agent.trace_loaders.fs import FSDataLoader
 from insight_agent.trace_loaders.intake import IntakeTraceLoader
 from insight_agent.trace_loaders.langfuse import (
@@ -144,6 +145,38 @@ async def _run_evidence_streams(
     )
 
 
+async def _validate_evidence_with_code(
+    evidence: list[EvidenceStreamResult],
+    snapshot: TraceSnapshot,
+    code_base_path: Path,
+    llm: UnifiedLLM,
+) -> list[EvidenceStreamResult]:
+    """Keep only Problems that the supplied codebase supports."""
+
+    code_base_path = code_base_path.expanduser().resolve()
+    if not code_base_path.is_dir():
+        raise ValueError(f"code_base must be an existing directory: {code_base_path}")
+    validator = ProblemValidation(code_base_path, llm)
+
+    async def validate_result(result: EvidenceStreamResult) -> EvidenceStreamResult:
+        validations = []
+        for problem in result.problems:
+            supporting_traces = tuple(
+                snapshot.get_trace_by_id(trace_id) for trace_id in problem.supporting_trace_ids
+            )
+            validations.append(validator.is_supported(problem, supporting_traces))
+
+        decisions = await asyncio.gather(*validations)
+        retained_problems = tuple(
+            problem
+            for problem, decision in zip(result.problems, decisions, strict=True)
+            if decision is not False
+        )
+        return result.model_copy(update={"problems": retained_problems})
+
+    return list(await asyncio.gather(*(validate_result(result) for result in evidence)))
+
+
 def _build_llm(config: RunConfig, api_key: str) -> CompletionClient:
     """Construct an LLM client with the run's shared model settings."""
 
@@ -173,6 +206,13 @@ async def _generate_insights(config: RunConfig) -> list[Insight]:
 
     async with _build_llm(config, api_key) as llm:
         compilation = InsightCompilation(llm=llm)
+        if config.code_base is not None:
+            evidence = await _validate_evidence_with_code(
+                evidence,
+                snapshot,
+                config.code_base,
+                llm,
+            )
         return await compilation.compile_insights(evidence, snapshot, existing_insights)
 
 

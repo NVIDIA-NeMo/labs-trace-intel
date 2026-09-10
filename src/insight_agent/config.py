@@ -241,6 +241,10 @@ class RunConfig(BaseSettings):
     evidence_streams: EvidenceStreamsConfig = Field(
         description="Evidence-stream selection and settings"
     )
+    code_base: Path | None = Field(
+        default=None,
+        description="Optional local codebase used to validate trace-derived problems",
+    )
 
     model: str | None = None
     max_tokens: int | None = Field(

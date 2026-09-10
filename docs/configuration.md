@@ -25,6 +25,9 @@ evidence_streams:
   # Select when traces contain evaluator_results.
   # eval_failure_patterns: {max_tool_rounds: 72}
 
+# Optionally validate trace-derived problems against the agent's local codebase.
+# code_base: ../my-agent
+
 # Optional LLM settings. Credentials remain in the environment.
 # model: openai/azure/openai/gpt-5.6-luna
 # max_tokens: 32768  # Choose a limit supported by the selected model.
@@ -258,6 +261,25 @@ uv run insight-agent \
 Run `uv run insight-agent --help` to see the generated options and configurable
 stream settings.
 
+## Code-aware validation
+
+Set `code_base` to a local copy of the agent's source when you want candidate
+Problems checked against its implementation before Insight compilation:
+
+```yaml
+code_base: ../my-agent
+```
+
+The validator can search and read non-sensitive text files inside that directory,
+but it cannot edit files or run arbitrary shell commands. Each candidate is
+checked only against its supporting traces and relevant code. Candidates that
+the code contradicts are removed before Insight compilation; candidates that
+the repository cannot adjudicate, such as externally managed deployment or
+RAG-content problems, are retained. Omit `code_base` to retain the trace-only
+workflow.
+
+Code excerpts selected during validation are sent to the configured LLM provider.
+
 ## CLI-only configuration and overrides
 
 YAML is not required. A complete run can be configured through generated CLI
@@ -266,7 +288,8 @@ options:
 ```bash
 uv run insight-agent \
   --trace.filesystem.path traces.jsonl \
-  --evidence-streams.anomaly-and-patterns.contamination 0.02
+  --evidence-streams.anomaly-and-patterns.contamination 0.02 \
+  --code-base ../my-agent
 ```
 
 When YAML is used, explicit CLI values take priority and override only the

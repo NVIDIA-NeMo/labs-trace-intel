@@ -56,6 +56,21 @@ def test_config_file_is_optional_when_cli_provides_trace_input() -> None:
     assert config.evidence_streams.eval_failure_patterns.max_tool_rounds == 72
 
 
+def test_cli_accepts_optional_code_base() -> None:
+    config = RunConfig(
+        _cli_parse_args=[
+            "--trace.filesystem.path",
+            "traces.jsonl",
+            "--evidence-streams.anomaly-and-patterns.contamination",
+            "0.02",
+            "--code-base",
+            "../agent-source",
+        ]
+    )
+
+    assert config.code_base == Path("../agent-source")
+
+
 def test_langfuse_export_yaml_with_cli_limit(tmp_path: Path) -> None:
     config_path = tmp_path / "analyst.yaml"
     config_path.write_text(

@@ -11,4 +11,5 @@ evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
 
+# code_base: ../my-agent
 # existing_insights: previous-insights.yml

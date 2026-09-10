@@ -68,7 +68,7 @@ The command prints the complete Insight collection as YAML and writes it to
 The architecture is intentionally small:
 
 ```text
-TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> InsightsGeneration -> Insights
+TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> optional code validation -> InsightsGeneration -> Insights
 ```
 
 ### Reusable run configuration
