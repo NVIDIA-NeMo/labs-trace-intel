@@ -177,10 +177,6 @@ def schema_errors(
 ) -> list[dict[str, Any]]:
     """Apply the active catalog/JSON Schema without coercing evidence."""
 
-    if not isinstance(arguments, Mapping):
-        return [
-            {"type": "malformed_tool_call", "path": "$", "message": "Arguments are not an object."}
-        ]
     if tool_name not in catalog:
         return [
             {
@@ -188,6 +184,13 @@ def schema_errors(
                 "path": "tool_name",
                 "message": "Tool is absent from the active catalog.",
             }
+        ]
+    # Missing input is unavailable evidence, not an observed malformed call.
+    if arguments is UNSET:
+        return []
+    if not isinstance(arguments, Mapping):
+        return [
+            {"type": "malformed_tool_call", "path": "$", "message": "Arguments are not an object."}
         ]
     schema = catalog[tool_name]
     if schema is None:
@@ -330,7 +333,7 @@ def detect_trace(
                         },
                     )
                 )
-        elif not isinstance(call.arguments, Mapping):
+        elif call.arguments is not UNSET and not isinstance(call.arguments, Mapping):
             contract_root = True
             findings.append(
                 _finding(

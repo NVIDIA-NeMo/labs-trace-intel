@@ -27,6 +27,7 @@ evidence_streams:
 
 # Optional LLM settings. Credentials remain in the environment.
 # model: openai/azure/openai/gpt-5.6-luna
+# max_tokens: 32768  # Choose a limit supported by the selected model.
 # api_base: https://gateway.example/v1
 
 # Optionally reconcile with a previous JSON or YAML Insight collection.
@@ -142,6 +143,52 @@ for testing.
 
 Both LangSmith sources support `eval_failure_patterns` using recorded feedback
 aggregates from root and child runs.
+
+### Langfuse
+
+For a live Langfuse project:
+
+```yaml
+trace:
+  max_traces: 100
+  langfuse:
+    from_timestamp: 2026-08-01T00:00:00Z
+    to_timestamp: 2026-08-02T00:00:00Z
+    # Optional Langfuse advanced filter, encoded as a JSON array.
+    filter: >-
+      [{"type":"string","column":"environment","operator":"=","value":"production"}]
+    # Optional; takes precedence over LANGFUSE_BASE_URL.
+    # base_url: https://langfuse.example.com
+```
+
+Langfuse credentials remain in `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. These API keys
+identify the project. Set the deployment with `LANGFUSE_BASE_URL` or `base_url`; one of them is
+required. The trace timestamp bounds are required and must include a timezone. The loader supports
+the tested self-hosted Langfuse v3 API contract only and is validated against server 3.205.1 with
+Python SDK 3.15; Langfuse v4 is not supported.
+
+For catalog-aware tool checks, record definitions in Langfuse's API-visible `input.tools`
+representation on `GENERATION` observations. Langfuse 3.205.1 normalizes supported instrumentation
+such as OpenTelemetry `gen_ai.tool.definitions` into that shape. Generation catalogs must agree
+because the canonical trace model currently has one trace-wide catalog. A root `AGENT` catalog is
+accepted only when the trace has no generation observations, as a compatibility fallback for
+reduced traces and exports. Missing, malformed, or conflicting generation catalogs make the
+catalog-dependent rules abstain.
+
+The equivalent CLI settings are `--trace.langfuse.from-timestamp`,
+`--trace.langfuse.to-timestamp`, `--trace.langfuse.filter`, and
+`--trace.langfuse.base-url`. For example:
+
+```bash
+uv run insight-agent \
+  --trace.langfuse.from-timestamp 2026-09-01T00:00:00Z \
+  --trace.langfuse.to-timestamp 2026-09-02T00:00:00Z \
+  --trace.max-traces 100 \
+  --evidence-streams.tool-issues '{}'
+```
+
+Explicit CLI values override YAML fields. The configured base URL overrides
+`LANGFUSE_BASE_URL`; credentials have no YAML or CLI equivalents.
 
 ### MLflow
 

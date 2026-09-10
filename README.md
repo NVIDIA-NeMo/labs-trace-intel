@@ -140,6 +140,126 @@ self-hosted LangSmith 0.15. See [run configuration](docs/configuration.md#langsm
 and workspace environment variables, filters, CLI overrides, export requirements, and
 compatibility details.
 
+### Read Langfuse traces
+
+#### Live project
+
+Install the optional Langfuse client and provide project-scoped API keys through the environment:
+
+```bash
+uv sync --locked --extra langfuse
+
+export LANGFUSE_PUBLIC_KEY=pk-lf-...
+export LANGFUSE_SECRET_KEY=sk-lf-...
+export LANGFUSE_BASE_URL=https://langfuse.example.com
+```
+
+Select a bounded trace timestamp window in YAML. The loader pages through matching trace summaries
+and then fetches every selected trace with all of its observations, so `max_traces` never splits a
+trace:
+
+```yaml
+trace:
+  max_traces: 100
+  langfuse:
+    from_timestamp: 2026-08-01T00:00:00Z
+    to_timestamp: 2026-08-02T00:00:00Z
+    filter: >-
+      [{"type":"string","column":"environment","operator":"=","value":"production"}]
+```
+
+The keys identify the Langfuse project, so there is no separate project field. Set
+`LANGFUSE_BASE_URL` for the self-hosted deployment, or use the equivalent
+`trace.langfuse.base_url` YAML/CLI setting; an explicit setting takes precedence. For example,
+`--trace.langfuse.base-url https://langfuse.example.com` overrides the environment for one run.
+The CLI loads these variables from the shell or a local `.env` file.
+
+`filter` accepts Langfuse's JSON-encoded advanced filter conditions. The loader combines them with
+its required time bounds; `from_timestamp` is inclusive and `to_timestamp` is exclusive. Filters
+apply to trace fields such as environment, name, session, tags, metadata, cost, and error counts.
+
+Tool-contract analysis reads available tool definitions from the top-level `input.tools` array on
+`GENERATION` observations. Langfuse normalizes supported instrumentation fields, including
+OpenTelemetry's `gen_ai.tool.definitions`, into this API-visible representation. All explicit
+generation catalogs must agree because the canonical trace model currently has one trace-wide
+catalog. A root `AGENT` catalog is accepted only as a compatibility fallback for reduced traces and
+exports with no generation observations. Missing, malformed, or conflicting generation catalogs
+make schema-dependent tool rules abstain rather than infer what the model could access.
+
+#### Native export files (offline)
+
+Use the [Langfuse Python SDK](https://github.com/langfuse/langfuse-python), installed by the
+`langfuse` extra above, to export a time range. This example exports all traces from September 9
+UTC: the start is inclusive and the end is exclusive. Change the dates for your corpus.
+
+With the project environment variables above set in your shell, run:
+
+```bash
+uv run --locked --extra langfuse python - <<'PY'
+from datetime import UTC, datetime
+from itertools import count
+from langfuse import Langfuse
+
+client = Langfuse(tracing_enabled=False)
+start = datetime(2026, 9, 9, tzinfo=UTC)
+end = datetime(2026, 9, 10, tzinfo=UTC)
+
+with open("langfuse-traces.jsonl", "x", encoding="utf-8") as output:
+    for page in count(1):
+        result = client.api.trace.list(
+            from_timestamp=start, to_timestamp=end,
+            page=page, limit=100, order_by="timestamp.asc",
+        )
+        for summary in result.data:
+            trace = client.api.trace.get(summary.id)
+            output.write(trace.json(by_alias=True) + "\n")
+        if page >= result.meta.total_pages:
+            break
+PY
+```
+
+The SDK reads `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_BASE_URL` from the
+environment. Unlike the Analyst CLI, this snippet does not load `.env`. It fetches every page;
+`get()` retrieves each trace's full observation tree because `list()` returns summaries.
+The file uses native v3 records, not Analyst-format traces, and `"x"` prevents overwriting an
+existing export. Exporting needs a Langfuse connection; subsequent file-based analysis does not:
+
+```bash
+uv run insight-agent \
+  --trace.langfuse-export.path langfuse-traces.jsonl \
+  --trace.max-traces 200 \
+  --evidence-streams.tool-issues '{}' \
+  --output-path insights.yml
+```
+
+No conversion is needed. The loader accepts these SDK exports, raw v3
+`GET /api/public/traces/{id}` response bodies, and Langfuse CLI JSON response envelopes.
+You can also supply a single trace-detail `.json` file or a directory of `.json`/`.jsonl` files
+(only immediate files are read). The equivalent YAML configuration is:
+
+```yaml
+trace:
+  max_traces: 200
+  langfuse_export:
+    path: ./langfuse-traces.jsonl
+```
+
+`max_traces` defaults to 100 and selects the newest complete traces by timestamp, breaking ties
+by trace ID, then analyzes them oldest-first. All exported records are validated before applying
+the limit. Duplicate IDs, invalid records, and missing observation parents fail the load.
+
+Trace-list responses and UI table/CSV exports are not supported: use complete trace-detail
+responses with embedded observations, not observation IDs or summary rows. Offline loading needs
+the same `langfuse` extra, but no Langfuse credentials, base URL, or network access. Insight
+compilation still needs the configured model service and `INSIGHT_AGENT_API_KEY`.
+
+#### Supported versions
+
+This research-preview integration supports only the self-hosted Langfuse v3 API contract that we
+can test. It is validated against Langfuse 3.205.1 with the Python SDK 3.15. It does not support
+Langfuse v4. A future migration will replace the v3 trace endpoints with the v4 observations-first
+API once we have a v4 environment to test against.
+
 ### Read an MLflow experiment directly
 
 Install the optional lightweight MLflow client, then select the tracking server and experiment in

@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Environment configuration for Insights Generation.
+"""Environment configuration loaded before trace analysis and Insights Generation.
 
-The Analyst is the only component that needs credentials, so this is the only
-place that reads them. Values are resolved in one order, most explicit first:
+The CLI loads a local ``.env`` here before constructing provider clients, so
+their SDKs can read their standard credential variables. Analyst settings are
+resolved in one order, most explicit first:
 
 1. an explicit CLI flag
 2. a variable already in the process environment
@@ -12,8 +13,7 @@ place that reads them. Values are resolved in one order, most explicit first:
    the repo root
 
 ``.env`` is gitignored; ``.env.example`` is the committed template. Nothing here
-imports litellm, and nothing fails when the file is absent — a fully
-deterministic run never touches this module.
+imports litellm or a trace-provider SDK, and nothing fails when the file is absent.
 """
 
 from __future__ import annotations

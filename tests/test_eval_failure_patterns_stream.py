@@ -4,9 +4,11 @@
 import asyncio
 import json
 
+import nooa.unifiedllm.unifiedllm as unifiedllm
+from litellm import ModelResponse
 from nooa.unifiedllm import FakeLLMClient, LLMResponse, ToolCall
 
-from insight_agent.cli.main import _run_evidence_streams
+from insight_agent.cli.main import _build_llm, _run_evidence_streams, get_config
 from insight_agent.config import RunConfig
 from insight_agent.evidence_streams.evidence_streams import Problem
 from insight_agent.traces import Span, SpanKind, Trace, TraceAggregate, TraceSnapshot
@@ -20,6 +22,68 @@ def _response(name, arguments, call_id):
         finish_reason="tool_calls",
         assistant_message={},
     )
+
+
+def test_eval_model_request_honors_cli_token_limit(monkeypatch):
+    requests = []
+
+    async def completion(params):
+        requests.append(params)
+        return ModelResponse(
+            choices=[
+                {
+                    "index": 0,
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "final",
+                                "type": "function",
+                                "function": {
+                                    "name": "return_result",
+                                    "arguments": '{"result":{"problems":[]}}',
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+        )
+
+    monkeypatch.setattr(unifiedllm, "_litellm_acompletion", completion)
+    config = get_config(
+        [
+            "--trace.filesystem.path",
+            "unused.jsonl",
+            "--evidence-streams.eval-failure-patterns",
+            "{}",
+            "--model",
+            "openai/gpt-4o-mini",
+            "--max-tokens",
+            "32768",
+        ]
+    )
+    snapshot = TraceSnapshot(
+        [
+            Trace(
+                id="failed",
+                root_spans=[],
+                aggregate=TraceAggregate(),
+                evaluator_results={"score": 0},
+            )
+        ]
+    )
+    asyncio.run(
+        _run_evidence_streams(
+            config.evidence_streams,
+            snapshot,
+            lambda: _build_llm(config, "test-key"),
+        )
+    )
+    assert requests
+    assert all(request["max_tokens"] == 32768 for request in requests)
 
 
 def test_configured_stream_fetches_traces_before_reporting():

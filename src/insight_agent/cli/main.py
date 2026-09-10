@@ -28,6 +28,13 @@ from insight_agent.insights_generation.defaults import DEFAULT_MAX_TOKENS, DEFAU
 from insight_agent.insights_generation.insight_compilation import InsightCompilation
 from insight_agent.trace_loaders.fs import FSDataLoader
 from insight_agent.trace_loaders.intake import IntakeTraceLoader
+from insight_agent.trace_loaders.langfuse import (
+    LANGFUSE_DEFAULT_MAX_TRACES,
+    LangfuseFileTraceConfig,
+    LangfuseFileTraceLoader,
+    LangfuseTraceConfig,
+    LangfuseTraceLoader,
+)
 from insight_agent.trace_loaders.langsmith import (
     LANGSMITH_DEFAULT_MAX_TRACES,
     LangSmithTraceConfig,
@@ -60,6 +67,24 @@ def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
             query = source.query.model_copy(update={"max_traces": config.max_traces})
             source = source.model_copy(update={"query": query})
         return IntakeTraceLoader(config=source)
+    if config.langfuse is not None:
+        source = config.langfuse
+        return LangfuseTraceLoader(
+            LangfuseTraceConfig(
+                base_url=source.base_url,
+                from_timestamp=source.from_timestamp,
+                to_timestamp=source.to_timestamp,
+                filter_string=source.filter,
+                max_traces=config.max_traces or LANGFUSE_DEFAULT_MAX_TRACES,
+            )
+        )
+    if config.langfuse_export is not None:
+        return LangfuseFileTraceLoader(
+            LangfuseFileTraceConfig(
+                path=config.langfuse_export.path,
+                max_traces=config.max_traces or LANGFUSE_DEFAULT_MAX_TRACES,
+            )
+        )
     if config.langsmith is not None:
         source = config.langsmith
         return LangSmithTraceLoader(
@@ -126,7 +151,7 @@ def _build_llm(config: RunConfig, api_key: str) -> CompletionClient:
         model=config.model or resolve(ENV_MODEL) or DEFAULT_MODEL,
         api_base=config.api_base or resolve(ENV_API_BASE),
         api_key=api_key,
-        max_tokens=DEFAULT_MAX_TOKENS,
+        max_tokens=config.max_tokens or DEFAULT_MAX_TOKENS,
         reasoning_effort=DEFAULT_REASONING_EFFORT,
         allowed_openai_params=["tool_choice", "reasoning_effort"],
         drop_params=True,

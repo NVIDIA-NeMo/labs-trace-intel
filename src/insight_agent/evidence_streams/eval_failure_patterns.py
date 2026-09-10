@@ -18,7 +18,6 @@ from insight_agent.evidence_streams.evidence_streams import (
     Problem,
 )
 from insight_agent.insights_generation.defaults import (
-    DEFAULT_MAX_TOKENS,
     DEFAULT_MAX_TOOL_ROUNDS,
 )
 from insight_agent.traces import TraceSnapshot
@@ -86,7 +85,6 @@ def _build_agent(
             CodeActStrategy(
                 config=CodeActConfig(
                     max_iterations=config.max_tool_rounds + 3,
-                    max_tokens=DEFAULT_MAX_TOKENS,
                     postconditions=[validate_report],
                 )
             )
