@@ -16,6 +16,18 @@ uv run insight-agent --config examples/insight-analyst.yaml
 
 The final Insight collection is printed and written to `insights.yml`.
 
+To analyze the equivalent imported corpus in a Langfuse project, set that project's
+`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_BASE_URL`, then run:
+
+```bash
+uv sync --locked --extra langfuse
+uv run --no-sync insight-agent --config examples/insight-analyst-langfuse.yaml
+```
+
+That configuration selects up to 200 traces tagged `tau-bench` from the fixed import window and
+writes `insights-langfuse.yml`. Use the generic [Langfuse quickstart](../README.md#langfuse) for
+your own project and time range.
+
 The agent under test is a customer-service assistant working against stateful
 tools. All customer names, addresses and order IDs are τ-bench's own synthetic
 fixtures — there is no real user data here.

@@ -105,15 +105,25 @@ the public [`Trace` model](src/insight_agent/traces.py).
 The CLI prints and writes a YAML list of final Insights. Each Insight contains
 a name, description, and the trace references that support it.
 
-## Running the agent on your own traces
+## Analyze your own traces
 
-Evidence streams consume a normalized `TraceSnapshot`. Choose the source loader that matches
-where your traces already live; none of these paths changes the downstream analysis.
+The Analyst can read live projects or native exports from LangSmith, Langfuse, and MLflow. Every
+source is normalized before the same evidence streams run. First set the model credential used to
+produce the final insights:
 
-### Read LangSmith traces
+```bash
+export INSIGHT_AGENT_API_KEY=<model-provider-api-key>
+```
 
-Install the optional LangSmith client, set `LANGSMITH_API_KEY`, and select either the LangSmith API
-or a trace export file created by `langsmith trace export --full`:
+Then choose one integration below. Each YAML snippet is a complete `insight-analyst.yaml` file;
+replace the example project, endpoint, and time range with your own values.
+
+### LangSmith
+
+```bash
+uv sync --locked --extra langsmith
+export LANGSMITH_API_KEY=<langsmith-api-key>
+```
 
 ```yaml
 trace:
@@ -121,204 +131,90 @@ trace:
   langsmith:
     project: my-agent
     start_time: 2026-09-01T00:00:00Z
-
-# Or replace langsmith with:
-# langsmith_trace_export_file:
-#   path: traces/
+output_path: insights.yml
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
 ```bash
-uv sync --locked --extra langsmith
-export LANGSMITH_API_KEY=<api-key>
 uv run --no-sync insight-agent --config insight-analyst.yaml
 ```
 
-The LangSmith Trace Loader currently supports LangSmith's v1 query API as tested against
-self-hosted LangSmith 0.15. See [run configuration](docs/configuration.md#langsmith) for endpoint
-and workspace environment variables, filters, CLI overrides, export requirements, and
-compatibility details.
+See [LangSmith configuration](docs/configuration.md#langsmith) for filters, self-hosted endpoints,
+workspace selection, native exports, and supported versions.
 
-### Read Langfuse traces
-
-#### Live project
-
-Install the optional Langfuse client and provide project-scoped API keys through the environment:
+### Langfuse
 
 ```bash
 uv sync --locked --extra langfuse
-
 export LANGFUSE_PUBLIC_KEY=pk-lf-...
 export LANGFUSE_SECRET_KEY=sk-lf-...
 export LANGFUSE_BASE_URL=https://langfuse.example.com
 ```
 
-Select a bounded trace timestamp window in YAML. The loader pages through matching trace summaries
-and then fetches every selected trace with all of its observations, so `max_traces` never splits a
-trace:
-
 ```yaml
 trace:
   max_traces: 100
   langfuse:
-    from_timestamp: 2026-08-01T00:00:00Z
-    to_timestamp: 2026-08-02T00:00:00Z
-    filter: >-
-      [{"type":"string","column":"environment","operator":"=","value":"production"}]
+    from_timestamp: 2026-09-01T00:00:00Z
+    to_timestamp: 2026-09-02T00:00:00Z
+output_path: insights.yml
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
-
-The keys identify the Langfuse project, so there is no separate project field. Set
-`LANGFUSE_BASE_URL` for the self-hosted deployment, or use the equivalent
-`trace.langfuse.base_url` YAML/CLI setting; an explicit setting takes precedence. For example,
-`--trace.langfuse.base-url https://langfuse.example.com` overrides the environment for one run.
-The CLI loads these variables from the shell or a local `.env` file.
-
-`filter` accepts Langfuse's JSON-encoded advanced filter conditions. The loader combines them with
-its required time bounds; `from_timestamp` is inclusive and `to_timestamp` is exclusive. Filters
-apply to trace fields such as environment, name, session, tags, metadata, cost, and error counts.
-
-Tool-contract analysis reads available tool definitions from the top-level `input.tools` array on
-`GENERATION` observations. Langfuse normalizes supported instrumentation fields, including
-OpenTelemetry's `gen_ai.tool.definitions`, into this API-visible representation. All explicit
-generation catalogs must agree because the canonical trace model currently has one trace-wide
-catalog. A root `AGENT` catalog is accepted only as a compatibility fallback for reduced traces and
-exports with no generation observations. Missing, malformed, or conflicting generation catalogs
-make schema-dependent tool rules abstain rather than infer what the model could access.
-
-#### Native export files (offline)
-
-Use the [Langfuse Python SDK](https://github.com/langfuse/langfuse-python), installed by the
-`langfuse` extra above, to export a time range. This example exports all traces from September 9
-UTC: the start is inclusive and the end is exclusive. Change the dates for your corpus.
-
-With the project environment variables above set in your shell, run:
 
 ```bash
-uv run --locked --extra langfuse python - <<'PY'
-from datetime import UTC, datetime
-from itertools import count
-from langfuse import Langfuse
-
-client = Langfuse(tracing_enabled=False)
-start = datetime(2026, 9, 9, tzinfo=UTC)
-end = datetime(2026, 9, 10, tzinfo=UTC)
-
-with open("langfuse-traces.jsonl", "x", encoding="utf-8") as output:
-    for page in count(1):
-        result = client.api.trace.list(
-            from_timestamp=start, to_timestamp=end,
-            page=page, limit=100, order_by="timestamp.asc",
-        )
-        for summary in result.data:
-            trace = client.api.trace.get(summary.id)
-            output.write(trace.json(by_alias=True) + "\n")
-        if page >= result.meta.total_pages:
-            break
-PY
+uv run --no-sync insight-agent --config insight-analyst.yaml
 ```
 
-The SDK reads `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_BASE_URL` from the
-environment. Unlike the Analyst CLI, this snippet does not load `.env`. It fetches every page;
-`get()` retrieves each trace's full observation tree because `list()` returns summaries.
-The file uses native v3 records, not Analyst-format traces, and `"x"` prevents overwriting an
-existing export. Exporting needs a Langfuse connection; subsequent file-based analysis does not:
+Langfuse API keys identify the project, so no project name is needed. See
+[Langfuse configuration](docs/configuration.md#langfuse) for advanced filters, complete native
+exports, tool catalogs, and the currently supported v3 server and SDK versions.
+
+### MLflow
 
 ```bash
-uv run insight-agent \
-  --trace.langfuse-export.path langfuse-traces.jsonl \
-  --trace.max-traces 200 \
-  --evidence-streams.tool-issues '{}' \
-  --output-path insights.yml
+uv sync --locked --extra mlflow
+export MLFLOW_TRACKING_URI=https://mlflow.example.com
 ```
-
-No conversion is needed. The loader accepts these SDK exports, raw v3
-`GET /api/public/traces/{id}` response bodies, and Langfuse CLI JSON response envelopes.
-You can also supply a single trace-detail `.json` file or a directory of `.json`/`.jsonl` files
-(only immediate files are read). The equivalent YAML configuration is:
 
 ```yaml
 trace:
-  max_traces: 200
-  langfuse_export:
-    path: ./langfuse-traces.jsonl
+  max_traces: 100
+  mlflow_experiment:
+    experiment: my-agent
+output_path: insights.yml
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
-`max_traces` defaults to 100 and selects the newest complete traces by timestamp, breaking ties
-by trace ID, then analyzes them oldest-first. All exported records are validated before applying
-the limit. Duplicate IDs, invalid records, and missing observation parents fail the load.
-
-Trace-list responses and UI table/CSV exports are not supported: use complete trace-detail
-responses with embedded observations, not observation IDs or summary rows. Offline loading needs
-the same `langfuse` extra, but no Langfuse credentials, base URL, or network access. Insight
-compilation still needs the configured model service and `INSIGHT_AGENT_API_KEY`.
-
-#### Supported versions
-
-This research-preview integration supports only the self-hosted Langfuse v3 API contract that we
-can test. It is validated against Langfuse 3.205.1 with the Python SDK 3.15. It does not support
-Langfuse v4. A future migration will replace the v3 trace endpoints with the v4 observations-first
-API once we have a v4 environment to test against.
-
-### Read an MLflow experiment directly
-
-Install the optional lightweight MLflow client, then select the tracking server and experiment in
-the run configuration:
-
 ```bash
-uv sync --locked --extra mlflow
-
-# In insight-analyst.yaml, select the live loader:
-# trace:
-#   mlflow_experiment:
-#     experiment: my-agent
-#     tracking_uri: https://mlflow.example.com
 uv run --no-sync insight-agent --config insight-analyst.yaml
 ```
 
-MLflow's
-[trace search filters](https://mlflow.org/docs/latest/genai/tracing/search-traces/) can target
-timestamps, names, span types, tags, and metadata. Set `trace.max_traces` in YAML (or override it
-with `--trace.max-traces`) to control the final number of complete traces materialized in memory;
-it defaults to 10,000. The loader transparently requests
-sequential pages of at most 500 traces, matching MLflow's documented
-[SearchTraces limit](https://mlflow.org/docs/latest/api_reference/rest-api.html#searchtracesv3).
-Large or span-heavy traces may exhaust local memory before the trace-count limit, so production
-runs should use a coherent time window plus stable tags or metadata rather than an unbounded query.
+See [MLflow configuration](docs/configuration.md#mlflow) for authentication, search filters,
+pagination limits, and native exports.
 
-If the traces are already exported from MLflow, pass the native JSON directly:
+### Canonical JSONL
+
+For an already normalized file containing one serialized `Trace` per line:
 
 ```bash
-uv sync --locked --extra mlflow
-# In insight-analyst.yaml, select the export loader:
-# trace:
-#   mlflow_export:
-#     path: traces.json
-uv run --no-sync insight-agent --config insight-analyst.yaml
+uv sync --locked
+uv run --no-sync insight-agent \
+  --trace.filesystem.path traces.jsonl \
+  --evidence-streams.anomaly-and-patterns '{}' \
+  --evidence-streams.tool-issues '{}'
 ```
 
-The loader accepts complete JSON from `mlflow traces search --output json`, `mlflow traces get`,
-or MLflow's `Trace.to_json()` / `Trace.to_dict()` serializers. It also accepts arrays of native
-trace objects and JSONL containing one native trace per line. Exports must contain spans; the loader
-rejects metadata-only results. Export-time selection is authoritative: the offline loader does not
-apply MLflow filters or follow a continuation token, and it reads the complete file before applying
-`trace.max_traces`.
+If your source is not supported, the repository includes a
+[trace-loader skill](.claude/skills/trace-loader/SKILL.md) for implementing another adapter.
 
-### Read traces from the filesystem
-
-Filesystem input is JSONL with one serialized `Trace` per non-empty line. `FSDataLoader`
-parses each line directly with the Pydantic model; it does not normalize or remap fields.
-
-If your traces are not in a compatible format, the repo ships with a skill for implementing a
-source-specific loader: [`.claude/skills/trace-loader/SKILL.md`](.claude/skills/trace-loader/SKILL.md).
-
-After converting your traces, run the analysis. The filesystem loader validates
-the canonical trace records while loading them:
-
-```bash
-uv run insight-agent --config insight-analyst.yaml
-```
-
-Results are printed and written to the configured `output_path`, which defaults
-to `insights.yml`.
+Progress is written to stderr while the final YAML is printed to stdout and saved to
+`output_path` (by default, `insights.yml`).
 
 ## Development
 
