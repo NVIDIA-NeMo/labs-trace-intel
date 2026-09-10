@@ -1,103 +1,103 @@
-{"name": "aiohappyeyeballs", "license": "PSF-2.0", "compatible": true}
-{"name": "aiohttp", "license": "APACHE-2.0 AND MIT", "compatible": true}
-{"name": "aiosignal", "license": "APACHE-2.0", "compatible": true}
-{"name": "annotated-doc", "license": "MIT", "compatible": true}
-{"name": "annotated-types", "license": "MIT", "compatible": true}
-{"name": "anyio", "license": "MIT", "compatible": true}
-{"name": "attrs", "license": "MIT", "compatible": true}
-{"name": "boto3", "license": "APACHE-2.0", "compatible": true}
-{"name": "botocore", "license": "APACHE-2.0", "compatible": true}
-{"name": "cachetools", "license": "MIT", "compatible": true}
-{"name": "certifi", "license": "MPL-2.0", "compatible": true}
-{"name": "cffi", "license": "MIT-0", "compatible": true}
-{"name": "charset-normalizer", "license": "MIT", "compatible": true}
-{"name": "click", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "cloudpickle", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "colorama", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "cryptography", "license": "APACHE-2.0 OR BSD-3-CLAUSE", "compatible": true}
-{"name": "databricks-sdk", "license": "APACHE-2.0", "compatible": true}
-{"name": "distro", "license": "APACHE-2.0", "compatible": true}
-{"name": "fastapi", "license": "MIT", "compatible": true}
-{"name": "fastuuid", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "filelock", "license": "MIT", "compatible": true}
-{"name": "frozenlist", "license": "APACHE-2.0", "compatible": true}
-{"name": "fsspec", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "gitdb", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "gitpython", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "google-auth", "license": "APACHE-2.0", "compatible": true}
-{"name": "h11", "license": "MIT", "compatible": true}
-{"name": "hf-xet", "license": "APACHE-2.0", "compatible": true}
-{"name": "httpcore", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "httpcore2", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "httpx", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "httpx2", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "httpx2-jsfetch", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "huggingface-hub", "license": "APACHE-2.0", "compatible": true}
-{"name": "idna", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "importlib-metadata", "license": "APACHE-2.0", "compatible": true}
-{"name": "jinja2", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "jiter", "license": "MIT", "compatible": true}
-{"name": "jmespath", "license": "MIT", "compatible": true}
-{"name": "joblib", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "jsonschema", "license": "MIT", "compatible": true}
-{"name": "jsonschema-specifications", "license": "MIT", "compatible": true}
-{"name": "langsmith", "license": "MIT", "compatible": true}
-{"name": "litellm", "license": "MIT", "compatible": true}
-{"name": "markupsafe", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "mlflow-skinny", "license": "APACHE-2.0", "compatible": true}
-{"name": "multidict", "license": "APACHE-2.0", "compatible": true}
-{"name": "narwhals", "license": "MIT", "compatible": true}
-{"name": "nooa", "license": "APACHE-2.0", "compatible": true}
-{"name": "numpy", "license": "BSD-3-CLAUSE AND 0BSD AND MIT AND ZLIB AND CC0-1.0", "compatible": true}
-{"name": "openai", "license": "APACHE-2.0", "compatible": true}
-{"name": "openinference-instrumentation", "license": "APACHE-2.0", "compatible": true}
-{"name": "openinference-instrumentation-litellm", "license": "APACHE-2.0", "compatible": true}
-{"name": "openinference-semantic-conventions", "license": "APACHE-2.0", "compatible": true}
-{"name": "opentelemetry-api", "license": "APACHE-2.0", "compatible": true}
-{"name": "opentelemetry-instrumentation", "license": "APACHE-2.0", "compatible": true}
-{"name": "opentelemetry-proto", "license": "APACHE-2.0", "compatible": true}
-{"name": "opentelemetry-sdk", "license": "APACHE-2.0", "compatible": true}
-{"name": "opentelemetry-semantic-conventions", "license": "APACHE-2.0", "compatible": true}
-{"name": "orjson", "license": "MPL-2.0 AND (APACHE-2.0 OR MIT)", "compatible": true}
-{"name": "packaging", "license": "APACHE-2.0 OR BSD-2-CLAUSE", "compatible": true}
-{"name": "propcache", "license": "APACHE-2.0", "compatible": true}
-{"name": "protobuf", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "pyasn1", "license": "BSD-2-CLAUSE", "compatible": true}
-{"name": "pyasn1-modules", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "pycparser", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "pydantic", "license": "MIT", "compatible": true}
-{"name": "pydantic-core", "license": "MIT", "compatible": true}
-{"name": "pydantic-settings", "license": "MIT", "compatible": true}
-{"name": "python-dateutil", "license": "APACHE-2.0", "compatible": true}
-{"name": "python-dotenv", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "pyyaml", "license": "MIT", "compatible": true}
-{"name": "referencing", "license": "MIT", "compatible": true}
-{"name": "regex", "license": "APACHE-2.0 AND CNRI-PYTHON", "compatible": true}
-{"name": "requests", "license": "APACHE-2.0", "compatible": true}
-{"name": "requests-toolbelt", "license": "APACHE-2.0", "compatible": true}
-{"name": "rpds-py", "license": "MIT", "compatible": true}
-{"name": "s3transfer", "license": "APACHE-2.0", "compatible": true}
-{"name": "scikit-learn", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "scipy", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "setuptools", "license": "MIT", "compatible": true}
-{"name": "six", "license": "MIT", "compatible": true}
-{"name": "smmap", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "sniffio", "license": "APACHE-2.0 OR MIT", "compatible": true}
-{"name": "sqlparse", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "starlette", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "threadpoolctl", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "tiktoken", "license": "MIT", "compatible": true}
-{"name": "tokenizers", "license": "APACHE-2.0", "compatible": true}
-{"name": "tqdm", "license": "MIT AND MPL-2.0", "compatible": true}
-{"name": "truststore", "license": "MIT", "compatible": true}
-{"name": "typing-extensions", "license": "PSF-2.0", "compatible": true}
-{"name": "typing-inspection", "license": "MIT", "compatible": true}
-{"name": "urllib3", "license": "MIT", "compatible": true}
-{"name": "uuid-utils", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "uvicorn", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "websockets", "license": "BSD-3-CLAUSE", "compatible": true}
-{"name": "wrapt", "license": "BSD-2-CLAUSE", "compatible": true}
-{"name": "xxhash", "license": "BSD-2-CLAUSE", "compatible": true}
-{"name": "yarl", "license": "APACHE-2.0", "compatible": true}
-{"name": "zipp", "license": "MIT", "compatible": true}
-{"name": "zstandard", "license": "BSD-3-CLAUSE", "compatible": true}
+{"name": "aiohappyeyeballs", "version": "2.7.1", "license": "PSF-2.0", "package_url": "https://pypi.org/project/aiohappyeyeballs/2.7.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/PSF-2.0.txt"]}
+{"name": "aiohttp", "version": "3.14.3", "license": "APACHE-2.0 AND MIT", "package_url": "https://pypi.org/project/aiohttp/3.14.3/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "aiosignal", "version": "1.4.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/aiosignal/1.4.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "annotated-doc", "version": "0.0.5", "license": "MIT", "package_url": "https://pypi.org/project/annotated-doc/0.0.5/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "annotated-types", "version": "0.8.0", "license": "MIT", "package_url": "https://pypi.org/project/annotated-types/0.8.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "anyio", "version": "4.14.2", "license": "MIT", "package_url": "https://pypi.org/project/anyio/4.14.2/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "attrs", "version": "26.1.0", "license": "MIT", "package_url": "https://pypi.org/project/attrs/26.1.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "boto3", "version": "1.43.81", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/boto3/1.43.81/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "botocore", "version": "1.43.81", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/botocore/1.43.81/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "cachetools", "version": "7.1.7", "license": "MIT", "package_url": "https://pypi.org/project/cachetools/7.1.7/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "certifi", "version": "2026.7.22", "license": "MPL-2.0", "package_url": "https://pypi.org/project/certifi/2026.7.22/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MPL-2.0.txt"]}
+{"name": "cffi", "version": "2.1.1", "license": "MIT-0", "package_url": "https://pypi.org/project/cffi/2.1.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT-0.txt"]}
+{"name": "charset-normalizer", "version": "3.5.1", "license": "MIT", "package_url": "https://pypi.org/project/charset-normalizer/3.5.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "click", "version": "8.5.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/click/8.5.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "cloudpickle", "version": "3.1.2", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/cloudpickle/3.1.2/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "colorama", "version": "0.4.6", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/colorama/0.4.6/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "cryptography", "version": "49.0.0", "license": "APACHE-2.0 OR BSD-3-CLAUSE", "package_url": "https://pypi.org/project/cryptography/49.0.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "databricks-sdk", "version": "0.133.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/databricks-sdk/0.133.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "distro", "version": "1.9.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/distro/1.9.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "fastapi", "version": "0.141.1", "license": "MIT", "package_url": "https://pypi.org/project/fastapi/0.141.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "fastuuid", "version": "0.14.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/fastuuid/0.14.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "filelock", "version": "3.32.4", "license": "MIT", "package_url": "https://pypi.org/project/filelock/3.32.4/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "frozenlist", "version": "1.8.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/frozenlist/1.8.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "fsspec", "version": "2026.7.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/fsspec/2026.7.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "gitdb", "version": "4.0.12", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/gitdb/4.0.12/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "gitpython", "version": "3.1.60", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/gitpython/3.1.60/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "google-auth", "version": "2.57.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/google-auth/2.57.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "h11", "version": "0.16.0", "license": "MIT", "package_url": "https://pypi.org/project/h11/0.16.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "hf-xet", "version": "1.6.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/hf-xet/1.6.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "httpcore", "version": "1.0.9", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/httpcore/1.0.9/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "httpcore2", "version": "2.12.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/httpcore2/2.12.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "httpx", "version": "0.28.1", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/httpx/0.28.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "httpx2", "version": "2.12.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/httpx2/2.12.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "httpx2-jsfetch", "version": "1.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/httpx2-jsfetch/1.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "huggingface-hub", "version": "1.29.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/huggingface-hub/1.29.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "idna", "version": "3.19", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/idna/3.19/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "importlib-metadata", "version": "8.9.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/importlib-metadata/8.9.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "jinja2", "version": "3.1.6", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/jinja2/3.1.6/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "jiter", "version": "0.16.0", "license": "MIT", "package_url": "https://pypi.org/project/jiter/0.16.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "jmespath", "version": "1.1.0", "license": "MIT", "package_url": "https://pypi.org/project/jmespath/1.1.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "joblib", "version": "1.5.3", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/joblib/1.5.3/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "jsonschema", "version": "4.26.0", "license": "MIT", "package_url": "https://pypi.org/project/jsonschema/4.26.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "jsonschema-specifications", "version": "2025.9.1", "license": "MIT", "package_url": "https://pypi.org/project/jsonschema-specifications/2025.9.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "langsmith", "version": "0.12.2", "license": "MIT", "package_url": "https://pypi.org/project/langsmith/0.12.2/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "litellm", "version": "1.98.0", "license": "MIT", "package_url": "https://pypi.org/project/litellm/1.98.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "markupsafe", "version": "3.0.3", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/markupsafe/3.0.3/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "mlflow-skinny", "version": "3.15.2", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/mlflow-skinny/3.15.2/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "multidict", "version": "6.7.1", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/multidict/6.7.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "narwhals", "version": "2.25.0", "license": "MIT", "package_url": "https://pypi.org/project/narwhals/2.25.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "nooa", "version": "0.0.10", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/nooa/0.0.10/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "numpy", "version": "2.5.2", "license": "BSD-3-CLAUSE AND 0BSD AND MIT AND ZLIB AND CC0-1.0", "package_url": "https://pypi.org/project/numpy/2.5.2/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/0BSD.txt", "third_party/license_texts/BSD-3-Clause.txt", "third_party/license_texts/CC0-1.0.txt", "third_party/license_texts/MIT.txt", "third_party/license_texts/Zlib.txt"]}
+{"name": "openai", "version": "2.54.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/openai/2.54.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "openinference-instrumentation", "version": "0.1.61", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/openinference-instrumentation/0.1.61/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "openinference-instrumentation-litellm", "version": "0.1.41", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/openinference-instrumentation-litellm/0.1.41/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "openinference-semantic-conventions", "version": "0.1.35", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/openinference-semantic-conventions/0.1.35/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "opentelemetry-api", "version": "1.44.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/opentelemetry-api/1.44.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "opentelemetry-instrumentation", "version": "0.65b0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/opentelemetry-instrumentation/0.65b0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "opentelemetry-proto", "version": "1.44.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/opentelemetry-proto/1.44.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "opentelemetry-sdk", "version": "1.44.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/opentelemetry-sdk/1.44.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "opentelemetry-semantic-conventions", "version": "0.65b0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/opentelemetry-semantic-conventions/0.65b0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "orjson", "version": "3.12.0", "license": "MPL-2.0 AND (APACHE-2.0 OR MIT)", "package_url": "https://pypi.org/project/orjson/3.12.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt", "third_party/license_texts/MIT.txt", "third_party/license_texts/MPL-2.0.txt"]}
+{"name": "packaging", "version": "26.3", "license": "APACHE-2.0 OR BSD-2-CLAUSE", "package_url": "https://pypi.org/project/packaging/26.3/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt", "third_party/license_texts/BSD-2-Clause.txt"]}
+{"name": "propcache", "version": "0.5.2", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/propcache/0.5.2/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "protobuf", "version": "7.36.1", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/protobuf/7.36.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "pyasn1", "version": "0.6.4", "license": "BSD-2-CLAUSE", "package_url": "https://pypi.org/project/pyasn1/0.6.4/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-2-Clause.txt"]}
+{"name": "pyasn1-modules", "version": "0.4.2", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/pyasn1-modules/0.4.2/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "pycparser", "version": "3.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/pycparser/3.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "pydantic", "version": "2.13.4", "license": "MIT", "package_url": "https://pypi.org/project/pydantic/2.13.4/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "pydantic-core", "version": "2.46.4", "license": "MIT", "package_url": "https://pypi.org/project/pydantic-core/2.46.4/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "pydantic-settings", "version": "2.15.0", "license": "MIT", "package_url": "https://pypi.org/project/pydantic-settings/2.15.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "python-dateutil", "version": "2.9.0.post0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/python-dateutil/2.9.0.post0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "python-dotenv", "version": "1.2.3", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/python-dotenv/1.2.3/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "pyyaml", "version": "6.0.3", "license": "MIT", "package_url": "https://pypi.org/project/pyyaml/6.0.3/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "referencing", "version": "0.37.0", "license": "MIT", "package_url": "https://pypi.org/project/referencing/0.37.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "regex", "version": "2026.7.19", "license": "APACHE-2.0 AND CNRI-PYTHON", "package_url": "https://pypi.org/project/regex/2026.7.19/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt", "third_party/license_texts/CNRI-Python.txt"]}
+{"name": "requests", "version": "2.34.2", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/requests/2.34.2/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "requests-toolbelt", "version": "1.0.0", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/requests-toolbelt/1.0.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "rpds-py", "version": "2026.6.3", "license": "MIT", "package_url": "https://pypi.org/project/rpds-py/2026.6.3/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "s3transfer", "version": "0.19.2", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/s3transfer/0.19.2/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "scikit-learn", "version": "1.9.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/scikit-learn/1.9.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "scipy", "version": "1.18.1", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/scipy/1.18.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "setuptools", "version": "84.0.0", "license": "MIT", "package_url": "https://pypi.org/project/setuptools/84.0.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "six", "version": "1.17.0", "license": "MIT", "package_url": "https://pypi.org/project/six/1.17.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "smmap", "version": "5.0.3", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/smmap/5.0.3/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "sniffio", "version": "1.3.1", "license": "APACHE-2.0 OR MIT", "package_url": "https://pypi.org/project/sniffio/1.3.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "sqlparse", "version": "0.6.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/sqlparse/0.6.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "starlette", "version": "1.6.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/starlette/1.6.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "threadpoolctl", "version": "3.6.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/threadpoolctl/3.6.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "tiktoken", "version": "0.14.0", "license": "MIT", "package_url": "https://pypi.org/project/tiktoken/0.14.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "tokenizers", "version": "0.23.1", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/tokenizers/0.23.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "tqdm", "version": "4.70.0", "license": "MIT AND MPL-2.0", "package_url": "https://pypi.org/project/tqdm/4.70.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt", "third_party/license_texts/MPL-2.0.txt"]}
+{"name": "truststore", "version": "0.10.4", "license": "MIT", "package_url": "https://pypi.org/project/truststore/0.10.4/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "typing-extensions", "version": "4.16.0", "license": "PSF-2.0", "package_url": "https://pypi.org/project/typing-extensions/4.16.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/PSF-2.0.txt"]}
+{"name": "typing-inspection", "version": "0.4.4", "license": "MIT", "package_url": "https://pypi.org/project/typing-inspection/0.4.4/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "urllib3", "version": "2.7.0", "license": "MIT", "package_url": "https://pypi.org/project/urllib3/2.7.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "uuid-utils", "version": "0.17.1", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/uuid-utils/0.17.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "uvicorn", "version": "0.52.4", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/uvicorn/0.52.4/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "websockets", "version": "17.1", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/websockets/17.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}
+{"name": "wrapt", "version": "2.4.0", "license": "BSD-2-CLAUSE", "package_url": "https://pypi.org/project/wrapt/2.4.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-2-Clause.txt"]}
+{"name": "xxhash", "version": "4.0.1", "license": "BSD-2-CLAUSE", "package_url": "https://pypi.org/project/xxhash/4.0.1/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-2-Clause.txt"]}
+{"name": "yarl", "version": "1.24.5", "license": "APACHE-2.0", "package_url": "https://pypi.org/project/yarl/1.24.5/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/Apache-2.0.txt"]}
+{"name": "zipp", "version": "4.1.0", "license": "MIT", "package_url": "https://pypi.org/project/zipp/4.1.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/MIT.txt"]}
+{"name": "zstandard", "version": "0.25.0", "license": "BSD-3-CLAUSE", "package_url": "https://pypi.org/project/zstandard/0.25.0/", "license_documents": ["third_party/NOTICES.txt", "third_party/license_texts/BSD-3-Clause.txt"]}

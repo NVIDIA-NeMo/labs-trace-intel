@@ -44,7 +44,10 @@ After the evidence streams run, each returns candidate `Problem` objects with a 
 The Analyst Agent ultimately produces a set of "insights" which are meant to describe a recurring and actionable problem observed from the trace corpus. 
 
 ## Running the Agent on Example Traces
-This repo includes example traces from the [Tau benchmark](https://github.com/sierra-research/tau-bench).
+This repo includes example traces derived from the
+[Tau benchmark](https://github.com/sierra-research/tau-bench), which is licensed under the MIT
+License. The complete Tau Bench license is preserved in
+[`third_party/tau-bench-LICENSE.txt`](third_party/tau-bench-LICENSE.txt).
 
 First follow the .env.example to configure some keys for the LLM bits. 
 
@@ -199,42 +202,18 @@ uv run insight-agent --config insight-analyst.yaml
 Results are printed and written to the configured `output_path`, which defaults
 to `insights.yml`.
 
-## Validation
+## Development
 
-When adding NVIDIA-authored files or changing dependencies, update the tracked
-licensing artifacts first:
-
-```bash
-make update-copyright-headers
-make update-licenses
-```
-
-License generation requires `osv-scanner` on `PATH`; CI pins the same 2.3.3
-release used by NeMo Platform. `make update-licenses` refreshes the OSV
-dependency inventory.
-
-Ruff requires annotations outside tests. ty uses its defaults and checks all Python
-files, including tests.
-
-Run the same read-only checks used by CI:
-
-```bash
-uv lock --check
-make check-copyright-headers
-make check-licenses
-uv run --locked ruff check .
-uv run --locked ruff format --check .
-uv run --locked ty check
-uv run --locked pytest
-uv build
-```
+See [DEVELOPMENT.md](DEVELOPMENT.md) for validation, dependency licensing, and release instructions.
 
 ## License
 
 Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 This project is licensed under the [Apache License, Version 2.0](LICENSE). See
-[NOTICE](NOTICE) for project attributions and
-[third_party/licenses.jsonl](third_party/licenses.jsonl) for the dependency license inventory.
+[NOTICE](NOTICE) for project attributions,
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for human-readable dependency license
+disclosures, and [third_party/licenses.jsonl](third_party/licenses.jsonl) for the machine-readable
+inventory.
 
 This project is currently not accepting contributions.

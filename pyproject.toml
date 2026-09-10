@@ -15,8 +15,11 @@ license = "Apache-2.0"
 license-files = [
     "LICENSE",
     "NOTICE",
+    "THIRD_PARTY_LICENSES.md",
     "third_party/licenses.jsonl",
     "third_party/tau-bench-LICENSE.txt",
+    "third_party/NOTICES.txt",
+    "third_party/license_texts/*.txt",
 ]
 authors = [{ name = "Insight Agent contributors" }]
 keywords = ["agent-traces", "evaluation", "anomaly-detection", "tool-use"]

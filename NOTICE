@@ -3,7 +3,12 @@ Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0.
 
-Third-party dependency licenses are listed in third_party/licenses.jsonl.
+Third-party dependencies, locked versions, and local license/attribution documents
+are listed in THIRD_PARTY_LICENSES.md. The same inventory is available in
+machine-readable form at third_party/licenses.jsonl.
+
+Collected upstream license and attribution texts are preserved in
+third_party/NOTICES.txt. Shared license terms are in third_party/license_texts/.
 
 The example trace data in examples/tau_bench_traces.jsonl is derived from the
 Tau benchmark project:

@@ -10,9 +10,9 @@ check-copyright-headers: ## Check copyright and license headers
 	uv run --locked python tools/check_copyright_headers.py
 
 .PHONY: update-licenses
-update-licenses: ## Update the OSV dependency license inventory
+update-licenses: ## Update the OSV dependency license disclosures
 	uv run --locked python tools/generate_third_party_licenses.py
 
 .PHONY: check-licenses
-check-licenses: ## Check that the third-party dependency license inventory is current
+check-licenses: ## Check that the third-party dependency license disclosures are current
 	uv run --locked python tools/generate_third_party_licenses.py --check
