@@ -98,6 +98,7 @@ class _ExportRun:
     extra: dict[str, JsonValue]
     tags: JsonValue | None
     total_cost: float | None
+    feedback_stats: JsonValue
     dotted_order: None = None
     app_path: None = None
 
@@ -400,6 +401,7 @@ def _parse_run(value: object, *, path: Path, line_number: int) -> _ExportRun:
         extra=extra,
         tags=_json_value(tags),
         total_cost=_total_cost(costs, path, line_number),
+        feedback_stats=_json_value(value["feedback_stats"]),
     )
 
 

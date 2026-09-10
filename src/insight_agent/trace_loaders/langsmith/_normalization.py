@@ -99,6 +99,7 @@ def normalize_trace(
     base_pointer: dict[str, JsonValue] = {**source_pointer, "trace_id": trace_id}
     normalized_by_id: dict[str, Span] = {}
     root_spans: list[Span] = []
+    feedback_by_name: dict[str, dict[str, JsonValue]] = {}
     tool_call_index = 0
     for run in ordered:
         run_id = required_id(run, "id", "LangSmith Run")
@@ -108,6 +109,23 @@ def normalize_trace(
             base_pointer=base_pointer,
             source_pointer=(run_source_pointers or {}).get(run_id),
         )
+        feedback = getattr(run, "feedback_stats", None)
+        if feedback is not None:
+            if not isinstance(feedback, Mapping):
+                raise LangSmithTraceLoadError(
+                    f"LangSmith Run {run_id!r} feedback_stats must be an object or null"
+                )
+            for name, stats in feedback.items():
+                if stats is None:
+                    continue
+                if not isinstance(name, str) or not name or not isinstance(stats, Mapping):
+                    raise LangSmithTraceLoadError(
+                        f"LangSmith Run {run_id!r} has invalid feedback statistics {name!r}"
+                    )
+                if stats:
+                    # Keep per-run aggregates intact, including repeated feedback names.
+                    key = f"langsmith.feedback_stats.{name}"
+                    feedback_by_name.setdefault(key, {})[run_id] = _json_value(stats)
         if normalized.kind is SpanKind.TOOL:
             normalized.tool_call = ToolCall(
                 call_id=run_id,
@@ -139,6 +157,7 @@ def normalize_trace(
                 latency_ms=_trace_latency_ms(ordered),
             ),
             attributes=attributes,
+            evaluator_results=dict(feedback_by_name),
         ),
         len(unresolved),
     )
@@ -250,6 +269,7 @@ def _normalize_run(
                 "run_type": str(getattr(run, "run_type", None) or ""),
                 "tags": _json_value(getattr(run, "tags", None)),
                 "extra": _json_value(getattr(run, "extra", None)),
+                "feedback_stats": _json_value(getattr(run, "feedback_stats", None)),
                 "dotted_order": str(getattr(run, "dotted_order", None) or "") or None,
             },
         },

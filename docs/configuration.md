@@ -109,6 +109,9 @@ self-hosted LangSmith 0.15. It does not yet support the SmithDB-backed v2 query
 API; that migration will wait until a newer self-hosted version is available
 for testing.
 
+Both LangSmith sources support `eval_failure_patterns` using recorded feedback
+aggregates from root and child runs.
+
 ### MLflow
 
 For a live MLflow experiment:

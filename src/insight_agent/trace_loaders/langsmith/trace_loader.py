@@ -49,6 +49,7 @@ _RUN_SELECT_FIELDS = [
     "dotted_order",
     "total_cost",
     "app_path",
+    "feedback_stats",
 ]
 
 __all__ = [

@@ -168,6 +168,7 @@ def test_loader_accepts_one_jsonl_file(tmp_path):
 
     loader = LangSmithTraceExportFileLoader(LangSmithTraceExportFileConfig(path=path))
 
+    assert loader.load().get_trace_by_id("trace-1").evaluator_results == {}
     assert [trace.id for trace in loader.load()] == ["trace-1"]
     assert loader.describe()["export_path"] == str(path.resolve())
 

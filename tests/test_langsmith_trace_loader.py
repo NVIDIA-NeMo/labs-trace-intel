@@ -14,10 +14,16 @@ from uuid import UUID
 import pytest
 from langsmith import Client
 from langsmith.schemas import Run
+from test_langsmith_trace_export_file_loader import (
+    trace_export_run_record,
+    write_trace_export_file,
+)
 
 from insight_agent.trace_loaders.langsmith import (
     LANGSMITH_DEFAULT_MAX_TRACES,
     LangSmithTraceConfig,
+    LangSmithTraceExportFileConfig,
+    LangSmithTraceExportFileLoader,
     LangSmithTraceLoader,
     LangSmithTraceLoadError,
 )
@@ -210,16 +216,15 @@ def test_loader_queries_bounded_roots_then_hydrates_and_normalizes_complete_trac
     }
 
 
-def test_loader_uses_langsmith_sdk_query_contract_without_importing_provider_objects():
-    root, child = trace_runs()[-1], trace_runs()[1]
+def test_loader_uses_langsmith_sdk_query_contract_without_importing_provider_objects(tmp_path):
+    _, child, root = trace_runs()
+    root.feedback_stats = {"quality": {"n": 2, "avg": 0.5}, "missing": None, "empty": {}}
+    child.feedback_stats = {"quality": {"n": 1, "avg": 0}, "accepted": {"n": 1, "avg": False}}
     root_record = root.model_dump(mode="json", exclude_none=True)
     child_record = child.model_dump(mode="json", exclude_none=True)
     # The legacy Run wire model cannot distinguish this explicit top-level null
     # from a missing output; both arrive as Run.outputs=None.
     child_record["outputs"] = None
-    # The SDK populates attachments from the server's storage coordinates.
-    root_record.pop("attachments", None)
-    child_record.pop("attachments", None)
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -252,14 +257,18 @@ def test_loader_uses_langsmith_sdk_query_contract_without_importing_provider_obj
             size = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(size))
             requests.append(("POST", self.path, body))
+
+            def selected(record):
+                return {key: value for key, value in record.items() if key in body["select"]}
+
             if body.get("is_root"):
-                self.send_json({"runs": [root_record]})
+                self.send_json({"runs": [selected(root_record)]})
             elif body.get("cursor") == "hydration-page-2":
-                self.send_json({"runs": [child_record]})
+                self.send_json({"runs": [selected(child_record)]})
             else:
                 self.send_json(
                     {
-                        "runs": [root_record],
+                        "runs": [selected(root_record)],
                         "cursors": {"next": "hydration-page-2"},
                     }
                 )
@@ -281,6 +290,32 @@ def test_loader_uses_langsmith_sdk_query_contract_without_importing_provider_obj
 
     assert snapshot.trace_count == 1
     trace = next(iter(snapshot))
+    expected = {
+        "langsmith.feedback_stats.quality": {
+            str(TRACE_ID): {"n": 2, "avg": 0.5},
+            str(LLM_ID): {"n": 1, "avg": 0},
+        },
+        "langsmith.feedback_stats.accepted": {str(LLM_ID): {"n": 1, "avg": False}},
+    }
+    expected_json = json.dumps(expected, sort_keys=True)
+    assert json.dumps(trace.evaluator_results, sort_keys=True) == expected_json
+    path = tmp_path / "trace.jsonl"
+    write_trace_export_file(
+        path,
+        *(
+            trace_export_run_record(
+                str(run.id),
+                trace_id=str(TRACE_ID),
+                parent_run_id=str(run.parent_run_id) if run.parent_run_id else None,
+                feedback_stats=run.feedback_stats,
+            )
+            for run in (child, root)
+        ),
+    )
+    exported = next(
+        iter(LangSmithTraceExportFileLoader(LangSmithTraceExportFileConfig(path)).load())
+    )
+    assert json.dumps(exported.evaluator_results, sort_keys=True) == expected_json
     assert [span.id for span in trace.root_spans] == [str(TRACE_ID)]
     assert [span.id for span in trace.root_spans[0].children] == [str(LLM_ID)]
     assert "output" not in trace.root_spans[0].children[0].model_dump()
@@ -288,6 +323,7 @@ def test_loader_uses_langsmith_sdk_query_contract_without_importing_provider_obj
     assert requests[1][2]["is_root"] is True
     assert requests[1][2]["limit"] == 100
     assert requests[2][2]["trace_filter"] == f'eq(id, "{TRACE_ID}")'
+    assert [request[1] for request in requests[1:]] == ["/runs/query"] * 3
     assert requests[3][2]["cursor"] == "hydration-page-2"
 
 
@@ -307,6 +343,7 @@ def test_loader_uses_explicit_api_url_and_maps_unknown_pending_run():
 
     trace = next(iter(loader.load()))
 
+    assert trace.evaluator_results == {}
     assert trace.attributes["logical_case_id"] == "conversation-3"
     assert trace.root_spans[0].kind is SpanKind.UNKNOWN
     assert trace.root_spans[0].attributes["subtype"] == "PROMPT"
