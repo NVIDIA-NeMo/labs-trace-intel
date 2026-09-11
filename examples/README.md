@@ -3,6 +3,20 @@
 
 # Examples
 
+## Platform configuration
+
+The platform examples contain only trace-source settings, including commented native-export
+alternatives:
+
+- [LangSmith](trace-analyst-config-langsmith.yaml)
+- [Langfuse](trace-analyst-config-langfuse.yaml)
+- [MLflow](trace-analyst-config-mlflow.yaml)
+
+Replace the `trace` block in [the general configuration](trace-analyst-config.yaml) with one of
+these blocks, retaining its `evidence_streams` and any other shared settings. These source-only
+examples are not standalone run configurations. The [README](../README.md#analyze-your-own-traces)
+also provides complete quickstarts.
+
 ## `tau_bench_traces.jsonl`
 
 200 real agent traces (1,003 tool calls) from [τ-bench](https://github.com/sierra-research/tau-bench),

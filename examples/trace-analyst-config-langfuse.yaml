@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Trace Analyst: Langfuse v3 source settings
+# Replace the trace block in trace-analyst-config.yaml with this block.
+# Keep its evidence_streams and other shared settings. Set LANGFUSE_PUBLIC_KEY
+# and LANGFUSE_SECRET_KEY in .env; the key pair identifies the project.
+# Install the client with: uv sync --locked --extra langfuse
+
+trace:
+  max_traces: 100
+  langfuse:
+    base_url: https://langfuse.example.com
+    # Both bounds are required. Select a UTC window containing your traces.
+    from_timestamp: 2026-09-01T00:00:00Z
+    to_timestamp: 2026-09-02T00:00:00Z
+    # filter: >-
+    #   [{"type":"string","column":"environment","operator":"=","value":"production"}]
+
+  # For a native export, comment out langfuse above and enable this instead.
+  # langfuse_export:
+  #   path: exports/langfuse-traces.jsonl

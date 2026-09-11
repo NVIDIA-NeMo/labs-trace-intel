@@ -13,37 +13,9 @@ trace:
   filesystem:
     path: examples/tau_bench_traces.jsonl
 
-  # Provider sources only; not supported with filesystem.
-  # max_traces: 100
-
-  # langsmith:
-  #   project: my-agent
-  #   api_url: https://api.smith.langchain.com
-  #   start_time: 2026-09-01T00:00:00Z
-  #   filter: 'eq(status, "error")'
-  #   tree_filter: 'eq(run_type, "tool")'
-
-  # langsmith_trace_export_file:
-  #   path: exports/langsmith
-
-  # Langfuse v3 requires both timezone-aware time bounds.
-  # langfuse:
-  #   base_url: https://langfuse.example.com
-  #   from_timestamp: 2026-09-01T00:00:00Z
-  #   to_timestamp: 2026-09-02T00:00:00Z
-  #   filter: >-
-  #     [{"type":"string","column":"environment","operator":"=","value":"production"}]
-
-  # langfuse_export:
-  #   path: exports/langfuse-traces.jsonl
-
-  # mlflow_experiment:
-  #   experiment: my-agent
-  #   tracking_uri: https://mlflow.example.com
-  #   filter: "trace.status = 'ERROR'"
-
-  # mlflow_export:
-  #   path: exports/mlflow-traces.json
+  # LangSmith, Langfuse, and MLflow source settings are in the adjacent
+  # trace-analyst-config-<platform>.yaml files. Replace this trace block
+  # with the desired platform's block; keep the shared settings below.
 
   # intake:
   #   base_url: https://platform.example.com
