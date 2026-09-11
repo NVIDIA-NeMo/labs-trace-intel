@@ -39,12 +39,12 @@ fixtures — there is no real user data here.
 | Distinct `logical_case_id`s | 153 |
 | Tools in catalog | 13, with runtime-recovered schemas |
 
-### Evidence available to the Analyst
+### Evidence available to Trace Analyst
 
 ```
 Tool-issue rules evaluable : 14/19
 findings            : 64
-cards               : 3, all 3 eligible for the Analyst
+cards               : 3, all 3 eligible for Trace Analyst
 ```
 
 | Card | Findings | Independent cases |
@@ -54,7 +54,7 @@ cards               : 3, all 3 eligible for the Analyst
 | `unknown_tool:unknown_tool` | 6 | 4 |
 
 This is the useful part: unlike a small or synthetic corpus, enough recurs here
-that all three cards clear the three-independent-case gate, so the Analyst
+that all three cards clear the three-independent-case gate, so the Trace Analyst
 stage has real evidence to author from.
 
 `modified_retry_same_failure` is the one worth reading by hand — the agent

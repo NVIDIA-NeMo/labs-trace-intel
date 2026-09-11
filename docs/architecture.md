@@ -1,9 +1,9 @@
 <!-- SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Analyst architecture
+# Trace Analyst architecture
 
-The insights analyst takes in agent runtime execution traces and identifies
+Trace Analyst takes in agent runtime execution traces and identifies
 different problems (known as Insights) identified in the agent.
 
 The trace loader ingests traces from different formats and agent observability

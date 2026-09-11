@@ -3,7 +3,7 @@
 
 # Run configuration
 
-The Insights Analyst can be configured with YAML, generated CLI options, or a
+Trace Analyst can be configured with YAML, generated CLI options, or a
 combination of both. A YAML file is optional, but every run must select exactly
 one trace source and at least one evidence stream.
 

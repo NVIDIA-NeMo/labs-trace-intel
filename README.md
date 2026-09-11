@@ -1,23 +1,23 @@
 <!-- SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# NeMo Insight Agent Research Preview
+# Trace Analyst Research Preview
 
 The NVIDIA team has been working on agent-driven trace analysis techniques. 
 
 An early version of that work has shipped open source and is available here as a "research preview": [Open Source Repo](https://github.com/NVIDIA-NeMo/nemo-platform/blob/f57bb6ca64d84e505742e73f6234fd31e27e7a4a/plugins/nemo-insights/README.md) and [Documentation](https://docs.nvidia.com/nemo-platform/documentation/agents/optimize-agents/insight-driven-optimization).
 
-That implementation should be viewed as a steel thread to illustrate the architecture. In that example, the "Analyst Agent's" job is to conduct trace analysis to turn usage data from traces into high-signal insights that can drive downstream optimization.
+That implementation should be viewed as a steel thread to illustrate the architecture. In that example, Trace Analyst's job is to conduct trace analysis to turn usage data from traces into high-signal insights that can drive downstream optimization.
 
 ## Where we're going next
-That version of the Analyst Agent is a relatively naive initial implementation. The agent is given a set of tools to explore traces and is tasked with coming up with insights for the agent under test. While it has proven to produce valuable results, it hits limits with large volumes of traces as its ability to explore the whole search space declines. 
+That version of Trace Analyst is a relatively naive initial implementation. The agent is given a set of tools to explore traces and is tasked with coming up with insights for the agent under test. While it has proven to produce valuable results, it hits limits with large volumes of traces as its ability to explore the whole search space declines.
 
-Future iterations will aim to improve the scalability and reliability of the agent by adding diverse preprocessing steps across the whole trace corpus, providing a "roadmap" of sorts to guide the Analyst Agent's exploration and more quickly zero in on the most significant traces. 
+Future iterations will aim to improve the scalability and reliability of the agent by adding diverse preprocessing steps across the whole trace corpus, providing a "roadmap" of sorts to guide Trace Analyst's exploration and more quickly zero in on the most significant traces.
 
 **This repo represents an early preview of the architecture we are exploring.** It's shared for collaboration purposes only and is not meant to be shared widely or to be used in a production environment. 
 
-## V2 Analyst Agent Architecture
-This version of the Analyst Agent implements a series of preprocessing steps that we call "evidence streams".
+## V2 Trace Analyst Architecture
+This version of Trace Analyst implements a series of preprocessing steps that we call "evidence streams".
 
 Current evidence streams:
 
@@ -39,11 +39,11 @@ Current evidence streams:
 
     Adapters must populate `Trace.evaluator_results`; the LLM does not discover evaluation fields.
 
-After the evidence streams run, each returns candidate `Problem` objects with a description and supporting trace IDs. Those Problems are passed to the Analyst Agent to guide its analysis. The Analyst can also look up normalized supporting traces from the same snapshot and uses that evidence as a starting point for more detailed exploration and synthesis.
+After the evidence streams run, each returns candidate `Problem` objects with a description and supporting trace IDs. Those Problems are passed to Trace Analyst to guide its analysis. Trace Analyst can also look up normalized supporting traces from the same snapshot and uses that evidence as a starting point for more detailed exploration and synthesis.
 
-The Analyst Agent ultimately produces a set of "insights" which are meant to describe a recurring and actionable problem observed from the trace corpus. 
+Trace Analyst ultimately produces a set of "insights" which are meant to describe a recurring and actionable problem observed from the trace corpus.
 
-## Running the Agent on Example Traces
+## Run Trace Analyst on Example Traces
 This repo includes example traces derived from the
 [Tau benchmark](https://github.com/sierra-research/tau-bench), which is licensed under the MIT
 License. The complete Tau Bench license is preserved in
@@ -62,7 +62,7 @@ provider-specific: use the base URL documented by your inference provider rather
 suffix or supplying the full `/chat/completions` endpoint. Direct providers such as OpenAI or
 Anthropic normally do not need `INSIGHT_AGENT_API_BASE`.
 
-Then run the Analyst:
+Then run Trace Analyst:
 
 ```bash
 uv sync --locked
@@ -115,7 +115,7 @@ a name, description, and the trace references that support it.
 
 ## Analyze your own traces
 
-The Analyst can read live projects or native exports from LangSmith, Langfuse, and MLflow. Every
+Trace Analyst can read live projects or native exports from LangSmith, Langfuse, and MLflow. Every
 source is normalized before the same evidence streams run. Choose one integration below. Each YAML
 snippet is a complete `insight-analyst.yaml` file;
 replace the example project, endpoint, and time range with your own values.
@@ -206,7 +206,7 @@ pagination limits, and native exports.
 ### Other platforms
 
 Other trace platforms can be analyzed after an adapter maps their data to the public
-[`Trace`](src/insight_agent/traces.py) model. The Analyst does not currently export its normalized
+[`Trace`](src/insight_agent/traces.py) model. Trace Analyst does not currently export its normalized
 snapshot, so this JSONL is produced by the adapter itself, with one complete trace per line. A
 minimal record looks like this:
 
@@ -214,7 +214,7 @@ minimal record looks like this:
 {"id":"trace-1","root_spans":[{"id":"span-1","kind":"LLM","input":{"prompt":"Hello"},"output":{"response":"Hi"}}],"aggregate":{}}
 ```
 
-Run the Analyst on the resulting file:
+Run Trace Analyst on the resulting file:
 
 ```bash
 uv sync --locked
