@@ -115,7 +115,8 @@ the public [`Trace` model](src/insight_agent/traces.py).
 
 ## Analyze your own traces
 
-Trace Analyst can read live projects or native exports from LangSmith, Langfuse, and MLflow. Every
+Trace Analyst can read live projects or native exports from LangSmith, Langfuse, and MLflow,
+and live traces from NeMo Platform Intake. Every
 source is normalized before the same evidence streams run. Choose one integration below. Each YAML
 snippet is a complete `trace-analyst-config.yaml` file.
 
@@ -134,6 +135,13 @@ trace:
     project: my-agent
     api_url: https://api.smith.langchain.com
     start_time: 2026-09-01T00:00:00Z
+    # filter: 'eq(status, "error")'
+    # tree_filter: 'eq(run_type, "tool")'
+
+  # For a native export, comment out langsmith above and enable this instead.
+  # langsmith_trace_export_file:
+  #   path: exports/langsmith
+
 evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
@@ -162,6 +170,13 @@ trace:
     base_url: https://langfuse.example.com
     from_timestamp: 2026-09-01T00:00:00Z
     to_timestamp: 2026-09-02T00:00:00Z
+    # filter: >-
+    #   [{"type":"string","column":"environment","operator":"=","value":"production"}]
+
+  # For a native export, comment out langfuse above and enable this instead.
+  # langfuse_export:
+  #   path: exports/langfuse-traces.jsonl
+
 evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
@@ -193,6 +208,12 @@ trace:
   mlflow_experiment:
     experiment: my-agent
     tracking_uri: https://mlflow.example.com
+    # filter: "trace.status = 'ERROR'"
+
+  # For a native export, comment out mlflow_experiment above and enable this instead.
+  # mlflow_export:
+  #   path: exports/mlflow-traces.json
+
 evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
@@ -204,6 +225,46 @@ uv run --no-sync insight-agent --config trace-analyst-config.yaml
 
 See [MLflow configuration](docs/configuration.md#mlflow) for authentication, search filters,
 pagination limits, and native exports.
+
+### NeMo Platform Intake
+
+```bash
+uv sync --locked
+# For authenticated deployments:
+# export NMP_ACCESS_TOKEN=<access-token>
+```
+
+```yaml
+# trace-analyst-config.yaml
+trace:
+  max_traces: 100
+  intake:
+    base_url: https://platform.example.com
+    workspace: my-workspace
+    # page_size: 100
+    # timeout_seconds: 30.0
+    query:
+      # Both bounds are required. Select a UTC window containing your traces.
+      started_at_gte: 2026-09-01T00:00:00Z
+      started_at_lte: 2026-09-02T00:00:00Z
+      # agent_name: my-agent
+      # evaluation_name: my-evaluation
+      # test_case_name: my-test-case
+      # session_id: my-session
+      # status: error  # success, error, cancelled, or unknown.
+      # max_traces: 100  # trace.max_traces takes precedence when set.
+      # sort: started_at  # Or -started_at for newest first.
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
+```
+
+```bash
+uv run --no-sync insight-agent --config trace-analyst-config.yaml
+```
+
+See [Intake configuration](docs/configuration.md#intake) for authentication and query details.
+Intake supports live queries only; there is no native-export configuration.
 
 ### Other platforms
 
