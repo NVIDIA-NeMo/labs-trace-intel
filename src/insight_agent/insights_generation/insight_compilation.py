@@ -48,6 +48,9 @@ class InsightCompilation(Agent):
         we can do about this issue! And it's OK. Experts do this too. You can
         validate by examining the referenced traces.
 
+        Fetch supporting traces one at a time with
+        trace_snapshot.get_trace_by_id(trace_id).
+
         After validating, you must merge the new insights with the existing
         insights, and across evidence streams.
 

@@ -52,11 +52,15 @@ Repository = "https://github.com/NVIDIA/nemo-platform-insights-preview"
 # Source adapters only. Filesystem users do not install or import provider SDKs.
 langsmith = ["langsmith>=0.12,<0.13"]
 mlflow = ["mlflow-skinny>=3.6,<4"]
+# Query-only adapter for the deployed Langfuse v3 API. The SDK remains optional
+# for users loading canonical JSONL or MLflow traces.
+langfuse = ["langfuse>=3.15,<4"]
 
 [dependency-groups]
 # Exercise the optional source adapters in the standard contributor and CI test environment without
 # making them runtime dependencies for users of the canonical filesystem format.
 dev = [
+    "langfuse>=3.15,<4",
     "langsmith>=0.12,<0.13",
     "mlflow-skinny>=3.6,<4",
     "pytest>=8.0",

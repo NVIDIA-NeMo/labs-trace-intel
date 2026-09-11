@@ -3,6 +3,13 @@
 
 # Examples
 
+## Platform configuration
+
+The [top-level README](../README.md#analyze-your-own-traces) contains complete configurations
+for LangSmith, Langfuse, MLflow, and Intake, with optional filters and native-export alternatives
+where supported. See [the general configuration](trace-analyst-config.yaml) for the bundled
+filesystem example and optional shared settings.
+
 ## `tau_bench_traces.jsonl`
 
 200 real agent traces (1,003 tool calls) from [τ-bench](https://github.com/sierra-research/tau-bench),
@@ -11,7 +18,7 @@ Nothing needs adapting. Configure an API key as described in `.env.example`,
 then run it from the repository root:
 
 ```bash
-uv run insight-agent --config examples/insight-analyst.yaml
+uv run insight-agent --config examples/trace-analyst-config.yaml
 ```
 
 The final Insight collection is printed and written to `insights.yml`.
@@ -27,12 +34,12 @@ fixtures — there is no real user data here.
 | Distinct `logical_case_id`s | 153 |
 | Tools in catalog | 13, with runtime-recovered schemas |
 
-### Evidence available to the Analyst
+### Evidence available to Trace Analyst
 
 ```
 Tool-issue rules evaluable : 14/19
 findings            : 64
-cards               : 3, all 3 eligible for the Analyst
+cards               : 3, all 3 eligible for Trace Analyst
 ```
 
 | Card | Findings | Independent cases |
@@ -42,7 +49,7 @@ cards               : 3, all 3 eligible for the Analyst
 | `unknown_tool:unknown_tool` | 6 | 4 |
 
 This is the useful part: unlike a small or synthetic corpus, enough recurs here
-that all three cards clear the three-independent-case gate, so the Analyst
+that all three cards clear the three-independent-case gate, so the Trace Analyst
 stage has real evidence to author from.
 
 `modified_retry_same_failure` is the one worth reading by hand — the agent

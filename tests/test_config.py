@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from insight_agent.config import RunConfig
@@ -53,3 +54,53 @@ def test_config_file_is_optional_when_cli_provides_trace_input() -> None:
     assert config.trace.filesystem.path == Path("traces.jsonl")
     assert config.evidence_streams.eval_failure_patterns is not None
     assert config.evidence_streams.eval_failure_patterns.max_tool_rounds == 72
+
+
+def test_cli_accepts_optional_code_base() -> None:
+    config = RunConfig(
+        _cli_parse_args=[
+            "--trace.filesystem.path",
+            "traces.jsonl",
+            "--evidence-streams.anomaly-and-patterns.contamination",
+            "0.02",
+            "--code-base",
+            "../agent-source",
+        ]
+    )
+
+    assert config.code_base == Path("../agent-source")
+
+
+def test_langfuse_export_yaml_with_cli_limit(tmp_path: Path) -> None:
+    config_path = tmp_path / "analyst.yaml"
+    config_path.write_text(
+        "trace:\n  langfuse_export:\n    path: exports\nevidence_streams:\n  tool_issues: {}\n",
+        encoding="utf-8",
+    )
+    config = RunConfig(_cli_parse_args=["--config", str(config_path), "--trace.max-traces", "200"])
+    assert config.trace.langfuse_export is not None
+    assert config.trace.langfuse_export.path == Path("exports")
+    assert config.trace.max_traces == 200
+
+
+def test_langfuse_source_can_be_configured_entirely_through_cli() -> None:
+    config = RunConfig(
+        _cli_parse_args=[
+            "--trace.langfuse.from-timestamp",
+            "2026-08-01T00:00:00Z",
+            "--trace.langfuse.to-timestamp",
+            "2026-08-02T00:00:00Z",
+            "--trace.langfuse.base-url",
+            "https://langfuse.example.com",
+            "--trace.max-traces",
+            "25",
+            "--evidence-streams.tool-issues",
+            "{}",
+        ]
+    )
+
+    assert config.trace.langfuse is not None
+    assert config.trace.langfuse.from_timestamp == datetime(2026, 8, 1, tzinfo=timezone.utc)
+    assert config.trace.langfuse.to_timestamp == datetime(2026, 8, 2, tzinfo=timezone.utc)
+    assert config.trace.langfuse.base_url == "https://langfuse.example.com"
+    assert config.trace.max_traces == 25

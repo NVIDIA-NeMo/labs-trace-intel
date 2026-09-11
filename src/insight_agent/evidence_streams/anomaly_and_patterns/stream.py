@@ -132,11 +132,12 @@ class TraceFeatures:
 class PreparedTrace:
     """Structured anomaly-and-pattern evidence produced before selection and grouping."""
 
-    trace: NormalizedTrace
     features: TraceFeatures
     tool_names: Sequence[str]
     failure_events: Sequence[Mapping[str, Any]]
     last_agent_excerpt: str
+    observed_verdict: str | None = None
+    cost: float | None = None
 
 
 def _stable_json(value: object) -> str:
@@ -338,7 +339,6 @@ def extract_trace_features(trace: NormalizedTrace) -> PreparedTrace:
                 )
             numeric[key] = float(value)
     return PreparedTrace(
-        trace=trace,
         features=TraceFeatures(
             trace_id=trace.trace_id,
             numeric=numeric,
@@ -348,18 +348,15 @@ def extract_trace_features(trace: NormalizedTrace) -> PreparedTrace:
         tool_names=tool_names,
         failure_events=failures,
         last_agent_excerpt=_last_agent_excerpt(trace),
+        observed_verdict=trace.observed_verdict,
+        cost=trace.cost,
     )
 
 
-def prepare_traces(
-    traces: Iterable[NormalizedTrace],
-) -> tuple[list[PreparedTrace], list[dict[str, Any]]]:
-    """Run Stage 3 over complete traces and return trace rows plus failure events."""
+def prepare_traces(traces: Iterable[NormalizedTrace]) -> list[PreparedTrace]:
+    """Extract evidence in source order without retaining input traces."""
 
-    prepared = [extract_trace_features(trace) for trace in traces]
-    prepared.sort(key=lambda item: item.trace.trace_id)
-    events = [dict(event) for item in prepared for event in item.failure_events]
-    return prepared, events
+    return list(map(extract_trace_features, traces))
 
 
 def _matrix(records: Sequence[TraceFeatures], feature_names: Sequence[str]) -> np.ndarray:
@@ -604,11 +601,11 @@ def group_trajectories(
 
 
 def group_observed_verdicts(
-    traces: Iterable[NormalizedTrace], *, minimum_independent_traces: int = 1
+    traces: Iterable[PreparedTrace], *, minimum_independent_traces: int = 1
 ) -> list[dict[str, Any]]:
     """Group explicit terminal verdicts, the canonical Stage 5."""
 
-    grouped: dict[str, list[NormalizedTrace]] = defaultdict(list)
+    grouped: dict[str, list[PreparedTrace]] = defaultdict(list)
     for trace in traces:
         if trace.observed_verdict:
             grouped[normalize_error_template(trace.observed_verdict)].append(trace)
@@ -626,10 +623,13 @@ def group_observed_verdicts(
             {
                 "verdict": verdict,
                 "independent_trace_count": len(members),
-                "trace_ids": sorted(trace.trace_id for trace in members),
+                "trace_ids": sorted(trace.features.trace_id for trace in members),
                 "total_known_cost": sum(known_costs) if known_costs else None,
                 "representatives": [
-                    {"trace_id": trace.trace_id, "source_pointer": dict(trace.source_pointer)}
+                    {
+                        "trace_id": trace.features.trace_id,
+                        "source_pointer": dict(trace.features.source_pointer),
+                    }
                     for trace in representatives
                 ],
             }
@@ -725,7 +725,7 @@ def build_evidence_digest(
 ) -> str:
     """Build the compact Stage-6 packet read by the separate Analyst LLM."""
 
-    prepared_by_id = {item.trace.trace_id: item for item in prepared}
+    prepared_by_id = {item.features.trace_id: item for item in prepared}
     ranked = sorted(
         (item for item in anomalies if item["is_anomaly"]),
         key=lambda item: float(item["anomaly_score"]),
@@ -746,7 +746,7 @@ def build_evidence_digest(
         "## Inventory",
         "",
         f"- Complete traces: {len(prepared):,}",
-        f"- Ordered tool calls: {sum(len(item.trace.calls) for item in prepared):,}",
+        f"- Ordered tool calls: {sum(len(item.tool_names) for item in prepared):,}",
         f"- Isolation Forest flags: {flagged_total:,}",
         f"- Trajectory groups: {len((trajectory_groups or {}).get('clusters', [])):,}",
         f"- Observed-verdict groups: {len(verdict_groups):,}",
@@ -901,7 +901,7 @@ class AnomalyAndPatternsAnalysis(BaseModel):
 
 
 def run_anomaly_and_patterns(
-    traces: Sequence[NormalizedTrace],
+    traces: Iterable[NormalizedTrace],
     *,
     feature_names: Sequence[str] = DEFAULT_FEATURES,
     contamination: float = CONTAMINATION,
@@ -911,7 +911,12 @@ def run_anomaly_and_patterns(
 ) -> AnomalyAndPatternsAnalysis:
     """Execute Stages 3–6 and return every intermediate plus the cited digest."""
 
-    prepared, failure_events = prepare_traces(traces)
+    prepared = prepare_traces(traces)
+    verdict_groups = group_observed_verdicts(
+        prepared, minimum_independent_traces=minimum_independent_traces
+    )
+    prepared.sort(key=lambda item: item.features.trace_id)
+    failure_events = [dict(event) for item in prepared for event in item.failure_events]
     records = [item.features for item in prepared]
     anomalies = select_anomalies(
         records,
@@ -924,9 +929,6 @@ def run_anomaly_and_patterns(
         trajectory_groups = group_trajectories(records, cluster_candidates=cluster_candidates)
     else:
         trajectory_groups = None
-    verdict_groups = group_observed_verdicts(
-        traces, minimum_independent_traces=minimum_independent_traces
-    )
     failure_groups = group_failures(
         failure_events, minimum_independent_traces=minimum_independent_traces
     )
@@ -1177,7 +1179,7 @@ class AnomalyAndPatternsEvidenceStream:
             raise TypeError("anomaly-and-patterns requires AnomalyAndPatternsConfig")
 
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        traces = [to_anomaly_and_patterns_trace(trace) for trace in snapshot]
+        traces = (to_anomaly_and_patterns_trace(trace) for trace in snapshot)
         result = run_anomaly_and_patterns(
             traces,
             feature_names=self.config.feature_names or DEFAULT_FEATURES,

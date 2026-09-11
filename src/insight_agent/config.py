@@ -22,6 +22,7 @@ from insight_agent.evidence_streams.eval_failure_patterns import EvalFailurePatt
 from insight_agent.evidence_streams.tool_issues.stream import ToolIssueConfig
 from insight_agent.evidence_streams.user_dissatisfaction import UserDissatisfactionConfig
 from insight_agent.trace_loaders.intake import IntakeTraceLoaderConfig
+from insight_agent.trace_loaders.langfuse import validate_langfuse_time_window
 
 _CONFIG_MODEL_SETTINGS = SettingsConfigDict(
     extra="forbid",
@@ -74,6 +75,26 @@ class MLflowExportConfig(ConfigModel):
     path: Path
 
 
+class LangfuseExportConfig(ConfigModel):
+    """Settings owned by the native Langfuse v3 export loader."""
+
+    path: Path
+
+
+class LangfuseConfig(ConfigModel):
+    """Settings owned by the live Langfuse v3 trace loader."""
+
+    base_url: str | None = None
+    from_timestamp: datetime
+    to_timestamp: datetime
+    filter: str | None = None
+
+    @model_validator(mode="after")
+    def time_window_is_valid(self) -> LangfuseConfig:
+        validate_langfuse_time_window(self.from_timestamp, self.to_timestamp)
+        return self
+
+
 class LangSmithTraceSourceConfig(ConfigModel):
     """Settings owned by the LangSmith Trace Loader."""
 
@@ -122,6 +143,14 @@ class TraceConfig(ConfigModel):
         default=None,
         description="Bounded NeMo Platform Intake query",
     )
+    langfuse: LangfuseConfig | None = Field(
+        default=None,
+        description="Live Langfuse v3 trace loader",
+    )
+    langfuse_export: LangfuseExportConfig | None = Field(
+        default=None,
+        description="Native Langfuse v3 trace-detail export loader",
+    )
     langsmith: LangSmithTraceSourceConfig | None = Field(
         default=None,
         description="LangSmith Trace Loader",
@@ -140,6 +169,8 @@ class TraceConfig(ConfigModel):
                 self.mlflow_experiment,
                 self.mlflow_export,
                 self.intake,
+                self.langfuse,
+                self.langfuse_export,
                 self.langsmith,
                 self.langsmith_trace_export_file,
             )
@@ -213,8 +244,20 @@ class RunConfig(BaseSettings):
     evidence_streams: EvidenceStreamsConfig = Field(
         description="Evidence-stream selection and settings"
     )
+    code_base: Path | None = Field(
+        default=None,
+        description="Optional local codebase used to validate trace-derived problems",
+    )
 
     model: str | None = None
+    max_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Maximum output tokens per model response. "
+            "Set this when your model supports a smaller output limit."
+        ),
+    )
     api_base: str | None = None
     existing_insights: Path | None = Field(
         default=None,

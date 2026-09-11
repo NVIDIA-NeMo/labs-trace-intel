@@ -14,6 +14,7 @@ overrides:
   jinja2: BSD-3-Clause
   mlflow-skinny: Apache-2.0
   numpy: BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
+  packaging: Apache-2.0 OR BSD-2-Clause
   orjson: MPL-2.0 AND (Apache-2.0 OR MIT)
   pyasn1-modules: BSD-3-Clause
   python-dateutil: Apache-2.0
@@ -23,3 +24,4 @@ overrides:
   tokenizers: Apache-2.0
   tqdm: MIT AND MPL-2.0
   typing-extensions: PSF-2.0
+  wrapt: BSD-2-Clause

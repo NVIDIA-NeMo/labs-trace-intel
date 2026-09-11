@@ -112,7 +112,8 @@ class LangSmithTraceLoader:
     report: LangSmithTraceLoadReport = field(default_factory=LangSmithTraceLoadReport, init=False)
     _project_id: str | None = field(default=None, init=False, repr=False)
     _resolved_api_url: str | None = field(default=None, init=False, repr=False)
-    _last_snapshot: TraceSnapshot | None = field(default=None, init=False, repr=False)
+    _call_count: int = field(default=0, init=False, repr=False)
+    _logical_case_count: int = field(default=0, init=False, repr=False)
 
     def load(self) -> TraceSnapshot:
         """Fetch and normalize the configured LangSmith corpus."""
@@ -136,43 +137,47 @@ class LangSmithTraceLoader:
             root_query["limit"] = self.config.max_traces
         roots = list(islice(client.list_runs(**root_query), self.config.max_traces))
         selected = _selected_roots(roots)
-        grouped = self._hydrate_selected_runs(client, project_id, selected)
-
-        normalized: list[tuple[tuple[datetime, str], Trace]] = []
         unresolved_parent_count = 0
-        for trace_id, root in selected.items():
-            runs = grouped.get(trace_id)
-            if runs is None:
-                raise LangSmithTraceLoadError(
-                    f"LangSmith did not return Runs for selected trace {trace_id!r}"
-                )
-            trace, unresolved = normalize_trace(
-                trace_id,
-                root,
-                runs,
-                source_pointer={
-                    "provider": "langsmith",
-                    "api_url": api_url,
-                    "project_name": self.config.project_name,
-                    "project_id": project_id,
-                },
-                langsmith_attributes={
-                    "project_name": self.config.project_name,
-                    "project_id": project_id,
-                },
-            )
-            normalized.append((trace_sort_key(root, trace_id), trace))
-            unresolved_parent_count += unresolved
+        run_count = 0
+        call_count = 0
+        logical_cases: set[str] = set()
 
-        traces = [trace for _, trace in sorted(normalized, key=lambda item: item[0])]
-        snapshot = TraceSnapshot(traces)
+        def traces() -> Iterator[Trace]:
+            nonlocal unresolved_parent_count, run_count, call_count
+            for trace_id, runs in self._hydrate_selected_runs(client, project_id, selected):
+                trace, unresolved = normalize_trace(
+                    trace_id,
+                    selected[trace_id],
+                    runs,
+                    source_pointer={
+                        "provider": "langsmith",
+                        "api_url": api_url,
+                        "project_name": self.config.project_name,
+                        "project_id": project_id,
+                    },
+                    langsmith_attributes={
+                        "project_name": self.config.project_name,
+                        "project_id": project_id,
+                    },
+                )
+                unresolved_parent_count += unresolved
+                run_count += len(runs)
+                call_count += sum(
+                    span.kind is SpanKind.TOOL for span in walk_spans(trace.root_spans)
+                )
+                logical_cases.add(str(trace.attributes.get("logical_case_id") or trace.id))
+                yield trace
+
+        snapshot = TraceSnapshot(traces())
+        snapshot.sort(lambda trace_id: trace_sort_key(selected[trace_id], trace_id))
 
         self._project_id = project_id
         self._resolved_api_url = api_url
-        self._last_snapshot = snapshot
+        self._call_count = call_count
+        self._logical_case_count = len(logical_cases)
         self.report = LangSmithTraceLoadReport(
             trace_count=snapshot.trace_count,
-            run_count=sum(len(runs) for runs in grouped.values()),
+            run_count=run_count,
             unresolved_parent_count=unresolved_parent_count,
         )
         return snapshot
@@ -182,11 +187,11 @@ class LangSmithTraceLoader:
         client: Client,
         project_id: str,
         selected: Mapping[str, Run],
-    ) -> dict[str, list[Run]]:
-        grouped: dict[str, list[Run]] = defaultdict(list)
+    ) -> Iterator[tuple[str, list[Run]]]:
         seen_run_ids: set[str] = set()
         trace_ids = list(selected)
         for batch in _batches(trace_ids, _HYDRATION_BATCH_SIZE):
+            grouped: dict[str, list[Run]] = defaultdict(list)
             runs = client.list_runs(
                 project_id=project_id,
                 trace_filter=_root_id_filter(batch),
@@ -198,31 +203,28 @@ class LangSmithTraceLoader:
                     raise LangSmithTraceLoadError(f"LangSmith returned duplicate Run id {run_id!r}")
                 seen_run_ids.add(run_id)
                 trace_id = _run_trace_id(run, selected)
-                if trace_id not in selected:
+                if trace_id not in batch:
                     raise LangSmithTraceLoadError(
                         f"LangSmith returned Run {run_id!r} for unselected trace {trace_id!r}"
                     )
                 grouped[trace_id].append(run)
-        return dict(grouped)
+            for trace_id in batch:
+                if trace_id not in grouped:
+                    raise LangSmithTraceLoadError(
+                        f"LangSmith did not return Runs for selected trace {trace_id!r}"
+                    )
+                yield trace_id, grouped.pop(trace_id)
 
     def describe(self) -> LangSmithTraceDescription:
         """Describe the normalized corpus and its LangSmith coordinates."""
 
-        snapshot = self._last_snapshot
-        traces = tuple(snapshot) if snapshot is not None else ()
         api_url = self._resolved_api_url or self.config.api_url or "<configured>"
         project_id = self._project_id or "<unresolved>"
         return {
             "source": _source_label(api_url, project_id),
             "trace_count": self.report.trace_count,
-            "call_count": sum(
-                span.kind is SpanKind.TOOL
-                for trace in traces
-                for span in walk_spans(trace.root_spans)
-            ),
-            "distinct_logical_cases": len(
-                {str(trace.attributes.get("logical_case_id") or trace.id) for trace in traces}
-            ),
+            "call_count": self._call_count,
+            "distinct_logical_cases": self._logical_case_count,
             "run_count": self.report.run_count,
             "unresolved_parent_count": self.report.unresolved_parent_count,
             "project_name": self.config.project_name,

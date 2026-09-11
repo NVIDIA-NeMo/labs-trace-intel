@@ -6,7 +6,7 @@
 Two things in the engine outputs are not natively serialisable:
 
 * ``run_anomaly_and_patterns`` returns ``PreparedTrace`` dataclasses under ``"prepared"``, which
-  carry the whole input trace back out again.
+  carry extracted features and evidence.
 * The tool-issue stream's ``MISSING`` sentinel is a bare ``object()``. It should never reach
   ``json.dumps``, and if it somehow does we want ``"<missing>"`` in the output
   rather than a crash three hours into a batch run.

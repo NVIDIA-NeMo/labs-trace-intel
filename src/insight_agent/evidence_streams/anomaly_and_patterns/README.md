@@ -36,10 +36,10 @@ remains available in `AnomalyAndPatternsArtifacts`.
 ## Run it
 
 ```bash
-uv run insight-agent --config analyst.yaml
+uv run insight-agent --config trace-analyst-config.yaml
 ```
 
-Include `evidence_streams.anomaly_and_patterns` in `analyst.yaml` and omit the
+Include `evidence_streams.anomaly_and_patterns` in `trace-analyst-config.yaml` and omit the
 other stream keys for an anomaly-only run.
 
 The CLI writes `out/anomaly_and_patterns/digest.md`, extracted features, anomalies, trajectory and verdict groups,
