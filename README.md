@@ -73,6 +73,12 @@ uv run insight-agent --config examples/trace-analyst-config.yaml
 The command prints the complete Insight collection as YAML and writes it to
 `insights.yml`. Insight compilation requires an API key.
 
+### Reading the output
+
+Each Insight contains a name, description, and the trace references that support it. Progress is
+written to stderr so stdout remains machine-readable and can be redirected; the same final YAML is
+also saved to `output_path` (by default, `insights.yml`).
+
 The architecture is intentionally small:
 
 ```text
@@ -108,17 +114,11 @@ and [tool-issue](src/insight_agent/evidence_streams/tool_issues/README.md) packa
 their own configuration, analysis, and outputs. The canonical input format is documented with
 the public [`Trace` model](src/insight_agent/traces.py).
 
-### Reading the output
-
-The CLI prints and writes a YAML list of final Insights. Each Insight contains
-a name, description, and the trace references that support it.
-
 ## Analyze your own traces
 
 Trace Analyst can read live projects or native exports from LangSmith, Langfuse, and MLflow. Every
 source is normalized before the same evidence streams run. Choose one integration below. Each YAML
-snippet is a complete `trace-analyst-config.yaml` file;
-replace the example project, endpoint, and time range with your own values.
+snippet is a complete `trace-analyst-config.yaml` file.
 
 ### LangSmith
 
@@ -128,6 +128,7 @@ export LANGSMITH_API_KEY=<langsmith-api-key>
 ```
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
   max_traces: 100
   langsmith:
@@ -152,13 +153,14 @@ native exports, and supported versions.
 uv sync --locked --extra langfuse
 export LANGFUSE_PUBLIC_KEY=pk-lf-...
 export LANGFUSE_SECRET_KEY=sk-lf-...
-export LANGFUSE_BASE_URL=https://langfuse.example.com
 ```
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
   max_traces: 100
   langfuse:
+    base_url: https://langfuse.example.com
     from_timestamp: 2026-09-01T00:00:00Z
     to_timestamp: 2026-09-02T00:00:00Z
 evidence_streams:
@@ -178,7 +180,6 @@ exports, tool catalogs, and the currently supported v3 server and SDK versions.
 
 ```bash
 uv sync --locked --extra mlflow
-export MLFLOW_TRACKING_URI=https://mlflow.example.com
 # Optional HTTP Basic authentication:
 # export MLFLOW_TRACKING_USERNAME=<username>
 # export MLFLOW_TRACKING_PASSWORD=<password>
@@ -187,10 +188,12 @@ export MLFLOW_TRACKING_URI=https://mlflow.example.com
 ```
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
   max_traces: 100
   mlflow_experiment:
     experiment: my-agent
+    tracking_uri: https://mlflow.example.com
 evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
@@ -206,29 +209,27 @@ pagination limits, and native exports.
 ### Other platforms
 
 Other trace platforms can be analyzed after an adapter maps their data to the public
-[`Trace`](src/insight_agent/traces.py) model. Trace Analyst does not currently export its normalized
-snapshot, so this JSONL is produced by the adapter itself, with one complete trace per line. A
-minimal record looks like this:
+[`Trace`](src/insight_agent/traces.py) model.
 
-```json
-{"id":"trace-1","root_spans":[{"id":"span-1","kind":"LLM","input":{"prompt":"Hello"},"output":{"response":"Hi"}}],"aggregate":{}}
+```yaml
+# trace-analyst-config.yaml
+trace:
+  filesystem:
+    path: traces.jsonl
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
 Run Trace Analyst on the resulting file:
 
 ```bash
 uv sync --locked
-uv run --no-sync insight-agent \
-  --trace.filesystem.path traces.jsonl \
-  --evidence-streams.anomaly-and-patterns '{}' \
-  --evidence-streams.tool-issues '{}'
+uv run --no-sync insight-agent --config trace-analyst-config.yaml
 ```
 
 If your source is not supported, the repository includes a
 [trace-loader skill](.claude/skills/trace-loader/SKILL.md) for implementing another adapter.
-
-Progress is written to stderr while the final YAML is printed to stdout and saved to
-`output_path` (by default, `insights.yml`).
 
 ## Development
 
