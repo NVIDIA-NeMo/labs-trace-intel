@@ -7,6 +7,10 @@ Trace Analyst can be configured with YAML, generated CLI options, or a
 combination of both. A YAML file is optional, but every run must select exactly
 one trace source and at least one evidence stream.
 
+This guide expands on the [README quickstart](../README.md#run-trace-analyst-on-example-traces)
+with source options, export formats, evidence-stream selection, and run overrides.
+Set up [inference credentials](#credentials) before running any example.
+
 Use YAML for reusable, non-secret run settings. Explicit CLI options override
 individual YAML fields for one run. Environment variables provide credentials
 and provider defaults without putting secrets in YAML or shell history.
@@ -67,76 +71,6 @@ trace:
 No platform extra or credentials are required. Records must follow the public
 [`Trace` model](../src/insight_agent/traces.py), not a platform's native export schema.
 The filesystem loader reads the whole file and does not support `trace.max_traces`.
-
-### Intake
-
-#### Setup
-
-Intake uses the base installation; no platform extra is required:
-
-```bash
-uv sync --locked
-```
-
-| Variable | Purpose | YAML/CLI equivalent |
-| --- | --- | --- |
-| `NMP_ACCESS_TOKEN` | Optional bearer authentication for authenticated deployments | None; credentials stay outside run configuration |
-
-For an authenticated deployment, export the token before running. With the NeMo Platform
-CLI installed:
-
-```bash
-nemo auth login --base-url https://platform.example.com
-export NMP_ACCESS_TOKEN="$(nemo auth token)"
-```
-
-#### Live query
-
-Select a bounded NeMo Platform Intake query using the shared trace limit:
-
-```yaml
-trace:
-  max_traces: 500
-  intake:
-    base_url: https://platform.example.com
-    workspace: example-workspace
-    # page_size: 100
-    # timeout_seconds: 30.0
-    query:
-      started_at_gte: 2026-08-28T00:00:00Z
-      started_at_lte: 2026-08-29T00:00:00Z
-      sort: -started_at
-      # agent_name: customer-support-agent
-      # evaluation_name: support-evaluation
-      # test_case_name: refund-request
-      # session_id: my-session
-      # status: error
-```
-
-Use `--trace.max-traces` to override the shared limit from the CLI. An explicit
-shared limit takes precedence over `trace.intake.query.max_traces`.
-Both time bounds are required, inclusive, and must include a timezone. `sort` defaults to
-`started_at` (oldest first); use `-started_at` for newest first. Optional query fields narrow
-the selection by agent, evaluation, test case, session, or status (`success`, `error`,
-`cancelled`, or `unknown`). Without either trace limit, all matching traces in the window are loaded.
-
-`page_size` controls API pagination (1–1,000, default 100), not the final trace count.
-`timeout_seconds` is a positive HTTP timeout, defaulting to 30 seconds. Endpoint and workspace
-are required YAML settings with corresponding `--trace.intake.base-url` and
-`--trace.intake.workspace` overrides; they do not have environment-variable fallbacks.
-
-#### Native exports
-
-Intake supports live queries only; there is no native-export loader. The loader returns an
-in-memory `TraceSnapshot` and does not write snapshot or manifest files. To analyze a local
-file, first convert it to canonical `Trace` JSONL and use the [filesystem loader](#filesystem).
-
-#### Analysis and limitations
-
-The loader fetches evaluator results for the selected sessions and attaches only
-results targeting spans in each trace. Select `eval_failure_patterns: {}` under
-`evidence_streams` to use those results in analysis. It uses the same model and
-credentials as Insight compilation.
 
 ### LangSmith
 
@@ -412,6 +346,76 @@ The `mlflow` extra supports MLflow SDK versions `>=3.6,<4`; native exports must 
 by the installed SDK. This is an SDK constraint, not a guarantee of compatibility with every
 tracking-server version.
 
+### Intake
+
+#### Setup
+
+Intake uses the base installation; no platform extra is required:
+
+```bash
+uv sync --locked
+```
+
+| Variable | Purpose | YAML/CLI equivalent |
+| --- | --- | --- |
+| `NMP_ACCESS_TOKEN` | Optional bearer authentication for authenticated deployments | None; credentials stay outside run configuration |
+
+For an authenticated deployment, export the token before running. With the NeMo Platform
+CLI installed:
+
+```bash
+nemo auth login --base-url https://platform.example.com
+export NMP_ACCESS_TOKEN="$(nemo auth token)"
+```
+
+#### Live query
+
+Select a bounded NeMo Platform Intake query using the shared trace limit:
+
+```yaml
+trace:
+  max_traces: 500
+  intake:
+    base_url: https://platform.example.com
+    workspace: example-workspace
+    # page_size: 100
+    # timeout_seconds: 30.0
+    query:
+      started_at_gte: 2026-08-28T00:00:00Z
+      started_at_lte: 2026-08-29T00:00:00Z
+      sort: -started_at
+      # agent_name: customer-support-agent
+      # evaluation_name: support-evaluation
+      # test_case_name: refund-request
+      # session_id: my-session
+      # status: error
+```
+
+Use `--trace.max-traces` to override the shared limit from the CLI. An explicit
+shared limit takes precedence over `trace.intake.query.max_traces`.
+Both time bounds are required, inclusive, and must include a timezone. `sort` defaults to
+`started_at` (oldest first); use `-started_at` for newest first. Optional query fields narrow
+the selection by agent, evaluation, test case, session, or status (`success`, `error`,
+`cancelled`, or `unknown`). Without either trace limit, all matching traces in the window are loaded.
+
+`page_size` controls API pagination (1–1,000, default 100), not the final trace count.
+`timeout_seconds` is a positive HTTP timeout, defaulting to 30 seconds. Endpoint and workspace
+are required YAML settings with corresponding `--trace.intake.base-url` and
+`--trace.intake.workspace` overrides; they do not have environment-variable fallbacks.
+
+#### Native exports
+
+Intake supports live queries only; there is no native-export loader. The loader returns an
+in-memory `TraceSnapshot` and does not write snapshot or manifest files. To analyze a local
+file, first convert it to canonical `Trace` JSONL and use the [filesystem loader](#filesystem).
+
+#### Analysis and limitations
+
+The loader fetches evaluator results for the selected sessions and attaches only
+results targeting spans in each trace. Select `eval_failure_patterns: {}` under
+`evidence_streams` to use those results in analysis. It uses the same model and
+credentials as Insight compilation.
+
 ## Evidence streams
 
 The presence of a stream selects it for the run. Omit a stream when it should
@@ -501,8 +505,8 @@ the next run.
 ## Credentials
 
 Insight compilation requires an API key for the inference provider that runs
-the final LLM step. Set that credential as `INSIGHT_AGENT_API_KEY`; it is not a
-LangSmith credential. The exact provider is selected by `INSIGHT_AGENT_MODEL`,
+the final LLM step. Set that credential as `INSIGHT_AGENT_API_KEY`; it is separate from
+LangSmith, Langfuse, MLflow, or Intake credentials. The exact provider is selected by `INSIGHT_AGENT_MODEL`,
 so the value might be an OpenAI, Anthropic, or gateway key. The CLI also
 recognizes the provider-standard `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`
 fallbacks. Model and OpenAI-compatible endpoint settings can come from

@@ -3,45 +3,30 @@
 
 # Trace Analyst Research Preview
 
-The NVIDIA team has been working on agent-driven trace analysis techniques. 
+Trace Analyst analyzes agent execution traces to find recurring, actionable problems,
+then produces YAML insights with supporting trace references. It reads live traces or native
+exports from LangSmith, Langfuse, and MLflow, live NeMo Platform Intake traces, and canonical JSONL.
 
-An early version of that work has shipped open source and is available here as a "research preview": [Open Source Repo](https://github.com/NVIDIA-NeMo/nemo-platform/blob/f57bb6ca64d84e505742e73f6234fd31e27e7a4a/plugins/nemo-insights/README.md) and [Documentation](https://docs.nvidia.com/nemo-platform/documentation/agents/optimize-agents/insight-driven-optimization).
+This research preview explores a more scalable approach than the
+[earlier implementation](https://github.com/NVIDIA-NeMo/nemo-platform/blob/f57bb6ca64d84e505742e73f6234fd31e27e7a4a/plugins/nemo-insights/README.md):
+preprocess the trace corpus to identify promising evidence, then use an LLM to investigate
+and synthesize findings. It is shared for collaboration, not production use or broad distribution.
 
-That implementation should be viewed as a steel thread to illustrate the architecture. In that example, Trace Analyst's job is to conduct trace analysis to turn usage data from traces into high-signal insights that can drive downstream optimization.
+## What it can find
 
-## Where we're going next
-That version of Trace Analyst is a relatively naive initial implementation. The agent is given a set of tools to explore traces and is tasked with coming up with insights for the agent under test. While it has proven to produce valuable results, it hits limits with large volumes of traces as its ability to explore the whole search space declines.
+Choose one or more evidence streams:
 
-Future iterations will aim to improve the scalability and reliability of the agent by adding diverse preprocessing steps across the whole trace corpus, providing a "roadmap" of sorts to guide Trace Analyst's exploration and more quickly zero in on the most significant traces.
+- **Anomalies and patterns:** unusual traces and recurring behavior across the corpus.
+- **Tool issues:** tool-calling problems detected by deterministic checks.
+- **Ethos divergence:** behavior that conflicts with a supplied business-purpose document.
+- **Evaluation failure patterns:** recurring behavior associated with recorded evaluation results.
 
-**This repo represents an early preview of the architecture we are exploring.** It's shared for collaboration purposes only and is not meant to be shared widely or to be used in a production environment. 
+The agent can also check candidate problems against your local codebase and reconcile findings
+with a previous Insight collection. It reports problems and supporting evidence; it does not
+modify your agent's code.
 
-## V2 Trace Analyst Architecture
-This version of Trace Analyst implements a series of preprocessing steps that we call "evidence streams".
-
-Current evidence streams:
-
-1) **Anomaly and Pattern Analysis** - Which traces are unusual, and which patterns recur?
-
-    A set of 11 features are extracted from each trace and the resulting feature vector feeds an Isolation Forest model which identifies statistical anomalies.
-
-    Traces are clustered based on TFIDF after structural metadata projection and error extraction. 
-
-2) **Tool Issue Detection** - Which tool use problems recur across the trace sample?
-
-    The tools in each trace are checked against a set of deterministic rules to detect specific tool calling issues. 
-
-3) **Ethos Divergence** - Where does observed agent behavior violate the business purpose and requirements in a supplied `ethos.md`?
-
-    An LLM checks the traces against the document. Select it with `--evidence-streams.ethos-divergence.ethos-path /path/to/ethos.md`.
-
-4) **Evaluation Failure Patterns** - What recurring behavior is linked to recorded evaluation results?
-
-    Adapters must populate `Trace.evaluator_results`; the LLM does not discover evaluation fields.
-
-After the evidence streams run, each returns candidate `Problem` objects with a description and supporting trace IDs. Those Problems are passed to Trace Analyst to guide its analysis. Trace Analyst can also look up normalized supporting traces from the same snapshot and uses that evidence as a starting point for more detailed exploration and synthesis.
-
-Trace Analyst ultimately produces a set of "insights" which are meant to describe a recurring and actionable problem observed from the trace corpus.
+See [run configuration](docs/configuration.md) for stream selection and optional settings,
+or [architecture](docs/architecture.md) for the pipeline design.
 
 ## Run Trace Analyst on Example Traces
 This repo includes example traces derived from the
@@ -78,11 +63,8 @@ The command prints the complete Insight collection as YAML and writes it to
 The CLI prints and writes a YAML list of final Insights. Each Insight contains
 a name, description, and the trace references that support it.
 
-The architecture is intentionally small:
-
-```text
-TraceLoader -> TraceSnapshot -> EvidenceStream(s) -> optional code validation -> InsightsGeneration -> Insights
-```
+Progress is written to stderr while the final YAML is printed to stdout and saved to
+`output_path` (by default, `insights.yml`).
 
 ### Reusable run configuration
 
@@ -91,34 +73,14 @@ output path, and non-secret model settings from YAML. YAML is optional, and
 explicit CLI options override individual file values. See
 [run configuration](docs/configuration.md) for the full schema and examples.
 
-### Code layout
-
-```text
-src/insight_agent/
-├── traces.py             # normalized Trace, Span, and TraceSnapshot contracts
-├── trace_loaders/        # loader contracts and source-specific trace loaders
-├── evidence_streams/     # evidence-stream contracts and implementations
-│   ├── anomaly_and_patterns/  # anomaly-and-pattern stream implementation
-│   ├── tool_issues/           # tool-issue stream implementation and coverage helper
-│   └── eval_failure_patterns.py  # LLM review of evaluation-linked failures
-├── insights_generation/  # LLM-backed synthesis and its configuration
-└── cli/                  # command orchestration and final YAML output
-```
-
-`traces.py` is intentionally the only shared domain module at package top level. The other
-implementation modules live with the stage or interface that owns them.
-
-The [anomaly-and-pattern](src/insight_agent/evidence_streams/anomaly_and_patterns/README.md)
-and [tool-issue](src/insight_agent/evidence_streams/tool_issues/README.md) packages document
-their own configuration, analysis, and outputs. The canonical input format is documented with
-the public [`Trace` model](src/insight_agent/traces.py).
-
 ## Analyze your own traces
 
 Trace Analyst can read live projects or native exports from LangSmith, Langfuse, and MLflow,
 and live traces from NeMo Platform Intake. Every
 source is normalized before the same evidence streams run. Choose one integration below. Each YAML
-snippet is a complete `trace-analyst-config.yaml` file.
+snippet is a complete `trace-analyst-config.yaml` file. Set up inference as described above,
+then choose your endpoint, project, and a time window containing your traces where applicable.
+Platform credentials are separate from the inference API key.
 
 ### LangSmith
 
@@ -281,9 +243,6 @@ uv run --no-sync insight-agent --config trace-analyst-config.yaml
 
 If your source is not supported, the repository includes a
 [trace-loader skill](.claude/skills/trace-loader/SKILL.md) for implementing another adapter.
-
-Progress is written to stderr while the final YAML is printed to stdout and saved to
-`output_path` (by default, `insights.yml`).
 
 ## Development
 
