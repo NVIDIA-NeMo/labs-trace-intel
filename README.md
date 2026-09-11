@@ -151,8 +151,9 @@ evidence_streams:
 uv run --no-sync insight-agent --config trace-analyst-config.yaml
 ```
 
-See [LangSmith configuration](docs/configuration.md#langsmith) for filters, workspace selection,
-native exports, and supported versions.
+Trace Analyst also reads complete trace exports from the LangSmith CLI using
+`langsmith_trace_export_file`. See the detailed [LangSmith configuration docs](docs/configuration.md#langsmith)
+for export instructions, filters, workspace selection, and supported versions.
 
 ### Langfuse
 
@@ -186,9 +187,10 @@ evidence_streams:
 uv run --no-sync insight-agent --config trace-analyst-config.yaml
 ```
 
-Langfuse API keys identify the project, so no project name is needed. See
-[Langfuse configuration](docs/configuration.md#langfuse) for advanced filters, complete native
-exports, tool catalogs, and the currently supported v3 server and SDK versions.
+Langfuse API keys identify the project, so no project name is needed. Trace Analyst also reads
+complete traces saved from the Langfuse CLI, including their observations, using `langfuse_export`.
+See the detailed [Langfuse configuration docs](docs/configuration.md#langfuse) for supported export
+formats, advanced filters, tool catalogs, and supported v3 server and SDK versions.
 
 ### MLflow
 
@@ -223,8 +225,9 @@ evidence_streams:
 uv run --no-sync insight-agent --config trace-analyst-config.yaml
 ```
 
-See [MLflow configuration](docs/configuration.md#mlflow) for authentication, search filters,
-pagination limits, and native exports.
+Trace Analyst also reads complete trace exports from the MLflow CLI using `mlflow_export`.
+See the detailed [MLflow configuration docs](docs/configuration.md#mlflow) for export instructions,
+authentication, search filters, and pagination limits.
 
 ### NeMo Platform Intake
 
@@ -263,7 +266,7 @@ evidence_streams:
 uv run --no-sync insight-agent --config trace-analyst-config.yaml
 ```
 
-See [Intake configuration](docs/configuration.md#intake) for authentication and query details.
+See the detailed [Intake configuration docs](docs/configuration.md#intake) for authentication and query options.
 Intake supports live queries only; there is no native-export configuration.
 
 ### Other platforms
