@@ -75,9 +75,8 @@ The command prints the complete Insight collection as YAML and writes it to
 
 ### Reading the output
 
-Each Insight contains a name, description, and the trace references that support it. Progress is
-written to stderr so stdout remains machine-readable and can be redirected; the same final YAML is
-also saved to `output_path` (by default, `insights.yml`).
+The CLI prints and writes a YAML list of final Insights. Each Insight contains
+a name, description, and the trace references that support it.
 
 The architecture is intentionally small:
 
@@ -230,6 +229,9 @@ uv run --no-sync insight-agent --config trace-analyst-config.yaml
 
 If your source is not supported, the repository includes a
 [trace-loader skill](.claude/skills/trace-loader/SKILL.md) for implementing another adapter.
+
+Progress is written to stderr while the final YAML is printed to stdout and saved to
+`output_path` (by default, `insights.yml`).
 
 ## Development
 
