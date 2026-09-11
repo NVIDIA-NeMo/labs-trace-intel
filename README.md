@@ -49,7 +49,18 @@ This repo includes example traces derived from the
 License. The complete Tau Bench license is preserved in
 [`third_party/tau-bench-LICENSE.txt`](third_party/tau-bench-LICENSE.txt).
 
-First follow the .env.example to configure some keys for the LLM bits. 
+Configure inference before the first run. Copy the environment template, then set
+`INSIGHT_AGENT_API_KEY` for the selected model provider:
+
+```bash
+cp .env.example .env
+```
+
+If you use an OpenAI-compatible gateway, also set `INSIGHT_AGENT_MODEL` and
+`INSIGHT_AGENT_API_BASE` in `.env`. The API base commonly ends in `/v1`, but this is
+provider-specific: use the base URL documented by your inference provider rather than guessing the
+suffix or supplying the full `/chat/completions` endpoint. Direct providers such as OpenAI or
+Anthropic normally do not need `INSIGHT_AGENT_API_BASE`.
 
 Then run the Analyst:
 

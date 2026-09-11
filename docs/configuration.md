@@ -414,5 +414,10 @@ fallbacks. Model and OpenAI-compatible endpoint settings can come from
 `INSIGHT_AGENT_MODEL` and `INSIGHT_AGENT_API_BASE`, or from the non-secret
 `model` and `api_base` configuration fields.
 
+Leave the API base unset when the selected provider uses its default endpoint. For a custom or
+OpenAI-compatible gateway, use the API base documented by that provider. It commonly ends in
+`/v1`, but that suffix is provider-specific; do not guess it or append a resource URL such as
+`/chat/completions` unless the provider explicitly documents that as its API base.
+
 The CLI loads an optional local `.env` file. Keep credentials out of YAML and
 source control.
