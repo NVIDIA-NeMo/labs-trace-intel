@@ -45,7 +45,14 @@ uv run insight-agent --config trace-analyst-config.yaml
 
 ## Trace sources
 
-Select exactly one trace loader.
+Select exactly one trace loader. The snippets below show the `trace` portion of a run
+configuration; keep `evidence_streams` and any shared settings from the complete example above.
+For standalone configurations, see the [README examples](../README.md#analyze-your-own-traces).
+
+Install the appropriate extra before using a platform loader, including its native-export loader.
+Credentials below are for live platform access; offline loading does not need platform credentials,
+but Insight compilation still needs [inference credentials](#credentials).
+Relative input and export paths resolve from the directory where `insight-agent` is run.
 
 ### Filesystem
 
@@ -57,7 +64,33 @@ trace:
     path: traces.jsonl
 ```
 
+No platform extra or credentials are required. Records must follow the public
+[`Trace` model](../src/insight_agent/traces.py), not a platform's native export schema.
+The filesystem loader reads the whole file and does not support `trace.max_traces`.
+
 ### Intake
+
+#### Setup
+
+Intake uses the base installation; no platform extra is required:
+
+```bash
+uv sync --locked
+```
+
+| Variable | Purpose | YAML/CLI equivalent |
+| --- | --- | --- |
+| `NMP_ACCESS_TOKEN` | Optional bearer authentication for authenticated deployments | None; credentials stay outside run configuration |
+
+For an authenticated deployment, export the token before running. With the NeMo Platform
+CLI installed:
+
+```bash
+nemo auth login --base-url https://platform.example.com
+export NMP_ACCESS_TOKEN="$(nemo auth token)"
+```
+
+#### Live query
 
 Select a bounded NeMo Platform Intake query using the shared trace limit:
 
@@ -67,21 +100,38 @@ trace:
   intake:
     base_url: https://platform.example.com
     workspace: example-workspace
+    # page_size: 100
+    # timeout_seconds: 30.0
     query:
       started_at_gte: 2026-08-28T00:00:00Z
       started_at_lte: 2026-08-29T00:00:00Z
       sort: -started_at
+      # agent_name: customer-support-agent
+      # evaluation_name: support-evaluation
+      # test_case_name: refund-request
+      # session_id: my-session
+      # status: error
 ```
 
 Use `--trace.max-traces` to override the shared limit from the CLI. An explicit
 shared limit takes precedence over `trace.intake.query.max_traces`.
-The loader returns an in-memory `TraceSnapshot`; it does not write snapshot or
-manifest files.
+Both time bounds are required, inclusive, and must include a timezone. `sort` defaults to
+`started_at` (oldest first); use `-started_at` for newest first. Optional query fields narrow
+the selection by agent, evaluation, test case, session, or status (`success`, `error`,
+`cancelled`, or `unknown`). Without either trace limit, all matching traces in the window are loaded.
 
-Intake reads optional bearer authentication from `NMP_ACCESS_TOKEN`. For an
-authenticated deployment, export the token before running; with the NeMo Platform
-CLI installed, use `nemo auth login --base-url https://platform.example.com` and
-`export NMP_ACCESS_TOKEN="$(nemo auth token)"`.
+`page_size` controls API pagination (1–1,000, default 100), not the final trace count.
+`timeout_seconds` is a positive HTTP timeout, defaulting to 30 seconds. Endpoint and workspace
+are required YAML settings with corresponding `--trace.intake.base-url` and
+`--trace.intake.workspace` overrides; they do not have environment-variable fallbacks.
+
+#### Native exports
+
+Intake supports live queries only; there is no native-export loader. The loader returns an
+in-memory `TraceSnapshot` and does not write snapshot or manifest files. To analyze a local
+file, first convert it to canonical `Trace` JSONL and use the [filesystem loader](#filesystem).
+
+#### Analysis and limitations
 
 The loader fetches evaluator results for the selected sessions and attaches only
 results targeting spans in each trace. Select `eval_failure_patterns: {}` under
@@ -89,6 +139,13 @@ results targeting spans in each trace. Select `eval_failure_patterns: {}` under
 credentials as Insight compilation.
 
 ### LangSmith
+
+#### Setup
+
+```bash
+uv sync --locked --extra langsmith
+export LANGSMITH_API_KEY=<langsmith-api-key>
+```
 
 #### Live project
 
@@ -99,6 +156,7 @@ trace:
   max_traces: 100
   langsmith:
     project: customer-support-agent
+    api_url: https://api.smith.langchain.com
     start_time: 2026-09-01T00:00:00Z
     filter: 'eq(status, "error")'
     tree_filter: 'eq(run_type, "tool")'
@@ -128,7 +186,8 @@ The LangSmith SDK reads these environment variables:
 
 An explicit `api_url` CLI value overrides YAML, which overrides `LANGSMITH_ENDPOINT` or the SDK
 profile. Project names, filters, time windows, and limits are run settings rather than credentials.
-The loader defaults to 100 complete traces.
+The loader defaults to 100 complete traces. `start_time`, when set, must include a timezone;
+omit it to query without a lower time bound. The limit counts complete traces, not individual Runs.
 
 #### Native exports
 
@@ -151,13 +210,25 @@ trace:
 ```
 
 The loader reads all immediate `.jsonl` files in a directory, validates the complete export, and
-then applies `max_traces`. Both live and export sources support `eval_failure_patterns` using
-recorded feedback aggregates from root and child Runs.
+then applies `max_traces`. Use `--full` when exporting to include child Runs, not just root summaries.
+
+#### Analysis and limitations
+
+Both live and export sources support `eval_failure_patterns` using recorded feedback aggregates
+from root and child Runs.
 
 The live loader supports the v1 query API as tested against self-hosted LangSmith 0.15. It does not
 yet support the SmithDB-backed v2 query API.
 
 ### Langfuse
+
+#### Setup
+
+```bash
+uv sync --locked --extra langfuse
+export LANGFUSE_PUBLIC_KEY=pk-lf-...
+export LANGFUSE_SECRET_KEY=sk-lf-...
+```
 
 #### Live project
 
@@ -168,13 +239,12 @@ is exclusive:
 trace:
   max_traces: 100
   langfuse:
+    base_url: https://langfuse.example.com
     from_timestamp: 2026-08-01T00:00:00Z
     to_timestamp: 2026-08-02T00:00:00Z
     # Optional Langfuse advanced filter, encoded as a JSON array.
     filter: >-
       [{"type":"string","column":"environment","operator":"=","value":"production"}]
-    # Optional; takes precedence over LANGFUSE_BASE_URL.
-    # base_url: https://langfuse.example.com
 ```
 
 Langfuse API keys identify the project, so there is no project field:
@@ -187,7 +257,7 @@ Langfuse API keys identify the project, so there is no project field:
 
 The loader reads these variables from the shell or `.env`. A configured `base_url` overrides the
 environment. The loader pages through matching summaries and fetches each selected trace with its
-complete observation tree, so `max_traces` never splits a trace.
+complete observation tree, so `max_traces` never splits a trace. The default limit is 100 traces.
 
 `filter` accepts Langfuse's JSON-encoded advanced filter conditions for trace fields such as
 environment, name, session, tags, metadata, cost, and error counts. The loader combines the filter
@@ -237,7 +307,7 @@ with open("langfuse-traces.jsonl", "x", encoding="utf-8") as output:
 PY
 ```
 
-Analyze the export without Langfuse credentials or network access:
+Analyze the export without Langfuse credentials or requests to Langfuse:
 
 ```yaml
 trace:
@@ -250,6 +320,11 @@ The loader also accepts raw v3 `GET /api/public/traces/{id}` bodies, Langfuse CL
 envelopes, or a directory of immediate `.json` and `.jsonl` files. It validates every record before
 selecting the newest `max_traces` traces and rejects duplicate IDs or incomplete observation trees.
 
+#### Analysis and limitations
+
+Both live and export sources preserve recorded scores as evaluator results for
+`eval_failure_patterns`, including repeated scores and their observation associations.
+
 For catalog-aware tool checks, record definitions in `input.tools` on `GENERATION` observations.
 All explicit generation catalogs must agree; missing or conflicting catalogs make schema-dependent
 rules abstain. A root `AGENT` catalog is a compatibility fallback only when a trace has no generation
@@ -259,6 +334,17 @@ This research-preview adapter is validated against self-hosted Langfuse 3.205.1 
 It supports the v3 API contract only, not Langfuse v4.
 
 ### MLflow
+
+#### Setup
+
+```bash
+uv sync --locked --extra mlflow
+# For HTTP Basic authentication:
+# export MLFLOW_TRACKING_USERNAME=<username>
+# export MLFLOW_TRACKING_PASSWORD=<password>
+# Or bearer authentication:
+# export MLFLOW_TRACKING_TOKEN=<token>
+```
 
 #### Live experiment
 
@@ -315,7 +401,16 @@ metadata-only results are rejected. Export-time selection is authoritative: the 
 apply filters or follow continuation tokens, and it validates the complete file before applying
 `max_traces`.
 
-Relative export paths resolve from the directory where `insight-agent` is run.
+#### Analysis and limitations
+
+Both live and export sources preserve valid, named assessments as evaluator results for
+`eval_failure_patterns`. Duplicate active assessment names are rejected rather than silently
+choosing one. Include the full span tree when exporting so tool and structural checks have
+the same data available as a live query.
+
+The `mlflow` extra supports MLflow SDK versions `>=3.6,<4`; native exports must be readable
+by the installed SDK. This is an SDK constraint, not a guarantee of compatibility with every
+tracking-server version.
 
 ## Evidence streams
 
