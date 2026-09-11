@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# Trace Analyst example configuration
+# Analyzes the bundled Tau Bench traces. Run from the repository root:
+# uv run insight-agent --config examples/trace-analyst-config.yaml
+
 trace:
   filesystem:
     path: examples/tau_bench_traces.jsonl
