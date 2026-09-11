@@ -138,10 +138,6 @@ trace:
     # filter: 'eq(status, "error")'
     # tree_filter: 'eq(run_type, "tool")'
 
-  # For a native export, comment out langsmith above and enable this instead.
-  # langsmith_trace_export_file:
-  #   path: exports/langsmith
-
 evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
@@ -173,10 +169,6 @@ trace:
     to_timestamp: 2026-09-02T00:00:00Z
     # filter: >-
     #   [{"type":"string","column":"environment","operator":"=","value":"production"}]
-
-  # For a native export, comment out langfuse above and enable this instead.
-  # langfuse_export:
-  #   path: exports/langfuse-traces.jsonl
 
 evidence_streams:
   anomaly_and_patterns: {}
@@ -211,10 +203,6 @@ trace:
     experiment: my-agent
     tracking_uri: https://mlflow.example.com
     # filter: "trace.status = 'ERROR'"
-
-  # For a native export, comment out mlflow_experiment above and enable this instead.
-  # mlflow_export:
-  #   path: exports/mlflow-traces.json
 
 evidence_streams:
   anomaly_and_patterns: {}
