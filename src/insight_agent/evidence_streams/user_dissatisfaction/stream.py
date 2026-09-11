@@ -18,8 +18,10 @@ from insight_agent.evidence_streams.issue_detector import IssueDetector
 from insight_agent.evidence_streams.user_dissatisfaction.classifier import (
     ComplaintClassifier,
     ScreeningResult,
-    load_classifier,
-    validate_classifier_dependencies,
+)
+from insight_agent.evidence_streams.user_embedding.embedding import (
+    UserEmbeddingGenerator,
+    validate_embedding_dependencies,
 )
 from insight_agent.traces import TraceSnapshot
 
@@ -113,18 +115,30 @@ class TraceScreeningResult(BaseModel):
         return any(r.label == "complaint" for r in self.message_results)
 
 
-def screen_message(text: str, classifier: ComplaintClassifier) -> ScreeningResult:
-    """Classify one user message without conversation context or aggregation."""
-    return classifier.classify(text)
+def screen_message(
+    text: str, embedding_generator: UserEmbeddingGenerator, classifier: ComplaintClassifier
+) -> ScreeningResult:
+    """Generate a reusable embedding, then classify it without conversation context."""
+    if not text[:20000].strip():
+        return ScreeningResult(label="no_user_messages")
+    try:
+        embedding = embedding_generator.generate(text)
+        return classifier.classify(embedding)
+    except Exception:
+        return ScreeningResult(label="no_complaint")
 
 
 def screen_user_messages(
-    user_messages: dict[str, list[str]], classifier: ComplaintClassifier
+    user_messages: dict[str, list[str]],
+    embedding_generator: UserEmbeddingGenerator,
+    classifier: ComplaintClassifier,
 ) -> dict[str, TraceScreeningResult]:
     """Classify every message separately; later turns cannot clear an earlier flag."""
     return {
         trace_id: TraceScreeningResult(
-            message_results=[screen_message(text, classifier) for text in messages]
+            message_results=[
+                screen_message(text, embedding_generator, classifier) for text in messages
+            ]
         )
         for trace_id, messages in user_messages.items()
     }
@@ -144,11 +158,15 @@ class UserDissatisfactionEvidenceStream:
         self.llm = llm
 
     def validate_configuration(self) -> None:
-        validate_classifier_dependencies()
+        validate_embedding_dependencies()
+
+    @cached_property
+    def embedding_generator(self) -> UserEmbeddingGenerator:
+        return UserEmbeddingGenerator(self.config.device)
 
     @cached_property
     def classifier(self) -> ComplaintClassifier:
-        return load_classifier(self.config.device)
+        return ComplaintClassifier(self.embedding_generator.projection)
 
     def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         async def run() -> EvidenceStreamResult:
@@ -166,7 +184,7 @@ class UserDissatisfactionEvidenceStream:
         if messages.keys() != snapshot.traces_by_id.keys():
             raise ValueError("User message extraction must cover exactly the supplied trace IDs")
         screening = (
-            screen_user_messages(messages, self.classifier)
+            screen_user_messages(messages, self.embedding_generator, self.classifier)
             if any(messages.values())
             else {trace_id: TraceScreeningResult() for trace_id in messages}
         )
@@ -198,7 +216,10 @@ class UserDissatisfactionEvidenceStream:
                     "traces_with_user_messages": sum(bool(value) for value in messages.values()),
                     "candidate_traces": len(candidates),
                 },
-                "classifier": self.classifier.projection.metadata
+                "classifier": {
+                    **self.embedding_generator.projection.metadata,
+                    **self.classifier.metadata,
+                }
                 if candidates or any(messages.values())
                 else None,
             },

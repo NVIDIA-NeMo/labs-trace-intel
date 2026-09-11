@@ -70,12 +70,20 @@ uv pip install './insight_agent-0.1.0rc1-py3-none-any.whl[dissatisfaction]'
 Use the classifier through its Python API:
 
 ```python
-from insight_agent.evidence_streams.user_dissatisfaction.classifier import load_classifier
+from insight_agent.evidence_streams.user_embedding.embedding import UserEmbeddingGenerator
+from insight_agent.evidence_streams.user_dissatisfaction.classifier import ComplaintClassifier
 
-classifier = load_classifier()
-result = classifier.classify("You ignored my instructions again.")
+generator = UserEmbeddingGenerator()
+classifier = ComplaintClassifier(generator.projection)
+embedding = generator.generate("You ignored my instructions again.")
+result = classifier.classify(embedding)
 print(result.model_dump_json(indent=2))
 ```
+
+Other detectors can reuse `embedding.data` (132 bytes) or call
+`generator.projection.decompress(embedding.data)` for its 256 reconstructed PCA features.
+The pinned encoder instruction and trained PCA remain complaint-oriented; reuse for
+other tasks needs separate quality validation.
 
 The first classification downloads the pinned Qwen3-Embedding-8B encoder weights
 (about 16 GB) from Hugging Face. Later runs reuse the Hugging Face cache. No inference
@@ -87,7 +95,7 @@ installed package's exact model revision:
 
 ```bash
 export HF_HOME="$PWD/model-cache"
-python -c 'from insight_agent.evidence_streams.user_dissatisfaction.projection import ComplaintProjection; from huggingface_hub import snapshot_download; e = ComplaintProjection().metadata["encoder"]; snapshot_download(e["model"], revision=e["revision"], allow_patterns=["*.json", "*.txt", "*.safetensors", "LICENSE", "README.md"])'
+python -c 'from insight_agent.evidence_streams.user_embedding.embedding import UserEmbeddingProjection; from huggingface_hub import snapshot_download; e = UserEmbeddingProjection().metadata["encoder"]; snapshot_download(e["model"], revision=e["revision"], allow_patterns=["*.json", "*.txt", "*.safetensors", "LICENSE", "README.md"])'
 ```
 
 Ship the entire `model-cache` directory with your application or container, preserving
