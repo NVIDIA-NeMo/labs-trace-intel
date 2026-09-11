@@ -13,14 +13,14 @@ from nooa import Agent
 from nooa.unifiedllm import UnifiedLLM
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, computed_field
 
-from insight_agent.complaints import (
+from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult
+from insight_agent.evidence_streams.issue_detector import IssueDetector
+from insight_agent.evidence_streams.user_dissatisfaction.complaints import (
     ComplaintClassifier,
     ScreeningResult,
     load_classifier,
     validate_classifier_dependencies,
 )
-from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult
-from insight_agent.evidence_streams.issue_detector import IssueDetector
 from insight_agent.traces import TraceSnapshot
 
 USER_DISSATISFACTION = """

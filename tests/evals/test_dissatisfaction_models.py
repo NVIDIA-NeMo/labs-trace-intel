@@ -20,7 +20,7 @@ import pytest
 from insight_agent.cli.main import _build_llm
 from insight_agent.config import RunConfig
 from insight_agent.evidence_streams.issue_detector import IssueDetector
-from insight_agent.evidence_streams.user_dissatisfaction import (
+from insight_agent.evidence_streams.user_dissatisfaction.stream import (
     USER_DISSATISFACTION,
     UserDissatisfactionConfig,
     load_classifier,
@@ -152,7 +152,7 @@ def test_ten_complaints_are_classified_and_grouped():
     not os.environ.get("INSIGHT_AGENT_EVAL_CLASSIFIER"), reason="Opt-in real-model evaluation"
 )
 def test_extraction_keeps_later_turns_and_original_event_bodies():
-    from insight_agent.evidence_streams.user_dissatisfaction import UserMessageExtractor
+    from insight_agent.evidence_streams.user_dissatisfaction.stream import UserMessageExtractor
 
     load_dotenv()
     api_key = resolve(ENV_API_KEY) or os.environ.get("INFERENCE_API_KEY")

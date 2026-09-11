@@ -70,7 +70,6 @@ dev = [
 
 [project.scripts]
 insight-agent = "insight_agent.cli.main:main"
-insight-classify = "insight_agent.cli.classify:main"
 
 [tool.uv]
 managed = true

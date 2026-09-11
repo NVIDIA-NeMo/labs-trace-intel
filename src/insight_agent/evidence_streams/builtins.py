@@ -26,7 +26,7 @@ from insight_agent.evidence_streams.tool_issues.stream import (
     ToolIssueConfig,
     ToolIssueEvidenceStream,
 )
-from insight_agent.evidence_streams.user_dissatisfaction import (
+from insight_agent.evidence_streams.user_dissatisfaction.stream import (
     UserDissatisfactionConfig,
     UserDissatisfactionEvidenceStream,
 )

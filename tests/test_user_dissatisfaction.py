@@ -8,11 +8,10 @@ from unittest.mock import MagicMock
 import pytest
 from nooa.unifiedllm import UnifiedLLM
 
-from insight_agent import complaints
 from insight_agent.cli.main import _run_evidence_streams, get_config
-from insight_agent.evidence_streams import user_dissatisfaction as stream
 from insight_agent.evidence_streams.builtins import registered_builtin_streams
 from insight_agent.evidence_streams.evidence_streams import Problem
+from insight_agent.evidence_streams.user_dissatisfaction import complaints, stream
 from insight_agent.traces import Span, SpanKind, Trace, TraceSnapshot
 
 
@@ -210,7 +209,7 @@ def test_configuration_reports_missing_optional_dependencies_and_llm(monkeypatch
     with pytest.raises(ValueError, match="requires an LLM client"):
         registered_builtin_streams(user_dissatisfaction=config)
     monkeypatch.setattr(complaints, "find_spec", lambda name: None)
-    with pytest.raises(ValueError, match="uv sync --extra dissatisfaction"):
+    with pytest.raises(ValueError, match=r"insight-agent\[dissatisfaction\]"):
         registered_builtin_streams(
             user_dissatisfaction=config, llm_factory=lambda: MagicMock(spec=UnifiedLLM)
         )

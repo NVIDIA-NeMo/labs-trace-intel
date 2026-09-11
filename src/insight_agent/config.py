@@ -20,7 +20,7 @@ from insight_agent.evidence_streams.ethos_divergence.ethos_divergence_detector i
 )
 from insight_agent.evidence_streams.eval_failure_patterns import EvalFailurePatternsConfig
 from insight_agent.evidence_streams.tool_issues.stream import ToolIssueConfig
-from insight_agent.evidence_streams.user_dissatisfaction import UserDissatisfactionConfig
+from insight_agent.evidence_streams.user_dissatisfaction.stream import UserDissatisfactionConfig
 from insight_agent.trace_loaders.intake import IntakeTraceLoaderConfig
 from insight_agent.trace_loaders.langfuse import validate_langfuse_time_window
 

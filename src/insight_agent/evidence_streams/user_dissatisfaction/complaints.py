@@ -30,15 +30,10 @@ class ScreeningResult(BaseModel):
 
 
 class ComplaintProjection:
-    """Use the bundled PCA, four-bit MSE quantizer and refitted logistic head.
-
-    No Torch, Transformers, sklearn, pickle, or hosted inference is required.
-    compress() accepts one normalized 4096-dimensional embedding and returns
-    132 bytes. score() accepts those bytes and returns the complaint score.
-    """
+    """Use the bundled PCA, four-bit MSE quantizer and refitted logistic head."""
 
     def __init__(self) -> None:
-        folder = files("insight_agent").joinpath("models")
+        folder = files("insight_agent.evidence_streams.user_dissatisfaction").joinpath("models")
         self.metadata = json.loads(folder.joinpath("complaint.json").read_text())
         with folder.joinpath("complaint.npz").open("rb") as handle:
             with np.load(handle, allow_pickle=False) as arrays:
@@ -82,7 +77,10 @@ class ComplaintProjection:
 
 def validate_classifier_dependencies() -> None:
     if find_spec("torch") is None or find_spec("transformers") is None:
-        raise ValueError("user-dissatisfaction requires: uv sync --extra dissatisfaction")
+        raise ValueError(
+            'user-dissatisfaction requires: uv pip install "insight-agent[dissatisfaction]" '
+            "(from a source checkout: uv sync --extra dissatisfaction)"
+        )
 
 
 class ComplaintClassifier:

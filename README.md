@@ -58,6 +58,46 @@ uv run insight-agent --config examples/trace-analyst-config.yaml
 The command prints the complete Insight collection as YAML and writes it to
 `insights.yml`. Insight compilation requires an API key.
 
+### Install the local complaint classifier from a wheel
+
+The wheel includes the trained projection and classification head (about 4 MB).
+Install its optional encoder dependencies along with the supplied wheel:
+
+```bash
+uv pip install './insight_agent-0.1.0rc1-py3-none-any.whl[dissatisfaction]'
+```
+
+Use the classifier through its Python API:
+
+```python
+from insight_agent.evidence_streams.user_dissatisfaction.complaints import load_classifier
+
+classifier = load_classifier()
+result = classifier.classify("You ignored my instructions again.")
+print(result.model_dump_json(indent=2))
+```
+
+The first classification downloads the pinned Qwen3-Embedding-8B encoder weights
+(about 16 GB) from Hugging Face. Later runs reuse the Hugging Face cache. No inference
+server is required; PyTorch selects CUDA, Apple MPS, or CPU. The encoder weights are
+separate from the small trained classifier bundled in the wheel.
+
+For offline deployments, prepare a cache on a connected build machine using the
+installed package's exact model revision:
+
+```bash
+export HF_HOME="$PWD/model-cache"
+python -c 'from insight_agent.evidence_streams.user_dissatisfaction.complaints import ComplaintProjection; from huggingface_hub import snapshot_download; e = ComplaintProjection().metadata["encoder"]; snapshot_download(e["model"], revision=e["revision"], allow_patterns=["*.json", "*.txt", "*.safetensors", "LICENSE", "README.md"])'
+```
+
+Ship the entire `model-cache` directory with your application or container, preserving
+its directory structure and symlinks. Set `HF_HOME` to that directory and
+`HF_HUB_OFFLINE=1` before starting the classifier. This uses Transformers' native
+offline cache support without putting multi-gigabyte weights in the Python wheel.
+Only the local classifier works offline; the full analyst still needs its configured
+LLM service. A result with empty `scores` means scoring failed or was skipped, rather
+than a successful negative prediction.
+
 ### Reading the output
 
 The CLI prints and writes a YAML list of final Insights. Each Insight contains
