@@ -3,8 +3,7 @@
 
 """Opt-in real-model regression: ten complaints, two reasons, three neutral controls.
 
-INSIGHT_AGENT_EVAL_MODEL_PATH=/path/model.gguf \\
-INSIGHT_AGENT_EVAL_LLAMA_SERVER=/path/llama-server \\
+INSIGHT_AGENT_EVAL_CLASSIFIER=1 \\
 uv run --locked pytest tests/evals/test_dissatisfaction_models.py -s
 
 Hosted analysis uses the project's inference configuration and credentials.
@@ -54,16 +53,13 @@ CONTROLS = [
 
 
 @pytest.mark.skipif(
-    not os.environ.get("INSIGHT_AGENT_EVAL_MODEL_PATH"), reason="Opt-in real-model evaluation"
+    not os.environ.get("INSIGHT_AGENT_EVAL_CLASSIFIER"), reason="Opt-in real-model evaluation"
 )
 def test_ten_complaints_are_classified_and_grouped():
     load_dotenv()
     api_key = resolve(ENV_API_KEY) or os.environ.get("INFERENCE_API_KEY")
     assert api_key, "Hosted grouping requires an inference API key"
-    config = UserDissatisfactionConfig(
-        model_path=Path(os.environ["INSIGHT_AGENT_EVAL_MODEL_PATH"]),
-        llama_server=os.environ.get("INSIGHT_AGENT_EVAL_LLAMA_SERVER", "llama-server"),
-    )
+    config = UserDissatisfactionConfig(device=os.environ.get("INSIGHT_AGENT_EVAL_DEVICE"))
     examples = [
         (theme, message)
         for pair in zip(*COMPLAINTS.values(), strict=True)
@@ -77,8 +73,8 @@ def test_ten_complaints_are_classified_and_grouped():
         theme: {f"case-{i:02d}" for i, (label, _) in enumerate(examples) if label == theme}
         for theme in COMPLAINTS
     }
-    with load_classifier(config) as classifier:
-        screening = screen_user_messages(messages, classifier)
+    classifier = load_classifier(config.device)
+    screening = screen_user_messages(messages, classifier)
     candidates = {key: text for key, text in messages.items() if screening[key].flagged}
     traces = TraceSnapshot(
         Trace(
@@ -153,7 +149,7 @@ def test_ten_complaints_are_classified_and_grouped():
 
 
 @pytest.mark.skipif(
-    not os.environ.get("INSIGHT_AGENT_EVAL_MODEL_PATH"), reason="Opt-in real-model evaluation"
+    not os.environ.get("INSIGHT_AGENT_EVAL_CLASSIFIER"), reason="Opt-in real-model evaluation"
 )
 def test_extraction_keeps_later_turns_and_original_event_bodies():
     from insight_agent.evidence_streams.user_dissatisfaction import UserMessageExtractor

@@ -139,7 +139,11 @@ def _license_records(osv_path: Path) -> list[LicenseRecord]:
                 continue
             if override is not None:
                 used_overrides.add(key)
-            identifiers = set(re.findall(r"[A-Z0-9][A-Z0-9.-]*", license_name)) - {"AND", "OR"}
+            identifiers = set(re.findall(r"[A-Z0-9][A-Z0-9.-]*", license_name)) - {
+                "AND",
+                "OR",
+                "WITH",
+            }
             missing = identifiers - standard_texts.keys()
             if missing:
                 raise RuntimeError("Add shared license texts for: " + ", ".join(sorted(missing)))
@@ -237,7 +241,7 @@ def _render_notices(records: list[LicenseRecord]) -> str:
 
 
 def _check_file(path: Path, expected: str) -> bool:
-    if not path.exists() or path.read_text(encoding="utf-8") != expected:
+    if not path.exists() or path.read_bytes().decode("utf-8") != expected:
         print(f"{path.relative_to(PROJECT_ROOT)} is missing or out of date")
         return False
     return True

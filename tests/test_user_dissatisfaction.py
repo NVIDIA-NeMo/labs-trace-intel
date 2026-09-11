@@ -2,17 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import json as jsonlib
-from contextlib import nullcontext
-from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
 from unittest.mock import MagicMock
 
-import httpx
 import pytest
 from nooa.unifiedllm import UnifiedLLM
 
+from insight_agent import complaints
 from insight_agent.cli.main import _run_evidence_streams, get_config
 from insight_agent.evidence_streams import user_dissatisfaction as stream
 from insight_agent.evidence_streams.builtins import registered_builtin_streams
@@ -31,111 +27,67 @@ def snapshot(*ids):
     )
 
 
-class Classifier:
-    def __init__(self, token_counts, labels=None, finish_reason="stop", extra=None):
+class Classifier(complaints.ComplaintClassifier):
+    def __init__(self, token_counts, labels=None):
+        super().__init__()
         self.token_counts = token_counts
         self.labels = labels or {}
-        self.finish_reason = finish_reason
-        self.extra = extra or {}
         self.inputs = []
 
-    def post(self, path, *, json):
-        assert [m["role"] for m in json["messages"]] == ["system", "user"]
-        assert json["messages"][0]["content"] == stream.CLASSIFICATION_PROMPT
-        assert path == "/v1/chat/completions"
-        text = jsonlib.loads(json["messages"][1]["content"])["user_message"]
+    def token_count(self, text):
+        return self.token_counts[text]
+
+    def score(self, text):
+        if self.token_counts[text] > 8192:
+            raise ValueError("encoder error")
         self.inputs.append(text)
-        assert json["max_tokens"] == stream.OUTPUT_TOKENS
-        assert json["response_format"]["json_schema"]["schema"] == stream.RESPONSE_SCHEMA
-        data = {
-            "choices": [
-                {
-                    "finish_reason": self.finish_reason,
-                    "message": {
-                        "content": jsonlib.dumps(
-                            {"label": self.labels.get(text, "complaint"), **self.extra}
-                        ),
-                    },
-                }
-            ],
-            "usage": {"prompt_tokens": self.token_counts[text]},
-        }
-        return httpx.Response(
-            200, json=data, request=httpx.Request("POST", "http://localhost" + path)
-        )
+        return 0.9 if self.labels.get(text, "complaint") == "complaint" else 0.1
 
 
-def test_screening_preserves_turns_and_truncates_long_messages():
-    budget = stream.MAX_TOKENS - stream.OUTPUT_TOKENS
-    prefix = "x" * 20000
-    classifier = Classifier({"repeat": budget, prefix: 5000})
-    results = stream.screen_user_messages(
+def test_screening_preserves_turns_and_ignores_encoder_errors():
+    messages = {
+        "boundary": ["Please use a table.", "Please use a table."],
+        "overflow": ["long conversation", "You ignored my request again."],
+        "missing": [],
+    }
+    classifier = Classifier(
         {
-            "boundary": ["repeat", "repeat"],
-            "missing": [],
-        },
-        cast(httpx.Client, classifier),
+            "Please use a table.": 8192,
+            "long conversation": 8193,
+            "You ignored my request again.": 20,
+        }
     )
-    assert classifier.inputs == ["repeat", "repeat"]
+
+    results = stream.screen_user_messages(messages, classifier)
+
+    assert classifier.inputs == [
+        "Please use a table.",
+        "Please use a table.",
+        "You ignored my request again.",
+    ]
     assert results["boundary"].flagged
-    assert [r.token_count for r in results["boundary"].message_results] == [budget, budget]
-    assert (
-        stream.screen_message(prefix + "ignored suffix", cast(httpx.Client, classifier)).label
-        == "complaint"
-    )
-    assert classifier.inputs == ["repeat", "repeat", prefix]
+    assert [r.token_count for r in results["boundary"].message_results] == [8192, 8192]
+    assert results["boundary"].message_results[0].scores["complaint"] == 0.9
+    assert results["overflow"].message_results[0].scores == {}
+    assert not results["missing"].flagged
     assert not results["missing"].message_results
-    assert stream.screen_message("  ", cast(httpx.Client, classifier)).label == "no_user_messages"
 
 
 @pytest.mark.parametrize("messages", [["complaint", "thanks"], ["thanks", "complaint"]])
 def test_any_complaint_flags_trace_regardless_of_other_turns(messages):
-    classifier = Classifier({"complaint": 5000, "thanks": 5000}, {"thanks": "no_complaint"})
+    classifier = Classifier(
+        {"complaint": 5000, "thanks": 5000, "oversized": 8193},
+        {"complaint": "complaint", "thanks": "no_complaint"},
+    )
     results = stream.screen_user_messages(
-        {"trace": messages, "neutral": ["thanks", "thanks"]}, cast(httpx.Client, classifier)
+        {"trace": messages, "neutral": ["thanks", "thanks"], "unscored": ["oversized", "thanks"]},
+        classifier,
     )
     assert results["trace"].flagged
+    assert results["trace"].model_dump()["flagged"] is True
     assert not results["neutral"].flagged
-    assert classifier.inputs == messages + ["thanks", "thanks"]
-
-
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"labels": {"text": "uncertain"}},
-        {"extra": {"reason": "An explanation"}},
-        {"finish_reason": "length"},
-    ],
-)
-def test_invalid_labels_explanations_and_incomplete_outputs_do_not_flag(kwargs):
-    result = stream.screen_message("text", cast(httpx.Client, Classifier({"text": 20}, **kwargs)))
-    assert result.label == "no_complaint"
-
-
-@pytest.mark.parametrize("status", [400, 500])
-def test_classifier_errors_do_not_abort_later_messages(status):
-    def respond(request):
-        text = jsonlib.loads(jsonlib.loads(request.content)["messages"][1]["content"])[
-            "user_message"
-        ]
-        if text == "failed":
-            return httpx.Response(status, json={"error": "classification failed"})
-        return httpx.Response(
-            200,
-            json={
-                "choices": [
-                    {"finish_reason": "stop", "message": {"content": '{"label":"complaint"}'}}
-                ],
-                "usage": {"prompt_tokens": 20},
-            },
-        )
-
-    with httpx.Client(
-        base_url="http://classifier", transport=httpx.MockTransport(respond)
-    ) as client:
-        results = stream.screen_user_messages({"trace": ["failed", "complaint"]}, client)
-    assert [r.label for r in results["trace"].message_results] == ["no_complaint", "complaint"]
-    assert results["trace"].flagged
+    assert not results["unscored"].flagged
+    assert classifier.inputs == messages + ["thanks", "thanks", "thanks"]
 
 
 def test_registered_stream_passes_candidate_context_and_retains_artifacts(monkeypatch):
@@ -143,15 +95,15 @@ def test_registered_stream_passes_candidate_context_and_retains_artifacts(monkey
         [
             "--trace.filesystem.path",
             "unused.jsonl",
-            "--evidence-streams.user-dissatisfaction.model-path",
-            "model.gguf",
+            "--evidence-streams.user-dissatisfaction.device",
+            "cpu",
         ]
     )
-    traces = snapshot("complaint", "second-complaint", "neutral", "missing")
+    traces = snapshot("negative", "overflow", "neutral", "missing")
     messages = {
-        "complaint": ["repeat", "repeat"],
-        "second-complaint": ["long"],
-        "neutral": ["thanks"],
+        "negative": ["Please use a table.", "Please use a table."],
+        "overflow": ["Very long user text", "You ignored my request again."],
+        "neutral": ["Thank you!"],
         "missing": [],
     }
     ratings = {
@@ -165,25 +117,22 @@ def test_registered_stream_passes_candidate_context_and_retains_artifacts(monkey
         )
     }
     problem = Problem(
-        description="Ignored request", supporting_trace_ids=("complaint", "second-complaint")
+        description="Ignored table request", supporting_trace_ids=("negative", "overflow")
     )
+    llm = MagicMock(spec=UnifiedLLM)
 
     async def extract(received):
         assert received is traces
         return stream.UserMessageExtraction(extract=lambda snapshot: messages)
 
     async def detect(received, description, **extra):
-        assert set(received.traces_by_id) == {"complaint", "second-complaint"}
-        assert received.get_trace_by_id("second-complaint") is traces.get_trace_by_id(
-            "second-complaint"
-        )
+        assert set(received.traces_by_id) == {"negative", "overflow"}
+        assert received.get_trace_by_id("overflow") == traces.get_trace_by_id("overflow")
         assert description == stream.USER_DISSATISFACTION
-        assert extra["user_messages"] == {
-            key: messages[key] for key in ("complaint", "second-complaint")
-        }
+        assert extra["user_messages"] == {key: messages[key] for key in ("negative", "overflow")}
         return [problem]
 
-    monkeypatch.setattr(stream, "validate_classifier_configuration", lambda config: None)
+    monkeypatch.setattr(complaints, "find_spec", lambda name: True)
     monkeypatch.setattr(
         stream,
         "UserMessageExtractor",
@@ -192,14 +141,18 @@ def test_registered_stream_passes_candidate_context_and_retains_artifacts(monkey
     monkeypatch.setattr(
         stream, "IssueDetector", lambda **kwargs: SimpleNamespace(detect_issues=detect)
     )
-    monkeypatch.setattr(stream, "load_classifier", lambda config: nullcontext(object()))
-    monkeypatch.setattr(stream, "screen_user_messages", lambda messages, classifier: ratings)
-    (result,) = asyncio.run(
-        _run_evidence_streams(config.evidence_streams, traces, lambda: MagicMock(spec=UnifiedLLM))
+    monkeypatch.setattr(
+        stream.UserDissatisfactionEvidenceStream,
+        "classifier",
+        SimpleNamespace(projection=SimpleNamespace(metadata={"model": "test"})),
     )
+    monkeypatch.setattr(stream, "screen_user_messages", lambda messages, classifier: ratings)
+
+    (result,) = asyncio.run(_run_evidence_streams(config.evidence_streams, traces, lambda: llm))
+
     assert result.problems == (problem,)
     assert result.artifacts["user_messages"] == messages
-    assert result.artifacts["screening"]["complaint"]["flagged"]
+    assert result.artifacts["screening"]["negative"]["flagged"]
     assert result.artifacts["coverage"] == {
         "total_traces": 4,
         "traces_with_user_messages": 3,
@@ -218,7 +171,7 @@ def test_extraction_requires_exact_trace_coverage(monkeypatch, messages):
         lambda **kwargs: SimpleNamespace(build_extractor=extract),
     )
     detector = stream.UserDissatisfactionEvidenceStream(
-        stream.UserDissatisfactionConfig(model_path=Path("unused")), MagicMock(spec=UnifiedLLM)
+        stream.UserDissatisfactionConfig(), MagicMock(spec=UnifiedLLM)
     )
     with pytest.raises(ValueError, match="exactly the supplied trace IDs"):
         detector.analyze(snapshot("actual"))
@@ -237,22 +190,56 @@ def test_missing_messages_do_not_load_models_or_invoke_issue_detector(monkeypatc
     def unexpected(*args, **kwargs):
         pytest.fail("Missing user messages should not invoke classification or issue detection")
 
-    monkeypatch.setattr(stream, "load_classifier", unexpected)
+    monkeypatch.setattr(
+        stream.UserDissatisfactionEvidenceStream, "classifier", property(unexpected)
+    )
     monkeypatch.setattr(stream, "IssueDetector", unexpected)
     detector = stream.UserDissatisfactionEvidenceStream(
-        stream.UserDissatisfactionConfig(model_path=Path("unused")), MagicMock(spec=UnifiedLLM)
+        stream.UserDissatisfactionConfig(), MagicMock(spec=UnifiedLLM)
     )
-    assert not detector.analyze(snapshot("missing")).problems
+
+    result = detector.analyze(snapshot("missing"))
+
+    assert not result.problems
+    assert result.artifacts["coverage"]["traces_with_user_messages"] == 0
     assert detector.analyze(TraceSnapshot([])).artifacts["coverage"]["total_traces"] == 0
 
 
-def test_configuration_reports_missing_model_executable_and_llm(monkeypatch, tmp_path):
-    config = stream.UserDissatisfactionConfig(model_path=tmp_path / "model.gguf")
+def test_configuration_reports_missing_optional_dependencies_and_llm(monkeypatch):
+    config = stream.UserDissatisfactionConfig()
     with pytest.raises(ValueError, match="requires an LLM client"):
         registered_builtin_streams(user_dissatisfaction=config)
-    with pytest.raises(ValueError, match="GGUF model not found"):
-        stream.validate_classifier_configuration(config)
-    config.model_path.touch()
-    monkeypatch.setattr(stream.shutil, "which", lambda name: None)
-    with pytest.raises(ValueError, match="executable not found"):
-        stream.validate_classifier_configuration(config)
+    monkeypatch.setattr(complaints, "find_spec", lambda name: None)
+    with pytest.raises(ValueError, match="uv sync --extra dissatisfaction"):
+        registered_builtin_streams(
+            user_dissatisfaction=config, llm_factory=lambda: MagicMock(spec=UnifiedLLM)
+        )
+
+
+def test_portable_projection_rejects_incompatible_vectors():
+    import numpy as np
+
+    projection = complaints.ComplaintProjection()
+    with pytest.raises(ValueError, match="4096-dimensional"):
+        projection.compress(np.ones(256))
+    with pytest.raises(ValueError, match="L2-normalized"):
+        projection.compress(np.zeros(4096))
+    with pytest.raises(ValueError, match="132-byte"):
+        projection.score(bytes(128))
+    with pytest.raises(ValueError, match="finite and nonnegative"):
+        projection.score(bytes(128) + np.asarray(float("nan"), dtype="<f4").tobytes())
+
+
+def test_empty_or_oversized_messages_never_load_encoder():
+    classifier = Classifier({"oversized": 8193})
+    assert classifier.classify("  ").label == "no_user_messages"
+    assert classifier.classify("oversized").label == "no_complaint"
+    assert not classifier.inputs
+    assert "model" not in classifier.__dict__
+
+
+def test_classification_truncates_before_encoding():
+    prefix = "x" * 20000
+    classifier = Classifier({prefix: 5000})
+    assert classifier.classify(prefix + "ignored").label == "complaint"
+    assert classifier.inputs == [prefix]

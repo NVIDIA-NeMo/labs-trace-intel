@@ -490,65 +490,85 @@ uv run insight-agent \
   --evidence-streams.ethos-divergence.ethos-path /path/to/ethos.md
 ```
 
-User dissatisfaction extracts initiating user messages with NeMo OO, screens each
-message locally with Nemotron 3 Nano 4B Q4_K_M, then uses the existing hosted issue
-detector to verify and group complaints. A single `complaint` flags the trace,
-even if a later message expresses satisfaction. The only classification labels
-are `complaint` and `no_complaint`; reasoning and explanations are disabled.
-Repeated span histories do not count as additional user messages.
-Extraction includes later user turns identified by source actor metadata and
-decodes original event bodies from embedded conversation histories. Generated
-workflow documents in a model's `user` role are not user feedback.
+User dissatisfaction builds an executable user-message extraction recipe with NeMo OO, screens each
+message with pretrained Qwen3-Embedding-8B → PCA256 → four-bit MSE TurboQuant →
+logistic regression, and uses the hosted issue detector to verify and group
+complaints. A complaint means explicit user anger or criticism of the agent's
+system, responses, behavior, tools, or work. Install the optional encoder dependencies:
 
-Provide a [llama.cpp server executable](https://github.com/ggml-org/llama.cpp/releases/tag/b10793)
-and the [NVIDIA GGUF model](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF/tree/ba223d14e45525f7fae81db77ea8cabeb2fc6c25).
-The tested runtime is llama.cpp b10793 on Apple M5 (24 GiB), with the model file
-`NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf` (2.84 GB), revision
-`ba223d14e45525f7fae81db77ea8cabeb2fc6c25`. Its SHA-256 is
-`be5d9a656a51922f24f1f09a759cebb694e1f5d9728bf0ef9f8c972c5a0b5ef2`.
-No PyTorch, Transformers, or optional Python extra is needed.
+```bash
+uv sync --extra dissatisfaction
+uv run --extra dissatisfaction insight-agent --config examples/trace-analyst-config.yaml
+```
 
 ```yaml
 evidence_streams:
-  user_dissatisfaction:
-    model_path: /path/to/NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf
-    llama_server: /path/to/llama-server  # Defaults to llama-server on PATH.
+  user_dissatisfaction: {}
 ```
+
+Standard Hugging Face Transformers runs the encoder without an inference server.
+The device is selected automatically (CUDA, then MPS, then CPU); set
+`user_dissatisfaction.device: cpu`, `mps`, or `cuda` to choose explicitly. GPU inference
+uses bfloat16 and CPU inference uses float32. CUDA requires a CUDA-enabled PyTorch
+build supplied by the caller; this repository's Linux extra installs CPU wheels.
+Qwen 8B is a large model: its weights
+alone require roughly 16 GB in bfloat16 or 32 GB in float32, plus runtime memory.
+This prototype prioritizes portability rather than throughput. The checkpoint
+is downloaded on first use and cached by Hugging Face.
+
+The classifier receives only individual user messages. Any `complaint` flags its
+trace, even if a later message expresses satisfaction. Repeated span histories
+are reconstructed once; genuine repeated turns are preserved. The 8,192-token
+prototype limit includes the fixed embedding instruction and special tokens.
+Oversized messages reach hosted analysis intact. Missing messages mean missing
+evidence rather than satisfaction. Ordered per-message scores, extraction
+coverage, and the classifier's version/threshold metadata appear in stream artifacts.
+
+To test a single message without hosted analysis:
 
 ```bash
-uv run insight-agent --config insight-analyst.yaml
+uv run --extra dissatisfaction insight-classify "You ignored my instructions again."
 ```
 
-The stream starts one local server for the screening phase, loads the model once,
-and stops the server before hosted verification. It binds only to localhost,
-uses one inference slot, and requests GPU offloading. Each request contains only
-the classification instructions and one user message. Relative paths resolve
-from the working directory; `model_path` also expands `~`.
+The command prints `label`, `token_count`, and two uncalibrated `scores` as JSON.
+Labels are `complaint` or `no_complaint`. Classification uses the first 20,000
+characters; inference errors leave the message unflagged and processing continues.
+Original extracted messages remain intact in the evidence artifacts. Use `--device cpu`, `mps`, or `cuda` to
+select a device. No API key is needed for this command and user text stays local.
 
-The classifier receives only the first 20,000 characters of each user message.
-This is an approximate input limit; the local server still has an 8,192-token
-context and a 32-token output allowance. If classification fails, including a
-context-limit error or invalid response, the message is not flagged and screening
-continues with the next message. Empty input is recorded as `no_user_messages`.
-The original extracted messages remain intact in the evidence artifacts.
-Extraction coverage and ordered per-message labels and token counts are retained
-in `EvidenceStreamResult.artifacts`. Classification is evaluated on English text.
+Python callers can use the same classifier or reuse its embedding/cache:
 
-The opt-in model evaluation checks ten synthetic complaints in two groups, three
-neutral controls, and extraction of repeated histories and later user turns:
+```python
+from insight_agent.complaints import ComplaintClassifier, ComplaintProjection
 
-```bash
-INSIGHT_AGENT_EVAL_MODEL_PATH=/path/to/model.gguf \
-INSIGHT_AGENT_EVAL_LLAMA_SERVER=/path/to/llama-server \
-uv run --locked pytest tests/evals/test_dissatisfaction_models.py -s
+classifier = ComplaintClassifier()  # Encoder loads lazily, once per instance.
+result = classifier.classify("You ignored my instructions again.")
+embedding = classifier.embed("Please summarize the changes.")
+packed = classifier.projection.compress(embedding)  # 132 bytes; persist as a blob.
+projection = ComplaintProjection()  # NumPy only; no encoder reload.
+score = projection.score(packed)
+features = projection.decompress(packed)  # 256 features for other compatible heads.
 ```
 
-It uses the configured inference credentials for hosted extraction and grouping,
-and writes classification and grouping results to `tmp/user-dissatisfaction-mini-eval.json`.
-`INSIGHT_AGENT_EVAL_MODEL` optionally overrides the hosted model, which defaults to
-`openai/azure/openai/gpt-5.6-luna`; it does not change the local classifier.
-These model evaluations are skipped in the ordinary test suite unless the model
-path environment variable is set.
+`ComplaintProjection.compress` accepts one finite, L2-normalized, 4,096-dimensional
+vector from the pinned Qwen checkpoint using the packaged instruction and final-token
+pooling. Its 132-byte representation contains 128 bytes of four-bit indices, low
+nibble first, followed by a little-endian float32 norm. It must be paired with the
+same packaged projection/quantizer version; it is not a general-purpose embedding
+file format. PCA and the complaint-specific instruction still require validation
+for other conversation facets.
+
+The package includes `models/complaint.npz` (numeric PCA, quantizer and logistic
+parameters) and `models/complaint.json` (checkpoint revision, instruction, threshold,
+and provenance). Loading uses `allow_pickle=False` and has no dependency on research
+scripts, sklearn serialization versions, or custom pickled classes. The selected
+seed-42 artifact reproduces 72.0% F1 on the 1,062-message validation partition;
+72.3% in the research report is the mean over five quantizer seeds. Regenerating all
+validation embeddings one message at a time yields 70.4% F1: three decisions differ
+from the original batched cache, with identical results under Transformers 4.57.6
+and 5.16.1. The port preserves the trained parameters rather than recalibrating the
+threshold for this runtime. Those labels are a human-calibrated Luna-generated
+reference, not exhaustive human annotation.
 
 Run `uv run insight-agent --help` to see the generated options and configurable
 stream settings.
