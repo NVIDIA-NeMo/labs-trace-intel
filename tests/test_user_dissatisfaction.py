@@ -40,54 +40,50 @@ class Classifier:
         self.inputs = []
 
     def post(self, path, *, json):
-        if path == "/apply-template":
-            assert [m["role"] for m in json["messages"]] == ["system", "user"]
-            assert json["messages"][0]["content"] == stream.CLASSIFICATION_PROMPT
-            data = {"prompt": json["messages"][1]["content"]}
-        elif path == "/tokenize":
-            text = jsonlib.loads(json["content"])["user_message"]
-            assert json["add_special"] and json["parse_special"]
-            data = {"tokens": list(range(self.token_counts[text]))}
-        else:
-            assert path == "/v1/chat/completions"
-            text = jsonlib.loads(json["messages"][1]["content"])["user_message"]
-            self.inputs.append(text)
-            assert json["max_tokens"] == stream.OUTPUT_TOKENS
-            assert json["response_format"]["json_schema"]["schema"] == stream.RESPONSE_SCHEMA
-            data = {
-                "choices": [
-                    {
-                        "finish_reason": self.finish_reason,
-                        "message": {
-                            "content": jsonlib.dumps(
-                                {"label": self.labels.get(text, "complaint"), **self.extra}
-                            ),
-                        },
-                    }
-                ],
-                "usage": {"prompt_tokens": self.token_counts[text]},
-            }
+        assert [m["role"] for m in json["messages"]] == ["system", "user"]
+        assert json["messages"][0]["content"] == stream.CLASSIFICATION_PROMPT
+        assert path == "/v1/chat/completions"
+        text = jsonlib.loads(json["messages"][1]["content"])["user_message"]
+        self.inputs.append(text)
+        assert json["max_tokens"] == stream.OUTPUT_TOKENS
+        assert json["response_format"]["json_schema"]["schema"] == stream.RESPONSE_SCHEMA
+        data = {
+            "choices": [
+                {
+                    "finish_reason": self.finish_reason,
+                    "message": {
+                        "content": jsonlib.dumps(
+                            {"label": self.labels.get(text, "complaint"), **self.extra}
+                        ),
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": self.token_counts[text]},
+        }
         return httpx.Response(
             200, json=data, request=httpx.Request("POST", "http://localhost" + path)
         )
 
 
-def test_screening_preserves_turns_and_routes_overflow_without_truncation():
+def test_screening_preserves_turns_and_truncates_long_messages():
     budget = stream.MAX_TOKENS - stream.OUTPUT_TOKENS
-    classifier = Classifier({"repeat": budget, "oversized": budget + 1, "complaint": 20})
+    prefix = "x" * 20000
+    classifier = Classifier({"repeat": budget, prefix: 5000})
     results = stream.screen_user_messages(
         {
             "boundary": ["repeat", "repeat"],
-            "overflow": ["oversized", "complaint"],
             "missing": [],
         },
         cast(httpx.Client, classifier),
     )
-    assert classifier.inputs == ["repeat", "repeat", "complaint"]
-    assert results["boundary"].flagged and not results["boundary"].too_long
+    assert classifier.inputs == ["repeat", "repeat"]
+    assert results["boundary"].flagged
     assert [r.token_count for r in results["boundary"].message_results] == [budget, budget]
-    assert results["overflow"].too_long and results["overflow"].flagged
-    assert results["overflow"].message_results[0].label == "too_long"
+    assert (
+        stream.screen_message(prefix + "ignored suffix", cast(httpx.Client, classifier)).label
+        == "complaint"
+    )
+    assert classifier.inputs == ["repeat", "repeat", prefix]
     assert not results["missing"].message_results
     assert stream.screen_message("  ", cast(httpx.Client, classifier)).label == "no_user_messages"
 
@@ -98,7 +94,7 @@ def test_any_complaint_flags_trace_regardless_of_other_turns(messages):
     results = stream.screen_user_messages(
         {"trace": messages, "neutral": ["thanks", "thanks"]}, cast(httpx.Client, classifier)
     )
-    assert results["trace"].flagged and not results["trace"].too_long
+    assert results["trace"].flagged
     assert not results["neutral"].flagged
     assert classifier.inputs == messages + ["thanks", "thanks"]
 
@@ -111,9 +107,35 @@ def test_any_complaint_flags_trace_regardless_of_other_turns(messages):
         {"finish_reason": "length"},
     ],
 )
-def test_invalid_labels_explanations_and_incomplete_outputs_fail(kwargs):
-    with pytest.raises(ValueError):
-        stream.screen_message("text", cast(httpx.Client, Classifier({"text": 20}, **kwargs)))
+def test_invalid_labels_explanations_and_incomplete_outputs_do_not_flag(kwargs):
+    result = stream.screen_message("text", cast(httpx.Client, Classifier({"text": 20}, **kwargs)))
+    assert result.label == "no_complaint"
+
+
+@pytest.mark.parametrize("status", [400, 500])
+def test_classifier_errors_do_not_abort_later_messages(status):
+    def respond(request):
+        text = jsonlib.loads(jsonlib.loads(request.content)["messages"][1]["content"])[
+            "user_message"
+        ]
+        if text == "failed":
+            return httpx.Response(status, json={"error": "classification failed"})
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"finish_reason": "stop", "message": {"content": '{"label":"complaint"}'}}
+                ],
+                "usage": {"prompt_tokens": 20},
+            },
+        )
+
+    with httpx.Client(
+        base_url="http://classifier", transport=httpx.MockTransport(respond)
+    ) as client:
+        results = stream.screen_user_messages({"trace": ["failed", "complaint"]}, client)
+    assert [r.label for r in results["trace"].message_results] == ["no_complaint", "complaint"]
+    assert results["trace"].flagged
 
 
 def test_registered_stream_passes_candidate_context_and_retains_artifacts(monkeypatch):
@@ -125,10 +147,10 @@ def test_registered_stream_passes_candidate_context_and_retains_artifacts(monkey
             "model.gguf",
         ]
     )
-    traces = snapshot("complaint", "overflow", "neutral", "missing")
+    traces = snapshot("complaint", "second-complaint", "neutral", "missing")
     messages = {
         "complaint": ["repeat", "repeat"],
-        "overflow": ["long"],
+        "second-complaint": ["long"],
         "neutral": ["thanks"],
         "missing": [],
     }
@@ -138,28 +160,34 @@ def test_registered_stream_passes_candidate_context_and_retains_artifacts(monkey
         )
         for trace_id, label in zip(
             traces.traces_by_id,
-            ["complaint", "too_long", "no_complaint", "no_user_messages"],
+            ["complaint", "complaint", "no_complaint", "no_user_messages"],
             strict=True,
         )
     }
-    problem = Problem(description="Ignored request", supporting_trace_ids=("complaint", "overflow"))
+    problem = Problem(
+        description="Ignored request", supporting_trace_ids=("complaint", "second-complaint")
+    )
 
     async def extract(received):
         assert received is traces
-        return messages
+        return stream.UserMessageExtraction(extract=lambda snapshot: messages)
 
     async def detect(received, description, **extra):
-        assert set(received.traces_by_id) == {"complaint", "overflow"}
-        assert received.get_trace_by_id("overflow") is traces.get_trace_by_id("overflow")
+        assert set(received.traces_by_id) == {"complaint", "second-complaint"}
+        assert received.get_trace_by_id("second-complaint") is traces.get_trace_by_id(
+            "second-complaint"
+        )
         assert description == stream.USER_DISSATISFACTION
-        assert extra["user_messages"] == {key: messages[key] for key in ("complaint", "overflow")}
+        assert extra["user_messages"] == {
+            key: messages[key] for key in ("complaint", "second-complaint")
+        }
         return [problem]
 
     monkeypatch.setattr(stream, "validate_classifier_configuration", lambda config: None)
     monkeypatch.setattr(
         stream,
         "UserMessageExtractor",
-        lambda **kwargs: SimpleNamespace(extract_user_messages=extract),
+        lambda **kwargs: SimpleNamespace(build_extractor=extract),
     )
     monkeypatch.setattr(
         stream, "IssueDetector", lambda **kwargs: SimpleNamespace(detect_issues=detect)
@@ -171,25 +199,23 @@ def test_registered_stream_passes_candidate_context_and_retains_artifacts(monkey
     )
     assert result.problems == (problem,)
     assert result.artifacts["user_messages"] == messages
-    assert result.artifacts["screening"]["overflow"]["too_long"]
     assert result.artifacts["screening"]["complaint"]["flagged"]
     assert result.artifacts["coverage"] == {
         "total_traces": 4,
         "traces_with_user_messages": 3,
         "candidate_traces": 2,
-        "oversized_traces": 1,
     }
 
 
 @pytest.mark.parametrize("messages", [{}, {"missing": []}, {"actual": [], "extra": []}])
 def test_extraction_requires_exact_trace_coverage(monkeypatch, messages):
     async def extract(snapshot):
-        return messages
+        return stream.UserMessageExtraction(extract=lambda snapshot: messages)
 
     monkeypatch.setattr(
         stream,
         "UserMessageExtractor",
-        lambda **kwargs: SimpleNamespace(extract_user_messages=extract),
+        lambda **kwargs: SimpleNamespace(build_extractor=extract),
     )
     detector = stream.UserDissatisfactionEvidenceStream(
         stream.UserDissatisfactionConfig(model_path=Path("unused")), MagicMock(spec=UnifiedLLM)
@@ -200,12 +226,12 @@ def test_extraction_requires_exact_trace_coverage(monkeypatch, messages):
 
 def test_missing_messages_do_not_load_models_or_invoke_issue_detector(monkeypatch):
     async def extract(snapshot):
-        return {"missing": []}
+        return stream.UserMessageExtraction(extract=lambda snapshot: {"missing": []})
 
     monkeypatch.setattr(
         stream,
         "UserMessageExtractor",
-        lambda **kwargs: SimpleNamespace(extract_user_messages=extract),
+        lambda **kwargs: SimpleNamespace(build_extractor=extract),
     )
 
     def unexpected(*args, **kwargs):

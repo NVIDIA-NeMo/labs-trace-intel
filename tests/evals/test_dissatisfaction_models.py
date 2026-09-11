@@ -267,11 +267,27 @@ def test_extraction_keeps_later_turns_and_original_event_bodies():
         model=os.environ.get("INSIGHT_AGENT_EVAL_MODEL", "openai/azure/openai/gpt-5.6-luna"),
         api_base="https://inference-api.nvidia.com/v1",
     )
-    extracted = asyncio.run(
-        UserMessageExtractor(llm=_build_llm(config, api_key)).extract_user_messages(snapshot)
+    extraction = asyncio.run(
+        UserMessageExtractor(llm=_build_llm(config, api_key)).build_extractor(snapshot)
     )
+    extracted = extraction.extract(snapshot)
     assert extracted == {
         "actors": ["No PR was opened.", "No PR was opened.", "Thanks.\n"],
         "events": ["No PR was opened.", "No PR was opened.", "Please finish the PR."],
         "generated": [],
+    }
+
+    # The returned function must read its argument, not retain the inspection data.
+    replay = TraceSnapshot(
+        [
+            Trace.model_validate_json(
+                snapshot.get_trace_by_id("actors")
+                .model_dump_json()
+                .replace('"actors"', '"replay"')
+                .replace("No PR was opened.", "You changed the wrong file.")
+            )
+        ]
+    )
+    assert extraction.extract(replay) == {
+        "replay": ["You changed the wrong file.", "You changed the wrong file.", "Thanks.\n"]
     }

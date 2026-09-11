@@ -243,11 +243,12 @@ uses one inference slot, and requests GPU offloading. Each request contains only
 the classification instructions and one user message. Relative paths resolve
 from the working directory; `model_path` also expands `~`.
 
-The 8,192-token context budget includes the full chat template and instructions,
-the individual user message, and a 32-token output allowance. A message that does
-not fit is marked `too_long` and its trace reaches hosted analysis intact; input
-is never silently truncated. Empty input is recorded as `no_user_messages`, not
-satisfaction. These are screening statuses, not additional model labels.
+The classifier receives only the first 20,000 characters of each user message.
+This is an approximate input limit; the local server still has an 8,192-token
+context and a 32-token output allowance. If classification fails, including a
+context-limit error or invalid response, the message is not flagged and screening
+continues with the next message. Empty input is recorded as `no_user_messages`.
+The original extracted messages remain intact in the evidence artifacts.
 Extraction coverage and ordered per-message labels and token counts are retained
 in `EvidenceStreamResult.artifacts`. Classification is evaluated on English text.
 
