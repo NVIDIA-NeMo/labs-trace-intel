@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Trace Analyst: NeMo Platform Intake source settings
-# Replace the trace block in trace-analyst-config.yaml with this block.
-# Keep its evidence_streams and other shared settings. For an authenticated
-# deployment, set NMP_ACCESS_TOKEN in .env. No optional client extra is needed.
-# Intake supports live queries only; there is no native-export configuration.
+# Trace Analyst: NeMo Platform Intake example configuration
+# Update the source settings below and configure inference credentials in .env.
+# For authenticated deployments, set NMP_ACCESS_TOKEN in .env.
+# Run from the repository root:
+# uv sync --locked
+# uv run --no-sync insight-agent --config examples/trace-analyst-config-intake.yaml
 
 trace:
   max_traces: 100
@@ -25,3 +26,7 @@ trace:
       # status: error  # success, error, cancelled, or unknown.
       # max_traces: 100  # trace.max_traces takes precedence when set.
       # sort: started_at  # Or -started_at for newest first.
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}

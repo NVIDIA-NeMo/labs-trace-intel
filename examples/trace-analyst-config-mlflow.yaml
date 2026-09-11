@@ -1,12 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Trace Analyst: MLflow source settings
-# Replace the trace block in trace-analyst-config.yaml with this block.
-# Keep its evidence_streams and other shared settings. If authentication is
-# required, set MLFLOW_TRACKING_USERNAME and MLFLOW_TRACKING_PASSWORD, or
-# MLFLOW_TRACKING_TOKEN, in .env.
-# Install the client with: uv sync --locked --extra mlflow
+# Trace Analyst: MLflow example configuration
+# Update the source settings below and configure inference credentials in .env.
+# If needed, set MLFLOW_TRACKING_USERNAME and MLFLOW_TRACKING_PASSWORD,
+# or MLFLOW_TRACKING_TOKEN, in .env.
+# Run from the repository root:
+# uv sync --locked --extra mlflow
+# uv run --no-sync insight-agent --config examples/trace-analyst-config-mlflow.yaml
 
 trace:
   max_traces: 100
@@ -18,3 +19,7 @@ trace:
   # For a native export, comment out mlflow_experiment above and enable this instead.
   # mlflow_export:
   #   path: exports/mlflow-traces.json
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}

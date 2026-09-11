@@ -5,7 +5,7 @@
 
 ## Platform configuration
 
-The platform examples contain only trace-source settings, including commented native-export
+Each platform example is a complete run configuration, including commented native-export
 alternatives where supported:
 
 - [LangSmith](trace-analyst-config-langsmith.yaml)
@@ -13,10 +13,16 @@ alternatives where supported:
 - [MLflow](trace-analyst-config-mlflow.yaml)
 - [Intake](trace-analyst-config-intake.yaml)
 
-Replace the `trace` block in [the general configuration](trace-analyst-config.yaml) with one of
-these blocks, retaining its `evidence_streams` and any other shared settings. These source-only
-examples are not standalone run configurations. The [README](../README.md#analyze-your-own-traces)
-also provides complete quickstarts.
+Update the selected example's URLs, project or workspace, and time window as needed, then set
+credentials in `.env`. Each file's header includes its install and run commands. For example:
+
+```bash
+uv sync --locked --extra langfuse
+uv run --no-sync insight-agent --config examples/trace-analyst-config-langfuse.yaml
+```
+
+See [the general configuration](trace-analyst-config.yaml) for optional shared settings and
+the [README](../README.md#analyze-your-own-traces) for platform quickstarts.
 
 ## `tau_bench_traces.jsonl`
 

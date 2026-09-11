@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Trace Analyst: LangSmith source settings
-# Replace the trace block in trace-analyst-config.yaml with this block.
-# Keep its evidence_streams and other shared settings. Set LANGSMITH_API_KEY
-# in .env and install the client with: uv sync --locked --extra langsmith
+# Trace Analyst: LangSmith example configuration
+# Update the source settings below and configure inference credentials in .env.
+# Set LANGSMITH_API_KEY in .env.
+# Run from the repository root:
+# uv sync --locked --extra langsmith
+# uv run --no-sync insight-agent --config examples/trace-analyst-config-langsmith.yaml
 
 trace:
   max_traces: 100
@@ -18,3 +20,7 @@ trace:
   # For a native export, comment out langsmith above and enable this instead.
   # langsmith_trace_export_file:
   #   path: exports/langsmith
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
