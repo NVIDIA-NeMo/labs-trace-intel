@@ -12,7 +12,7 @@ individual YAML fields for one run. Environment variables provide credentials
 and provider defaults without putting secrets in YAML or shell history.
 
 ```yaml
-# insight-analyst.yaml
+# trace-analyst-config.yaml
 trace:
   filesystem:
     path: traces.jsonl
@@ -40,7 +40,7 @@ evidence_streams:
 Run it with:
 
 ```bash
-uv run insight-agent --config insight-analyst.yaml
+uv run insight-agent --config trace-analyst-config.yaml
 ```
 
 ## Trace sources
@@ -113,7 +113,7 @@ The equivalent one-off overrides are generated from the same configuration
 model:
 
 ```bash
-uv run insight-agent --config insight-analyst.yaml \
+uv run insight-agent --config trace-analyst-config.yaml \
   --trace.langsmith.filter 'eq(status, "success")' \
   --trace.max-traces 25
 ```
@@ -384,7 +384,7 @@ When YAML is used, explicit CLI values take priority and override only the
 specified nested value:
 
 ```bash
-uv run insight-agent --config insight-analyst.yaml \
+uv run insight-agent --config trace-analyst-config.yaml \
   --trace.filesystem.path replacement-traces.jsonl \
   --output-path experiment-insights.yml
 ```

@@ -67,7 +67,7 @@ Then run Trace Analyst:
 ```bash
 uv sync --locked
 
-uv run insight-agent --config examples/insight-analyst.yaml
+uv run insight-agent --config examples/trace-analyst-config.yaml
 ```
 
 The command prints the complete Insight collection as YAML and writes it to
@@ -117,7 +117,7 @@ a name, description, and the trace references that support it.
 
 Trace Analyst can read live projects or native exports from LangSmith, Langfuse, and MLflow. Every
 source is normalized before the same evidence streams run. Choose one integration below. Each YAML
-snippet is a complete `insight-analyst.yaml` file;
+snippet is a complete `trace-analyst-config.yaml` file;
 replace the example project, endpoint, and time range with your own values.
 
 ### LangSmith
@@ -140,7 +140,7 @@ evidence_streams:
 ```
 
 ```bash
-uv run --no-sync insight-agent --config insight-analyst.yaml
+uv run --no-sync insight-agent --config trace-analyst-config.yaml
 ```
 
 See [LangSmith configuration](docs/configuration.md#langsmith) for filters, workspace selection,
@@ -167,7 +167,7 @@ evidence_streams:
 ```
 
 ```bash
-uv run --no-sync insight-agent --config insight-analyst.yaml
+uv run --no-sync insight-agent --config trace-analyst-config.yaml
 ```
 
 Langfuse API keys identify the project, so no project name is needed. See
@@ -197,7 +197,7 @@ evidence_streams:
 ```
 
 ```bash
-uv run --no-sync insight-agent --config insight-analyst.yaml
+uv run --no-sync insight-agent --config trace-analyst-config.yaml
 ```
 
 See [MLflow configuration](docs/configuration.md#mlflow) for authentication, search filters,

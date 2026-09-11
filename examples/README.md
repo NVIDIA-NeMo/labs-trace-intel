@@ -11,7 +11,7 @@ Nothing needs adapting. Configure an API key as described in `.env.example`,
 then run it from the repository root:
 
 ```bash
-uv run insight-agent --config examples/insight-analyst.yaml
+uv run insight-agent --config examples/trace-analyst-config.yaml
 ```
 
 The final Insight collection is printed and written to `insights.yml`.
@@ -21,7 +21,7 @@ To analyze the equivalent imported corpus in a Langfuse project, set that projec
 
 ```bash
 uv sync --locked --extra langfuse
-uv run --no-sync insight-agent --config examples/insight-analyst-langfuse.yaml
+uv run --no-sync insight-agent --config examples/trace-analyst-langfuse-config.yaml
 ```
 
 That configuration selects up to 200 traces tagged `tau-bench` from the fixed import window and
