@@ -12,6 +12,7 @@ trace:
   # Select exactly one source. Comment out filesystem before enabling another.
   filesystem:
     path: examples/tau_bench_traces.jsonl
+
 output_path: insights.yml
 
 evidence_streams:
@@ -44,6 +45,6 @@ evidence_streams:
 # existing_insights: previous-insights.yml
 
 # Optional inference overrides. Use a model and token limit your provider supports.
+# api_base: https://gateway.example.com/v1
 # model: openai/your-model-name
 # max_tokens: 32768
-# api_base: https://gateway.example.com/v1

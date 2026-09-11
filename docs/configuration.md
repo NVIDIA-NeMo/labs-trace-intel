@@ -152,7 +152,8 @@ Both live and export sources support `eval_failure_patterns` using recorded feed
 from root and child Runs.
 
 The live loader supports the v1 query API as tested against self-hosted LangSmith 0.15. It does not
-yet support the SmithDB-backed v2 query API.
+yet support the SmithDB-backed v2 query API. The `langsmith` extra requires Python SDK
+`>=0.12,<0.13`; this SDK version range is separate from the server version.
 
 ### Langfuse
 
@@ -265,7 +266,8 @@ rules abstain. A root `AGENT` catalog is a compatibility fallback only when a tr
 observations.
 
 This research-preview adapter is validated against self-hosted Langfuse 3.205.1 and Python SDK 3.15.
-It supports the v3 API contract only, not Langfuse v4.
+The `langfuse` extra requires Python SDK `>=3.15,<4`. The adapter supports the v3 API contract
+only, not Langfuse v4; native exports must contain complete v3 trace-detail records.
 
 ### MLflow
 
@@ -342,7 +344,7 @@ Both live and export sources preserve valid, named assessments as evaluator resu
 choosing one. Include the full span tree when exporting so tool and structural checks have
 the same data available as a live query.
 
-The `mlflow` extra supports MLflow SDK versions `>=3.6,<4`; native exports must be readable
+The `mlflow` extra uses `mlflow-skinny` with SDK versions `>=3.6,<4`; native exports must be readable
 by the installed SDK. This is an SDK constraint, not a guarantee of compatibility with every
 tracking-server version.
 

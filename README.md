@@ -84,6 +84,9 @@ Platform credentials are separate from the inference API key.
 
 ### LangSmith
 
+Supports the v1 query API, tested against self-hosted LangSmith 0.15, with Python SDK
+`>=0.12,<0.13`. The SmithDB-backed v2 query API is not supported yet.
+
 ```bash
 uv sync --locked --extra langsmith
 export LANGSMITH_API_KEY=<langsmith-api-key>
@@ -114,6 +117,9 @@ Trace Analyst also reads complete trace exports from the LangSmith CLI using
 for export instructions, filters, workspace selection, and supported versions.
 
 ### Langfuse
+
+Supports the v3 API, tested against self-hosted Langfuse 3.205.1 and Python SDK 3.15.
+The SDK range is `>=3.15,<4`; Langfuse v4 is not supported.
 
 ```bash
 uv sync --locked --extra langfuse
@@ -147,6 +153,9 @@ See the detailed [Langfuse configuration docs](docs/configuration.md#langfuse) f
 formats, advanced filters, tool catalogs, and supported v3 server and SDK versions.
 
 ### MLflow
+
+Supports Python SDK `>=3.6,<4` via `mlflow-skinny`. Native exports must be readable by
+the installed SDK; compatibility with every tracking-server version is not guaranteed.
 
 ```bash
 uv sync --locked --extra mlflow
