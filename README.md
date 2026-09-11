@@ -70,9 +70,6 @@ uv sync --locked
 uv run insight-agent --config examples/insight-analyst.yaml
 ```
 
-`uv sync --locked` creates `.venv`, installs the package and development tools,
-and reproduces the dependency versions committed in `uv.lock`.
-
 The command prints the complete Insight collection as YAML and writes it to
 `insights.yml`. Insight compilation requires an API key.
 
