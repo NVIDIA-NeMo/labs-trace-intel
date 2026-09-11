@@ -70,7 +70,7 @@ uv pip install './insight_agent-0.1.0rc1-py3-none-any.whl[dissatisfaction]'
 Use the classifier through its Python API:
 
 ```python
-from insight_agent.evidence_streams.user_dissatisfaction.complaints import load_classifier
+from insight_agent.evidence_streams.user_dissatisfaction.classifier import load_classifier
 
 classifier = load_classifier()
 result = classifier.classify("You ignored my instructions again.")
@@ -87,7 +87,7 @@ installed package's exact model revision:
 
 ```bash
 export HF_HOME="$PWD/model-cache"
-python -c 'from insight_agent.evidence_streams.user_dissatisfaction.complaints import ComplaintProjection; from huggingface_hub import snapshot_download; e = ComplaintProjection().metadata["encoder"]; snapshot_download(e["model"], revision=e["revision"], allow_patterns=["*.json", "*.txt", "*.safetensors", "LICENSE", "README.md"])'
+python -c 'from insight_agent.evidence_streams.user_dissatisfaction.projection import ComplaintProjection; from huggingface_hub import snapshot_download; e = ComplaintProjection().metadata["encoder"]; snapshot_download(e["model"], revision=e["revision"], allow_patterns=["*.json", "*.txt", "*.safetensors", "LICENSE", "README.md"])'
 ```
 
 Ship the entire `model-cache` directory with your application or container, preserving

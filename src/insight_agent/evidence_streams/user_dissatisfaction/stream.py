@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, computed_field
 
 from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult
 from insight_agent.evidence_streams.issue_detector import IssueDetector
-from insight_agent.evidence_streams.user_dissatisfaction.complaints import (
+from insight_agent.evidence_streams.user_dissatisfaction.classifier import (
     ComplaintClassifier,
     ScreeningResult,
     load_classifier,
