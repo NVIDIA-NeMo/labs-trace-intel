@@ -6,11 +6,12 @@
 ## Platform configuration
 
 The platform examples contain only trace-source settings, including commented native-export
-alternatives:
+alternatives where supported:
 
 - [LangSmith](trace-analyst-config-langsmith.yaml)
 - [Langfuse](trace-analyst-config-langfuse.yaml)
 - [MLflow](trace-analyst-config-mlflow.yaml)
+- [Intake](trace-analyst-config-intake.yaml)
 
 Replace the `trace` block in [the general configuration](trace-analyst-config.yaml) with one of
 these blocks, retaining its `evidence_streams` and any other shared settings. These source-only

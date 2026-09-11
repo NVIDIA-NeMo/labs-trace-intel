@@ -12,27 +12,6 @@ trace:
   # Select exactly one source. Comment out filesystem before enabling another.
   filesystem:
     path: examples/tau_bench_traces.jsonl
-
-  # LangSmith, Langfuse, and MLflow source settings are in the adjacent
-  # trace-analyst-config-<platform>.yaml files. Replace this trace block
-  # with the desired platform's block; keep the shared settings below.
-
-  # intake:
-  #   base_url: https://platform.example.com
-  #   workspace: my-workspace
-  #   page_size: 100
-  #   timeout_seconds: 30.0
-  #   query:
-  #     started_at_gte: 2026-09-01T00:00:00Z
-  #     started_at_lte: 2026-09-02T00:00:00Z
-  #     agent_name: my-agent
-  #     evaluation_name: my-evaluation
-  #     test_case_name: my-test-case
-  #     session_id: my-session
-  #     status: error  # success, error, cancelled, or unknown.
-  #     max_traces: 100  # trace.max_traces takes precedence when set.
-  #     sort: started_at  # Or -started_at for newest first.
-
 output_path: insights.yml
 
 evidence_streams:
