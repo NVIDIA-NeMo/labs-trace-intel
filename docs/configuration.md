@@ -7,8 +7,6 @@ Trace Analyst can be configured with YAML, generated CLI options, or a
 combination of both. A YAML file is optional, but every run must select exactly
 one trace source and at least one evidence stream.
 
-This guide expands on the [README quickstart](../README.md#run-trace-analyst-on-example-traces)
-with source options, export formats, evidence-stream selection, and run overrides.
 Set up [inference credentials](#credentials) before running any example.
 
 Use YAML for reusable, non-secret run settings. Explicit CLI options override
@@ -49,9 +47,15 @@ uv run insight-agent --config trace-analyst-config.yaml
 
 ## Trace sources
 
-Select exactly one trace loader. The snippets below show the `trace` portion of a run
-configuration; keep `evidence_streams` and any shared settings from the complete example above.
-For standalone configurations, see the [README examples](../README.md#analyze-your-own-traces).
+Select exactly one trace loader. Each YAML example in this section is a complete
+`trace-analyst-config.yaml`, including the required evidence streams. Live-source examples match
+the [README examples](../README.md#analyze-your-own-traces) and show every platform-specific
+configuration field; optional filters and tuning settings are commented out.
+Save your chosen example, customize its source settings, and run:
+
+```bash
+uv run --no-sync insight-agent --config trace-analyst-config.yaml
+```
 
 Install the appropriate extra before using a platform loader, including its native-export loader.
 Credentials below are for live platform access; offline loading does not need platform credentials,
@@ -63,9 +67,13 @@ Relative input and export paths resolve from the directory where `insight-agent`
 For canonical JSONL with one serialized `Trace` per line:
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
   filesystem:
     path: traces.jsonl
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
 No platform extra or credentials are required. Records must follow the public
@@ -86,18 +94,23 @@ export LANGSMITH_API_KEY=<langsmith-api-key>
 Configure the LangSmith project and an optional lower time bound:
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
   max_traces: 100
   langsmith:
-    project: customer-support-agent
+    project: my-agent
     api_url: https://api.smith.langchain.com
     start_time: 2026-09-01T00:00:00Z
-    filter: 'eq(status, "error")'
-    tree_filter: 'eq(run_type, "tool")'
+    # filter: 'eq(status, "error")'
+    # tree_filter: 'eq(run_type, "tool")'
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
 `filter` applies to root Runs. `tree_filter` selects a complete trace when any Run in its tree
-matches. The example therefore selects failed roots whose trees contain a tool Run. See
+matches. Uncommenting both filters selects failed roots whose trees contain a tool Run. See
 LangSmith's [trace query guide](https://docs.langchain.com/langsmith/export-traces) for the query
 syntax.
 
@@ -131,16 +144,21 @@ The LangSmith CLI is separate from the Python SDK installed by the `langsmith` e
 
 ```bash
 langsmith trace export exports/langsmith \
-  --project customer-support-agent --limit 100 --full
+  --project my-agent --limit 100 --full
 ```
 
 Then select the exported `.jsonl` file or its containing directory:
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
   max_traces: 100
   langsmith_trace_export_file:
     path: exports/langsmith
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
 The loader reads all immediate `.jsonl` files in a directory, validates the complete export, and
@@ -171,15 +189,19 @@ Select a required, timezone-aware trace window. The lower bound is inclusive and
 is exclusive:
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
   max_traces: 100
   langfuse:
     base_url: https://langfuse.example.com
-    from_timestamp: 2026-08-01T00:00:00Z
-    to_timestamp: 2026-08-02T00:00:00Z
-    # Optional Langfuse advanced filter, encoded as a JSON array.
-    filter: >-
-      [{"type":"string","column":"environment","operator":"=","value":"production"}]
+    from_timestamp: 2026-09-01T00:00:00Z
+    to_timestamp: 2026-09-02T00:00:00Z
+    # filter: >-
+    #   [{"type":"string","column":"environment","operator":"=","value":"production"}]
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
 Langfuse API keys identify the project, so there is no project field:
@@ -245,10 +267,15 @@ PY
 Analyze the export without Langfuse credentials or requests to Langfuse:
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
   max_traces: 100
   langfuse_export:
     path: langfuse-traces.jsonl
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
 The loader also accepts raw v3 `GET /api/public/traces/{id}` bodies, Langfuse CLI response
@@ -287,12 +314,17 @@ uv sync --locked --extra mlflow
 Select the experiment by name and optionally narrow it with an MLflow trace filter:
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
-  max_traces: 500
+  max_traces: 100
   mlflow_experiment:
-    experiment: customer-support-agent
-    tracking_uri: https://mlflow.example
-    filter: "trace.status = 'ERROR'"
+    experiment: my-agent
+    tracking_uri: https://mlflow.example.com
+    # filter: "trace.status = 'ERROR'"
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
 The corresponding CLI fields are `--trace.mlflow-experiment.experiment`,
@@ -319,16 +351,21 @@ Export complete traces, including spans, with the MLflow CLI:
 
 ```bash
 uv run mlflow traces search \
-  --experiment-id <experiment-id> --max-results 500 --output json > mlflow-traces.json
+  --experiment-id <experiment-id> --max-results 100 --output json > mlflow-traces.json
 ```
 
 Then select the native export:
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
-  max_traces: 500
+  max_traces: 100
   mlflow_export:
     path: mlflow-traces.json
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
 The loader also accepts `mlflow traces get` output, `Trace.to_json()` or `Trace.to_dict()` output,
@@ -375,22 +412,28 @@ export NMP_ACCESS_TOKEN="$(nemo auth token)"
 Select a bounded NeMo Platform Intake query using the shared trace limit:
 
 ```yaml
+# trace-analyst-config.yaml
 trace:
-  max_traces: 500
+  max_traces: 100
   intake:
     base_url: https://platform.example.com
-    workspace: example-workspace
+    workspace: my-workspace
     # page_size: 100
     # timeout_seconds: 30.0
     query:
-      started_at_gte: 2026-08-28T00:00:00Z
-      started_at_lte: 2026-08-29T00:00:00Z
-      sort: -started_at
-      # agent_name: customer-support-agent
-      # evaluation_name: support-evaluation
-      # test_case_name: refund-request
+      # Both bounds are required. Select a UTC window containing your traces.
+      started_at_gte: 2026-09-01T00:00:00Z
+      started_at_lte: 2026-09-02T00:00:00Z
+      # agent_name: my-agent
+      # evaluation_name: my-evaluation
+      # test_case_name: my-test-case
       # session_id: my-session
-      # status: error
+      # status: error  # success, error, cancelled, or unknown.
+      # max_traces: 100  # trace.max_traces takes precedence when set.
+      # sort: started_at  # Or -started_at for newest first.
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
 ```
 
 Use `--trace.max-traces` to override the shared limit from the CLI. An explicit
