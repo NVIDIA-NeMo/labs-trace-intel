@@ -116,14 +116,8 @@ a name, description, and the trace references that support it.
 ## Analyze your own traces
 
 The Analyst can read live projects or native exports from LangSmith, Langfuse, and MLflow. Every
-source is normalized before the same evidence streams run. First set the model credential used to
-produce the final insights:
-
-```bash
-export INSIGHT_AGENT_API_KEY=<model-provider-api-key>
-```
-
-Then choose one integration below. Each YAML snippet is a complete `insight-analyst.yaml` file;
+source is normalized before the same evidence streams run. Choose one integration below. Each YAML
+snippet is a complete `insight-analyst.yaml` file;
 replace the example project, endpoint, and time range with your own values.
 
 ### LangSmith
@@ -138,8 +132,8 @@ trace:
   max_traces: 100
   langsmith:
     project: my-agent
+    api_url: https://api.smith.langchain.com
     start_time: 2026-09-01T00:00:00Z
-output_path: insights.yml
 evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
@@ -149,8 +143,8 @@ evidence_streams:
 uv run --no-sync insight-agent --config insight-analyst.yaml
 ```
 
-See [LangSmith configuration](docs/configuration.md#langsmith) for filters, self-hosted endpoints,
-workspace selection, native exports, and supported versions.
+See [LangSmith configuration](docs/configuration.md#langsmith) for filters, workspace selection,
+native exports, and supported versions.
 
 ### Langfuse
 
@@ -167,7 +161,6 @@ trace:
   langfuse:
     from_timestamp: 2026-09-01T00:00:00Z
     to_timestamp: 2026-09-02T00:00:00Z
-output_path: insights.yml
 evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
@@ -186,6 +179,11 @@ exports, tool catalogs, and the currently supported v3 server and SDK versions.
 ```bash
 uv sync --locked --extra mlflow
 export MLFLOW_TRACKING_URI=https://mlflow.example.com
+# Optional HTTP Basic authentication:
+# export MLFLOW_TRACKING_USERNAME=<username>
+# export MLFLOW_TRACKING_PASSWORD=<password>
+# Optional bearer authentication instead:
+# export MLFLOW_TRACKING_TOKEN=<token>
 ```
 
 ```yaml
@@ -193,7 +191,6 @@ trace:
   max_traces: 100
   mlflow_experiment:
     experiment: my-agent
-output_path: insights.yml
 evidence_streams:
   anomaly_and_patterns: {}
   tool_issues: {}
@@ -206,9 +203,18 @@ uv run --no-sync insight-agent --config insight-analyst.yaml
 See [MLflow configuration](docs/configuration.md#mlflow) for authentication, search filters,
 pagination limits, and native exports.
 
-### Canonical JSONL
+### Other platforms
 
-For an already normalized file containing one serialized `Trace` per line:
+Other trace platforms can be analyzed after an adapter maps their data to the public
+[`Trace`](src/insight_agent/traces.py) model. The Analyst does not currently export its normalized
+snapshot, so this JSONL is produced by the adapter itself, with one complete trace per line. A
+minimal record looks like this:
+
+```json
+{"id":"trace-1","root_spans":[{"id":"span-1","kind":"LLM","input":{"prompt":"Hello"},"output":{"response":"Hi"}}],"aggregate":{}}
+```
+
+Run the Analyst on the resulting file:
 
 ```bash
 uv sync --locked
