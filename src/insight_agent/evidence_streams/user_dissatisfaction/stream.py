@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Extract user messages, screen locally, and group supported complaints with NeMo OO."""
+"""Extract user messages, classify Qwen embeddings, and group complaints with NeMo OO."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from insight_agent.evidence_streams.user_dissatisfaction.classifier import (
     ScreeningResult,
 )
 from insight_agent.evidence_streams.user_embedding.embedding import (
+    LiteLLMEmbeddingConfig,
     UserEmbeddingGenerator,
     validate_embedding_dependencies,
 )
@@ -115,29 +116,29 @@ class TraceScreeningResult(BaseModel):
         return any(r.label == "complaint" for r in self.message_results)
 
 
-def screen_message(
-    text: str, embedding_generator: UserEmbeddingGenerator, classifier: ComplaintClassifier
-) -> ScreeningResult:
-    """Generate a reusable embedding, then classify it without conversation context."""
-    if not text[:20000].strip():
-        return ScreeningResult(label="no_user_messages")
-    try:
-        embedding = embedding_generator.generate(text)
-        return classifier.classify(embedding)
-    except Exception:
-        return ScreeningResult(label="no_complaint")
-
-
 def screen_user_messages(
     user_messages: dict[str, list[str]],
     embedding_generator: UserEmbeddingGenerator,
     classifier: ComplaintClassifier,
 ) -> dict[str, TraceScreeningResult]:
     """Classify every message separately; later turns cannot clear an earlier flag."""
+    embeddings = iter(
+        embedding_generator.generate_batch(
+            [
+                text
+                for messages in user_messages.values()
+                for text in messages
+                if text[:20000].strip()
+            ]
+        )
+    )
     return {
         trace_id: TraceScreeningResult(
             message_results=[
-                screen_message(text, embedding_generator, classifier) for text in messages
+                classifier.classify(next(embeddings))
+                if text[:20000].strip()
+                else ScreeningResult(label="no_user_messages")
+                for text in messages
             ]
         )
         for trace_id, messages in user_messages.items()
@@ -148,6 +149,10 @@ class UserDissatisfactionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     device: str | None = Field(default=None, description="PyTorch device; auto-detected by default")
+    litellm: LiteLLMEmbeddingConfig | None = Field(
+        default=None,
+        description="Use remote Qwen3-Embedding-8B embeddings instead of local weights",
+    )
 
 
 class UserDissatisfactionEvidenceStream:
@@ -158,11 +163,12 @@ class UserDissatisfactionEvidenceStream:
         self.llm = llm
 
     def validate_configuration(self) -> None:
-        validate_embedding_dependencies()
+        if self.config.litellm is None:
+            validate_embedding_dependencies()
 
     @cached_property
     def embedding_generator(self) -> UserEmbeddingGenerator:
-        return UserEmbeddingGenerator(self.config.device)
+        return UserEmbeddingGenerator(self.config.device, self.config.litellm)
 
     @cached_property
     def classifier(self) -> ComplaintClassifier:

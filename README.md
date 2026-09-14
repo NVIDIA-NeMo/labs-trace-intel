@@ -67,25 +67,11 @@ Install its optional encoder dependencies along with the supplied wheel:
 uv pip install './insight_agent-0.1.0rc1-py3-none-any.whl[dissatisfaction]'
 ```
 
-Use the classifier through its Python API:
+Embeddings run locally by default, or remotely through [LiteLLM configuration](docs/configuration.md).
+Both paths require **`Qwen/Qwen3-Embedding-8B` (4,096 dimensions)**, the specific
+model used to train the bundled projection and classifier.
 
-```python
-from insight_agent.evidence_streams.user_embedding.embedding import UserEmbeddingGenerator
-from insight_agent.evidence_streams.user_dissatisfaction.classifier import ComplaintClassifier
-
-generator = UserEmbeddingGenerator()
-classifier = ComplaintClassifier(generator.projection)
-embedding = generator.generate("You ignored my instructions again.")
-result = classifier.classify(embedding)
-print(result.model_dump_json(indent=2))
-```
-
-Other detectors can reuse `embedding.data` (132 bytes) or call
-`generator.projection.decompress(embedding.data)` for its 256 reconstructed PCA features.
-The pinned encoder instruction and trained PCA remain complaint-oriented; reuse for
-other tasks needs separate quality validation.
-
-The first classification downloads the pinned Qwen3-Embedding-8B encoder weights
+The first local classification downloads the pinned Qwen3-Embedding-8B encoder weights
 (about 16 GB) from Hugging Face. Later runs reuse the Hugging Face cache. No inference
 server is required; PyTorch selects CUDA, Apple MPS, or CPU. The encoder weights are
 separate from the small trained classifier bundled in the wheel.

@@ -122,7 +122,7 @@ def _resolve_license(licenses: list[str], override: str | None) -> str | None:
 def _license_records(osv_path: Path) -> list[LicenseRecord]:
     raw = json.loads(osv_path.read_text(encoding="utf-8"))
     overrides = _load_overrides()
-    records: dict[str, LicenseRecord] = {}
+    records: dict[tuple[str, str], LicenseRecord] = {}
     unresolved = []
     used_overrides = set()
     standard_texts = {path.stem.upper(): path for path in LICENSE_TEXTS_PATH.glob("*.txt")}
@@ -147,7 +147,7 @@ def _license_records(osv_path: Path) -> list[LicenseRecord]:
             missing = identifiers - standard_texts.keys()
             if missing:
                 raise RuntimeError("Add shared license texts for: " + ", ".join(sorted(missing)))
-            records[key] = {
+            records[key, package["version"]] = {
                 "name": name,
                 "version": package["version"],
                 "license": license_name,

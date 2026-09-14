@@ -490,21 +490,43 @@ uv run insight-agent \
   --evidence-streams.ethos-divergence.ethos-path /path/to/ethos.md
 ```
 
-User dissatisfaction builds an executable user-message extraction recipe with NeMo OO, screens each
-message with pretrained Qwen3-Embedding-8B → PCA256 → four-bit MSE TurboQuant →
-logistic regression, and uses the hosted issue detector to verify and group
-complaints. A complaint means explicit user anger or criticism of the agent's
-system, responses, behavior, tools, or work. Install the optional encoder dependencies:
+User sentiment detects conversations where the user was frustrated with the
+agent. It uses off-the-shelf Qwen3-Embedding-8B model, and a lightweight,
+trained layer on top:
 
+> PCA256 → four-bit MSE TurboQuant → logistic regression
+
+Messages flagged by the sentiment detection issue are escalated and may be
+converted into insights when appropriate. The embedding model can run locally or
+through LiteLLM. The lightweight trained layer always runs locally, and is fast
+to run on CPU.
+
+To run the embedding model locally, install the local-embedding extra:
 ```bash
-uv sync --extra dissatisfaction
+uv sync --extra local-embedding
 uv run --extra dissatisfaction insight-agent --config examples/trace-analyst-config.yaml
 ```
 
 ```yaml
 evidence_streams:
-  user_dissatisfaction: {}
+  user_sentiment: {}
 ```
+
+Alternatively, you can use use LiteLLM to generate the embeddings:
+
+```yaml
+evidence_streams:
+  user_sentiment:
+    litellm:
+      model: openai/nvidia/qwen/qwen3-embedding-8b
+      api_base: https://inference-api.nvidia.com/v1
+      api_key_env: INFERENCE_API_KEY
+```
+
+Set the endpoint, model alias, and key environment variable for your provider.
+It **must serve `Qwen/Qwen3-Embedding-8B` with 4,096-dimensional output**: the
+bundled projection and classifier were trained on this specific model. Other
+Qwen sizes or embedding models are not interchangeable.
 
 Run `uv run insight-agent --help` to see the generated options and configurable
 stream settings.

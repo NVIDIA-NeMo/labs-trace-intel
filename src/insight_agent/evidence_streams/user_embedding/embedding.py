@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from functools import cached_property
 from importlib.resources import files
@@ -12,6 +13,10 @@ from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
 import numpy as np
+from pydantic import BaseModel, ConfigDict, Field
+from tokenizers import Tokenizer
+
+_BATCH_SIZE = 100
 
 if TYPE_CHECKING:
     from transformers import (  # ty: ignore[unresolved-import] -- Optional encoder extra.
@@ -77,12 +82,30 @@ def validate_embedding_dependencies() -> None:
         )
 
 
-class UserEmbeddingGenerator:
-    """Encode user text locally; the pinned instruction remains complaint-oriented."""
+class LiteLLMEmbeddingConfig(BaseModel):
+    """Remote endpoint serving Qwen/Qwen3-Embedding-8B with 4096 dimensions."""
 
-    def __init__(self, device: str | None = None) -> None:
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = Field(min_length=1, description="LiteLLM model alias for Qwen/Qwen3-Embedding-8B")
+    api_base: str | None = None
+    api_key_env: str | None = Field(default=None, description="API key environment variable")
+
+
+class UserEmbeddingGenerator:
+    """Encode locally or through LiteLLM using the pinned Qwen instruction."""
+
+    def __init__(
+        self, device: str | None = None, litellm: LiteLLMEmbeddingConfig | None = None
+    ) -> None:
         self.device = device
+        self.litellm = litellm
         self.projection = UserEmbeddingProjection()
+
+    @cached_property
+    def remote_tokenizer(self) -> Tokenizer:
+        encoder = self.projection.metadata["encoder"]
+        return Tokenizer.from_pretrained(encoder["model"], revision=encoder["revision"])
 
     @cached_property
     def tokenizer(self) -> PreTrainedTokenizerBase:
@@ -149,10 +172,55 @@ class UserEmbeddingGenerator:
             hidden = self.model(**tokens.to(self.model.device)).last_hidden_state
             return torch.nn.functional.normalize(hidden[:, -1].float(), dim=-1)[0].cpu().numpy()
 
-    def generate(self, text: str) -> UserEmbedding:
-        """Encode the first 20,000 characters; propagate failures to the caller."""
-        text = text[:20000]
-        return UserEmbedding(
-            data=self.projection.compress(self.embed(text)),
-            token_count=self.token_count(text),
-        )
+    def generate_local(self, texts: list[str]) -> list[UserEmbedding]:
+        """Encode locally, preserving the per-message character limit."""
+        return [
+            UserEmbedding(
+                data=self.projection.compress(self.embed(text[:20000])),
+                token_count=self.token_count(text[:20000]),
+            )
+            for text in texts
+        ]
+
+    def generate_remote(self, texts: list[str]) -> list[UserEmbedding]:
+        """Encode through LiteLLM in fixed-size batches."""
+        from litellm import embedding
+
+        config = self.litellm
+        if config is None:
+            raise ValueError("Remote embeddings require LiteLLM configuration")
+        api_key = os.environ[config.api_key_env] if config.api_key_env else None
+        results = []
+        for start in range(0, len(texts), _BATCH_SIZE):
+            inputs = [
+                self.projection.metadata["encoder"]["prefix"] + text[:20000]
+                for text in texts[start : start + _BATCH_SIZE]
+            ]
+            counts = [len(tokens.ids) for tokens in self.remote_tokenizer.encode_batch(inputs)]
+            if any(count > self.projection.metadata["max_tokens"] for count in counts):
+                raise ValueError(
+                    "User message exceeds the 8192-token budget; input was not truncated"
+                )
+            response = embedding(
+                model=config.model,
+                api_base=config.api_base,
+                api_key=api_key,
+                input=inputs,
+                encoding_format="float",
+            )
+            rows = sorted(response.data, key=lambda row: row["index"])
+            if [row["index"] for row in rows] != list(range(len(inputs))):
+                raise ValueError("Embedding response must contain one vector per input")
+            for row, count in zip(rows, counts, strict=True):
+                vector = np.asarray(row["embedding"], dtype="float32")
+                norm = np.linalg.norm(vector)
+                if not np.isfinite(norm) or norm == 0:
+                    raise ValueError("Embedding response must contain finite, nonzero vectors")
+                results.append(UserEmbedding(self.projection.compress(vector / norm), count))
+        return results
+
+    def generate_batch(self, texts: list[str]) -> list[UserEmbedding]:
+        """Batch remote requests while preserving input order and local token limits."""
+        if self.litellm is None:
+            return self.generate_local(texts)
+        return self.generate_remote(texts)
