@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -92,6 +91,7 @@ def _build_agent(
         async def find_problems(self, index: list[dict[str, object]]) -> _EvalFailureReport:  # ty: ignore[empty-body] -- Nooa implements the ellipsis method.
             """Find recurring Problems linked to recorded evaluation signals.
 
+            Group the same failure across traces, not merely matching scores.
             Fetch every supporting trace. Describe the observed failure behavior and the
             relevant evaluator names and values in each Problem's description. Distinguish
             observed associations from proven causes. Call return_result when done.
@@ -112,19 +112,16 @@ class EvalFailurePatternsEvidenceStream:
         if not isinstance(self.config, EvalFailurePatternsConfig):
             raise TypeError("eval-failure-patterns requires EvalFailurePatternsConfig")
 
-    def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        async def run() -> _EvalFailureReport:
-            async with self.llm:
-                if not any(
-                    value is not None
-                    for trace in snapshot
-                    for value in trace.evaluator_results.values()
-                ):
-                    raise ValueError("eval-failure-patterns requires Trace.evaluator_results")
-                agent = _build_agent(snapshot, self.llm, self.config)
-                return await agent.find_problems(_trace_index(snapshot))
-
-        report = asyncio.run(run())
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        async with self.llm:
+            if not any(
+                value is not None
+                for trace in snapshot
+                for value in trace.evaluator_results.values()
+            ):
+                raise ValueError("eval-failure-patterns requires Trace.evaluator_results")
+            agent = _build_agent(snapshot, self.llm, self.config)
+            report = await agent.find_problems(_trace_index(snapshot))
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=report.problems,

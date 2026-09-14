@@ -48,7 +48,8 @@ description. Distinguish a stated complaint from an inferred cause, and do not
 invent a cause when the user does not explain it. Return an empty list when none
 of the candidates supports dissatisfaction.
 
-A problem must occur in multiple conversations to be worthy of reporting.
+Report a problem only when at least two distinct traces show separate
+occurrences of the same complaint; copied conversation history does not count.
 """
 
 
@@ -174,12 +175,9 @@ class UserSentimentEvidenceStream:
     def classifier(self) -> ComplaintClassifier:
         return ComplaintClassifier(self.embedding_generator.projection)
 
-    def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        async def run() -> EvidenceStreamResult:
-            async with self.llm:
-                return await self._analyze(snapshot)
-
-        return asyncio.run(run())
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        async with self.llm:
+            return await self._analyze(snapshot)
 
     async def _analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         messages = {}
@@ -190,7 +188,9 @@ class UserSentimentEvidenceStream:
         if messages.keys() != snapshot.traces_by_id.keys():
             raise ValueError("User message extraction must cover exactly the supplied trace IDs")
         screening = (
-            screen_user_messages(messages, self.embedding_generator, self.classifier)
+            await asyncio.to_thread(
+                screen_user_messages, messages, self.embedding_generator, self.classifier
+            )
             if any(messages.values())
             else {trace_id: TraceScreeningResult() for trace_id in messages}
         )

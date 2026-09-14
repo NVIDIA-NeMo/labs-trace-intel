@@ -46,7 +46,9 @@ class InsightCompilation(Agent):
         recovered by an agent -- for example sometimes an agent will call a
         coding tool that fails, but then go on to recover. There's not anything
         we can do about this issue! And it's OK. Experts do this too. You can
-        validate by examining the referenced traces.
+        validate by examining the referenced traces. Every new insight we create
+        must have more than one trace that supports it. We want to identify
+        problems that are broader in scope than a one-off.
 
         Fetch supporting traces one at a time with
         trace_snapshot.get_trace_by_id(trace_id).

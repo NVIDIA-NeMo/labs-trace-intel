@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from insight_agent.evidence_streams.evidence_streams import EvidenceStream, EvidenceStreamResult
 from insight_agent.traces import TraceSnapshot
 
@@ -32,7 +34,7 @@ class EvidenceStreamRegistry:
         stream.validate_configuration()
         self._streams[name] = stream
 
-    def analyze(self, name: str, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+    async def analyze(self, name: str, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         try:
             stream = self._streams[name]
         except KeyError as exc:
@@ -40,13 +42,15 @@ class EvidenceStreamRegistry:
             raise KeyError(
                 f"evidence stream {name!r} is not registered; available: {available}"
             ) from exc
-        result = stream.analyze(snapshot)
+        result = await stream.analyze(snapshot)
         if result.stream_name != name:
             raise ValueError(f"evidence stream {name!r} returned result for {result.stream_name!r}")
         return result
 
-    def analyze_all(self, snapshot: TraceSnapshot) -> tuple[EvidenceStreamResult, ...]:
-        return tuple(self.analyze(name, snapshot) for name in self._streams)
+    async def analyze_all(self, snapshot: TraceSnapshot) -> tuple[EvidenceStreamResult, ...]:
+        return tuple(
+            await asyncio.gather(*(self.analyze(name, snapshot) for name in self._streams))
+        )
 
 
 __all__ = ["EvidenceStreamRegistry"]

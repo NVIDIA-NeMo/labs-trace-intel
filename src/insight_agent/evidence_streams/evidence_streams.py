@@ -32,7 +32,7 @@ class EvidenceStream(Protocol):
     def validate_configuration(self) -> None:
         """Raise when the stream cannot run with its current configuration."""
 
-    def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult: ...
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult: ...
 
 
 __all__ = ["EvidenceStream", "EvidenceStreamResult", "Problem"]

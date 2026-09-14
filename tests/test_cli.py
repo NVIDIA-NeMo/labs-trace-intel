@@ -3,7 +3,6 @@
 
 import asyncio
 import json
-import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -12,6 +11,7 @@ from nooa.unifiedllm import FakeLLMClient
 import insight_agent.cli.main as cli
 from insight_agent.config import EvidenceStreamsConfig
 from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult, Problem
+from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
 from insight_agent.insight import Insight, load_insights
 from insight_agent.traces import Trace, TraceAggregate, TraceSnapshot
 
@@ -106,15 +106,15 @@ def test_code_validation_filters_problems_and_preserves_stream_result(
 
 
 def test_evidence_progress_reports_findings_as_streams_finish(monkeypatch):
-    release_slow_stream = threading.Event()
+    release_slow_stream = asyncio.Event()
 
     class FakeRegistry:
         names = ("slow-stream", "fast-stream")
 
-        def analyze(self, name, snapshot):
+        async def analyze(self, name, snapshot):
             assert snapshot.trace_count == 0
             if name == "slow-stream":
-                assert release_slow_stream.wait(timeout=1)
+                await asyncio.wait_for(release_slow_stream.wait(), timeout=1)
             else:
                 release_slow_stream.set()
             return EvidenceStreamResult(
@@ -143,3 +143,35 @@ def test_evidence_progress_reports_findings_as_streams_finish(monkeypatch):
         'Evidence stream "slow stream" found 1 candidate problem (2/2 complete).',
         "  Candidate: slow-stream found a recurring issue.",
     ]
+
+
+def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
+    async def run():
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        registry = EvidenceStreamRegistry()
+
+        class Stream:
+            def __init__(self, name):
+                self.name = name
+
+            def validate_configuration(self):
+                pass
+
+            async def analyze(self, snapshot):
+                assert asyncio.get_running_loop() is loop
+                if self.name == "first":
+                    await asyncio.wait_for(started.wait(), timeout=1)
+                else:
+                    started.set()
+                return EvidenceStreamResult(stream_name=self.name, problems=())
+
+        for stream in (Stream("first"), Stream("second")):
+            registry.register(stream)
+        monkeypatch.setattr(cli, "registered_builtin_streams", lambda **kwargs: registry)
+        results = await cli._run_evidence_streams(
+            EvidenceStreamsConfig(tool_issues={}), TraceSnapshot([])
+        )
+        assert [result.stream_name for result in results] == ["first", "second"]
+
+    asyncio.run(run())

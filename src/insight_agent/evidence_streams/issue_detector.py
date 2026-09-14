@@ -35,6 +35,7 @@ class IssueDetector(Agent):
         Make sure not to overstate the impact of the issue you suspect. You do not have a full view of all traces, so do not claim that 'all' traces encounter an issue, for example.
 
         Include exact supporting trace IDs from the supplied snapshot. Every
-        cited invocation must support the specific problem being reported.
+        cited invocation must support the specific problem being reported. Group
+        occurrences of the same issue; copied history is not a new occurrence.
         """
         ...

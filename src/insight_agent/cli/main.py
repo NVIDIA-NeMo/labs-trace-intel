@@ -144,7 +144,7 @@ async def _run_evidence_streams(
     )
 
     async def analyze(name: str) -> tuple[str, EvidenceStreamResult]:
-        result = await asyncio.to_thread(registry.analyze, name, snapshot)
+        result = await registry.analyze(name, snapshot)
         return name, result
 
     completed: dict[str, EvidenceStreamResult] = {}
