@@ -21,6 +21,7 @@ from insight_agent.evidence_streams.ethos_divergence.ethos_divergence_detector i
 from insight_agent.evidence_streams.eval_failure_patterns import EvalFailurePatternsConfig
 from insight_agent.evidence_streams.tool_issues.stream import ToolIssueConfig
 from insight_agent.evidence_streams.user_sentiment.stream import UserSentimentConfig
+from insight_agent.trace_loaders.atif import ATIFTraceConfig
 from insight_agent.trace_loaders.intake import IntakeTraceLoaderConfig
 from insight_agent.trace_loaders.langfuse import validate_langfuse_time_window
 
@@ -131,6 +132,10 @@ class TraceConfig(ConfigModel):
         default=None,
         description="Canonical JSONL filesystem loader",
     )
+    atif: ATIFTraceConfig | None = Field(
+        default=None,
+        description="ATIF trajectory JSONL loader",
+    )
     mlflow_experiment: MLflowExperimentConfig | None = Field(
         default=None,
         description="Live MLflow experiment loader",
@@ -166,6 +171,7 @@ class TraceConfig(ConfigModel):
             source is not None
             for source in (
                 self.filesystem,
+                self.atif,
                 self.mlflow_experiment,
                 self.mlflow_export,
                 self.intake,
@@ -179,6 +185,8 @@ class TraceConfig(ConfigModel):
             raise ValueError("trace must configure exactly one loader")
         if self.filesystem is not None and self.max_traces is not None:
             raise ValueError("trace.max_traces is not supported by the filesystem loader")
+        if self.atif is not None and self.max_traces is not None:
+            raise ValueError("trace.max_traces is not supported by the ATIF loader")
         return self
 
 
