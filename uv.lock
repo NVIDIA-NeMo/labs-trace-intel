@@ -703,16 +703,16 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-dissatisfaction = [
-    { name = "torch", version = "2.13.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
-    { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
-    { name = "transformers" },
-]
 langfuse = [
     { name = "langfuse" },
 ]
 langsmith = [
     { name = "langsmith" },
+]
+local-embedding = [
+    { name = "torch", version = "2.13.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
+    { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
+    { name = "transformers" },
 ]
 mlflow = [
     { name = "mlflow-skinny" },
@@ -744,11 +744,11 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "scikit-learn", specifier = ">=1.4,<2" },
     { name = "tokenizers", specifier = ">=0.21,<1" },
-    { name = "torch", marker = "sys_platform == 'darwin' and extra == 'dissatisfaction'", specifier = "==2.13.0" },
-    { name = "torch", marker = "sys_platform != 'darwin' and extra == 'dissatisfaction'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "transformers", marker = "extra == 'dissatisfaction'", specifier = "==5.16.1" },
+    { name = "torch", marker = "sys_platform == 'darwin' and extra == 'local-embedding'", specifier = "==2.13.0" },
+    { name = "torch", marker = "sys_platform != 'darwin' and extra == 'local-embedding'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "transformers", marker = "extra == 'local-embedding'", specifier = "==5.16.1" },
 ]
-provides-extras = ["langsmith", "mlflow", "dissatisfaction", "langfuse"]
+provides-extras = ["langsmith", "mlflow", "local-embedding", "langfuse"]
 
 [package.metadata.requires-dev]
 dev = [

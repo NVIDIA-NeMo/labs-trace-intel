@@ -15,18 +15,18 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, computed_field
 
 from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult
 from insight_agent.evidence_streams.issue_detector import IssueDetector
-from insight_agent.evidence_streams.user_dissatisfaction.classifier import (
-    ComplaintClassifier,
-    ScreeningResult,
-)
 from insight_agent.evidence_streams.user_embedding.embedding import (
     LiteLLMEmbeddingConfig,
     UserEmbeddingGenerator,
     validate_embedding_dependencies,
 )
+from insight_agent.evidence_streams.user_sentiment.classifier import (
+    ComplaintClassifier,
+    ScreeningResult,
+)
 from insight_agent.traces import TraceSnapshot
 
-USER_DISSATISFACTION = """
+USER_SENTIMENT = """
 Identify explicit user anger or criticism of the agent system, its responses,
 behavior, tools, or work in the supplied user messages. Each message is screened
 independently; any complaint flags its trace. Screening scores are candidates,
@@ -145,7 +145,7 @@ def screen_user_messages(
     }
 
 
-class UserDissatisfactionConfig(BaseModel):
+class UserSentimentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     device: str | None = Field(default=None, description="PyTorch device; auto-detected by default")
@@ -155,10 +155,10 @@ class UserDissatisfactionConfig(BaseModel):
     )
 
 
-class UserDissatisfactionEvidenceStream:
-    name = "user-dissatisfaction"
+class UserSentimentEvidenceStream:
+    name = "user-sentiment"
 
-    def __init__(self, config: UserDissatisfactionConfig, llm: UnifiedLLM) -> None:
+    def __init__(self, config: UserSentimentConfig, llm: UnifiedLLM) -> None:
         self.config = config
         self.llm = llm
 
@@ -201,14 +201,12 @@ class UserDissatisfactionEvidenceStream:
         if candidates:
             problems = await IssueDetector(llm=self.llm).detect_issues(
                 TraceSnapshot(snapshot.get_trace_by_id(trace_id) for trace_id in candidates),
-                USER_DISSATISFACTION,
+                USER_SENTIMENT,
                 user_messages=candidates,
                 screening={trace_id: screening[trace_id] for trace_id in candidates},
             )
             if any(set(problem.supporting_trace_ids) - candidates.keys() for problem in problems):
-                raise ValueError(
-                    "Dissatisfaction findings must cite only supplied candidate traces"
-                )
+                raise ValueError("User sentiment findings must cite only supplied candidate traces")
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=tuple(problems),

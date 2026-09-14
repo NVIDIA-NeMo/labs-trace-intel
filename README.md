@@ -64,7 +64,7 @@ The wheel includes the trained projection and classification head (about 4 MB).
 Install its optional encoder dependencies along with the supplied wheel:
 
 ```bash
-uv pip install './insight_agent-0.1.0rc1-py3-none-any.whl[dissatisfaction]'
+uv pip install './insight_agent-0.1.0rc1-py3-none-any.whl[local-embedding]'
 ```
 
 Embeddings run locally by default, or remotely through [LiteLLM configuration](docs/configuration.md).

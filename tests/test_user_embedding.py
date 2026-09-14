@@ -6,12 +6,12 @@ import pytest
 from litellm import EmbeddingResponse
 from tokenizers import Tokenizer, models, pre_tokenizers
 
-from insight_agent.evidence_streams.user_dissatisfaction.classifier import ComplaintClassifier
-from insight_agent.evidence_streams.user_dissatisfaction.stream import screen_user_messages
 from insight_agent.evidence_streams.user_embedding.embedding import (
     LiteLLMEmbeddingConfig,
     UserEmbeddingGenerator,
 )
+from insight_agent.evidence_streams.user_sentiment.classifier import ComplaintClassifier
+from insight_agent.evidence_streams.user_sentiment.stream import screen_user_messages
 
 
 def test_local_batch_preserves_character_limit(monkeypatch):

@@ -504,7 +504,7 @@ to run on CPU.
 To run the embedding model locally, install the local-embedding extra:
 ```bash
 uv sync --extra local-embedding
-uv run --extra dissatisfaction insight-agent --config examples/trace-analyst-config.yaml
+uv run --extra local-embedding insight-agent --config examples/trace-analyst-config.yaml
 ```
 
 ```yaml
