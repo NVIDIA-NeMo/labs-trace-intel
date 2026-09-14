@@ -12,7 +12,6 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
-from itertools import islice
 from pathlib import Path
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
@@ -46,7 +45,6 @@ class ATIFTraceConfig(BaseModel):
 
 class ATIFTraceDescription(TraceDescription):
     path: str
-    max_traces: int | None
 
 
 # Validate source dictionaries without filling absent fields or discarding extensions.
@@ -315,13 +313,6 @@ class ATIFTraceLoader:
     """Stream complete ATIF trajectories into a disk-backed canonical snapshot."""
 
     config: ATIFTraceConfig
-    max_traces: int | None = None
-
-    def __post_init__(self) -> None:
-        if self.max_traces is not None and (
-            type(self.max_traces) is not int or self.max_traces < 1
-        ):
-            raise ValueError("max_traces must be a positive integer")
 
     @cached_property
     def _loaded(self) -> tuple[TraceSnapshot, ATIFTraceDescription]:
@@ -332,8 +323,9 @@ class ATIFTraceLoader:
         def traces() -> Iterator[Trace]:
             nonlocal _line_number, call_count
             with path.open("rb") as corpus:
-                lines = ((number, raw) for number, raw in enumerate(corpus, 1) if raw.strip())
-                for _line_number, raw in islice(lines, self.max_traces):
+                for _line_number, raw in enumerate(corpus, 1):
+                    if not raw.strip():
+                        continue
                     trace = _normalize(_ATIF.validate_json(raw))
                     pending = list(trace.root_spans)
                     while pending:
@@ -352,7 +344,6 @@ class ATIFTraceLoader:
         return snapshot, ATIFTraceDescription(
             source=f"atif:{path.resolve()}",
             path=str(path.resolve()),
-            max_traces=self.max_traces,
             trace_count=len(snapshot),
             call_count=call_count,
             distinct_logical_cases=len(cases),

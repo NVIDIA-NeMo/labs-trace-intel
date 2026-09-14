@@ -93,6 +93,7 @@ trace:
 ```
 
 The file must contain one complete ATIF trajectory object per nonblank line.
+The loader reads the entire file.
 
 ### LangSmith
 

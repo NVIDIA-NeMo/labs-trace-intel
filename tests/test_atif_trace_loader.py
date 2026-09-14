@@ -29,10 +29,10 @@ def minimal():
     }
 
 
-def loader_for(tmp_path, *records, max_traces=None):
+def loader_for(tmp_path, *records):
     path = tmp_path / "traces.jsonl"
     path.write_text("\n" + "\n\n".join(json.dumps(row) for row in records) + "\n")
-    return ATIFTraceLoader(ATIFTraceConfig(path=path), max_traces=max_traces)
+    return ATIFTraceLoader(ATIFTraceConfig(path=path))
 
 
 def test_exact_normalization_and_description(tmp_path):
@@ -66,7 +66,6 @@ def test_exact_normalization_and_description(tmp_path):
     assert loader.describe() == {
         "source": f"atif:{loader.config.path.resolve()}",
         "path": str(loader.config.path.resolve()),
-        "max_traces": None,
         "trace_count": 1,
         "call_count": 0,
         "distinct_logical_cases": 1,
@@ -253,15 +252,10 @@ def test_invalid_relationships(tmp_path, case, match):
         loader_for(tmp_path, source).load()
 
 
-def test_limit_duplicates_and_shared_sessions(tmp_path):
+def test_loads_all_records_and_rejects_duplicates(tmp_path):
     source = minimal()
     with pytest.raises(ATIFTraceLoadError, match="duplicate trace id"):
         loader_for(tmp_path, source, source).load()
-    loader = loader_for(tmp_path, source, source, max_traces=1)
-    with loader.config.path.open("a") as output:
-        output.write("not json\n")
-    assert loader.describe()["trace_count"] == 1
-    assert loader.describe()["max_traces"] == 1
     second = {**source, "trajectory_id": "another"}
     loader = loader_for(tmp_path, source, second)
     assert [trace.id for trace in loader.load()] == ["run", "another"]
@@ -279,12 +273,10 @@ def test_malformed_and_empty_files(tmp_path, raw, match):
         ATIFTraceLoader(ATIFTraceConfig(path=path)).load()
 
 
-def test_missing_file_and_invalid_limit(tmp_path):
+def test_missing_file(tmp_path):
     config = ATIFTraceConfig(path=tmp_path / "absent")
     with pytest.raises(ATIFTraceLoadError, match="absent"):
         ATIFTraceLoader(config).load()
-    with pytest.raises(ValueError, match="positive"):
-        ATIFTraceLoader(config, max_traces=0)
 
 
 def test_failed_load_can_be_retried_and_success_is_cached(tmp_path):
@@ -307,11 +299,12 @@ def test_yaml_cli_and_exclusive_source_selection(tmp_path):
     path.write_text(
         f"trace:\n  atif:\n    path: {FIXTURE}\nevidence_streams:\n  tool_issues: {{}}\n"
     )
-    config = RunConfig(_cli_parse_args=["--config", str(path), "--trace.max-traces", "2"])
+    config = RunConfig(_cli_parse_args=["--config", str(path)])
     loader = cli._configured_trace_loader(config.trace)
     assert isinstance(loader, ATIFTraceLoader)
     assert loader.config.path == FIXTURE
-    assert loader.max_traces == 2
+    with pytest.raises(ValidationError, match="max_traces is not supported by the ATIF loader"):
+        RunConfig(_cli_parse_args=["--config", str(path), "--trace.max-traces", "2"])
     with pytest.raises(ValidationError, match="exactly one"):
         TraceConfig(atif={"path": FIXTURE}, filesystem={"path": FIXTURE})
 

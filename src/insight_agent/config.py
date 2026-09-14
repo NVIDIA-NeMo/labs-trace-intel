@@ -185,6 +185,8 @@ class TraceConfig(ConfigModel):
             raise ValueError("trace must configure exactly one loader")
         if self.filesystem is not None and self.max_traces is not None:
             raise ValueError("trace.max_traces is not supported by the filesystem loader")
+        if self.atif is not None and self.max_traces is not None:
+            raise ValueError("trace.max_traces is not supported by the ATIF loader")
         return self
 
 

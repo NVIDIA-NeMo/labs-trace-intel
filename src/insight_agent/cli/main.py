@@ -66,7 +66,7 @@ def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
     if config.filesystem is not None:
         return FSDataLoader(config.filesystem.path)
     if config.atif is not None:
-        return ATIFTraceLoader(config.atif, max_traces=config.max_traces)
+        return ATIFTraceLoader(config.atif)
     if config.intake is not None:
         source = config.intake
         if config.max_traces is not None:
