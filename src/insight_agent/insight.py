@@ -16,6 +16,7 @@ class Insight(BaseModel):
 
     name: str = Field(min_length=1)
     description: str = Field(min_length=1)
+    hypothesis: str = Field(min_length=1)
     trace_refs: list[str] = Field(min_length=1)
 
 
