@@ -80,6 +80,20 @@ No platform extra or credentials are required. Records must follow the public
 [`Trace` model](../src/insight_agent/traces.py), not a platform's native export schema.
 The filesystem loader reads the whole file and does not support `trace.max_traces`.
 
+### ATIF JSONL
+
+Read [Agent Trajectory Interchange Format (ATIF)](https://github.com/harbor-framework/harbor/blob/main/rfcs/0001-trajectory-format.md)
+trajectories from JSONL files:
+
+```yaml
+# trace-analyst-config.yaml
+trace:
+  atif:
+    path: trajectories.jsonl
+```
+
+The file must contain one complete ATIF trajectory object per nonblank line.
+
 ### LangSmith
 
 #### Setup
