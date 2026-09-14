@@ -24,11 +24,8 @@ license-files = [
 authors = [{ name = "Insight Agent contributors" }]
 keywords = ["agent-traces", "evaluation", "anomaly-detection", "tool-use"]
 
-# Keep install requirements compatible with other Python packages. `uv.lock`
-# records the exact environment used by this repository: scikit-learn minor
-# versions can change IsolationForest and KMeans output, so contributors should
-# run through uv rather than resolving these ranges independently.
 dependencies = [
+    "httpx>=0.28,<1",
     "numpy>=1.26,<3",
     "scikit-learn>=1.4,<2",
     "jsonschema>=4.18,<5",
@@ -36,11 +33,8 @@ dependencies = [
     "pydantic-settings[yaml]>=2.12,<3",
     "python-dotenv>=1.0,<2",
     "PyYAML>=6,<7",
-    "httpx>=0.28,<1",
-    # The Analyst can run from the config-driven command and runs by default in
-    # `demo`, so its client is a base dependency rather than an extra. Disabling
-    # the stage does not change what gets installed.
     "litellm>=1.55,<2",
+    "tokenizers>=0.21,<1",
     "nooa>=0.0.10,<0.1",
 ]
 
@@ -51,6 +45,7 @@ Repository = "https://github.com/NVIDIA/nemo-platform-insights-preview"
 # Source adapters only. Filesystem users do not install or import provider SDKs.
 langsmith = ["langsmith>=0.12,<0.13"]
 mlflow = ["mlflow-skinny>=3.6,<4"]
+local-embedding = ["torch==2.13.0", "transformers==5.16.1"]
 # Query-only adapter for the deployed Langfuse v3 API. The SDK remains optional
 # for users loading canonical JSONL or MLflow traces.
 langfuse = ["langfuse>=3.15,<4"]
@@ -75,6 +70,15 @@ managed = true
 # mlflow-skinny currently reaches databricks-sdk, which caps protobuf below 7.
 # Protobuf 7.35 contains the complete ParseDict recursion-depth fix.
 override-dependencies = ["protobuf>=7.35,<8"]
+
+[tool.uv.sources]
+# macOS wheels include MPS; other platforms only need CPU inference for this extra.
+torch = [{ index = "pytorch-cpu", marker = "sys_platform != 'darwin'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/insight_agent"]

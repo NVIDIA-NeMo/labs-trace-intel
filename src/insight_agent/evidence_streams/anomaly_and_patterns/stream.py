@@ -11,6 +11,7 @@ Insights.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import re
@@ -1178,9 +1179,10 @@ class AnomalyAndPatternsEvidenceStream:
         if not isinstance(self.config, AnomalyAndPatternsConfig):
             raise TypeError("anomaly-and-patterns requires AnomalyAndPatternsConfig")
 
-    def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         traces = (to_anomaly_and_patterns_trace(trace) for trace in snapshot)
-        result = run_anomaly_and_patterns(
+        result = await asyncio.to_thread(
+            run_anomaly_and_patterns,
             traces,
             feature_names=self.config.feature_names or DEFAULT_FEATURES,
             contamination=self.config.contamination,

@@ -122,7 +122,7 @@ def _resolve_license(licenses: list[str], override: str | None) -> str | None:
 def _license_records(osv_path: Path) -> list[LicenseRecord]:
     raw = json.loads(osv_path.read_text(encoding="utf-8"))
     overrides = _load_overrides()
-    records: dict[str, LicenseRecord] = {}
+    records: dict[tuple[str, str], LicenseRecord] = {}
     unresolved = []
     used_overrides = set()
     standard_texts = {path.stem.upper(): path for path in LICENSE_TEXTS_PATH.glob("*.txt")}
@@ -139,11 +139,15 @@ def _license_records(osv_path: Path) -> list[LicenseRecord]:
                 continue
             if override is not None:
                 used_overrides.add(key)
-            identifiers = set(re.findall(r"[A-Z0-9][A-Z0-9.-]*", license_name)) - {"AND", "OR"}
+            identifiers = set(re.findall(r"[A-Z0-9][A-Z0-9.-]*", license_name)) - {
+                "AND",
+                "OR",
+                "WITH",
+            }
             missing = identifiers - standard_texts.keys()
             if missing:
                 raise RuntimeError("Add shared license texts for: " + ", ".join(sorted(missing)))
-            records[key] = {
+            records[key, package["version"]] = {
                 "name": name,
                 "version": package["version"],
                 "license": license_name,
@@ -237,7 +241,7 @@ def _render_notices(records: list[LicenseRecord]) -> str:
 
 
 def _check_file(path: Path, expected: str) -> bool:
-    if not path.exists() or path.read_text(encoding="utf-8") != expected:
+    if not path.exists() or path.read_bytes().decode("utf-8") != expected:
         print(f"{path.relative_to(PROJECT_ROOT)} is missing or out of date")
         return False
     return True

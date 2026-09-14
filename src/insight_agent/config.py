@@ -20,6 +20,7 @@ from insight_agent.evidence_streams.ethos_divergence.ethos_divergence_detector i
 )
 from insight_agent.evidence_streams.eval_failure_patterns import EvalFailurePatternsConfig
 from insight_agent.evidence_streams.tool_issues.stream import ToolIssueConfig
+from insight_agent.evidence_streams.user_sentiment.stream import UserSentimentConfig
 from insight_agent.trace_loaders.intake import IntakeTraceLoaderConfig
 from insight_agent.trace_loaders.langfuse import validate_langfuse_time_window
 
@@ -210,6 +211,7 @@ class EvidenceStreamsConfig(ConfigModel):
     )
 
     ethos_divergence: EthosDivergenceConfig | None = None
+    user_sentiment: UserSentimentConfig | None = None
 
     @model_validator(mode="after")
     def at_least_one_stream_is_configured(self) -> EvidenceStreamsConfig:
@@ -220,6 +222,7 @@ class EvidenceStreamsConfig(ConfigModel):
                 self.tool_issues,
                 self.ethos_divergence,
                 self.eval_failure_patterns,
+                self.user_sentiment,
             )
         ):
             raise ValueError("at least one evidence stream must be configured")

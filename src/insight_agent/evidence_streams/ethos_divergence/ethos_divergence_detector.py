@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from nooa.unifiedllm import UnifiedLLM
 from pydantic import BaseModel, ConfigDict, FilePath
 
@@ -66,6 +64,6 @@ class EthosDivergenceEvidenceStream:
         if not self.ethos.strip():
             raise ValueError("ethos-divergence requires a non-empty ethos document")
 
-    def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        problems = asyncio.run(detect_ethos_divergence(snapshot, self.llm, self.ethos))
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        problems = await detect_ethos_divergence(snapshot, self.llm, self.ethos)
         return EvidenceStreamResult(stream_name=self.name, problems=tuple(problems))

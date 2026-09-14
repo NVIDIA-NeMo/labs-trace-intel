@@ -6,6 +6,7 @@
 import hashlib
 import importlib.util
 import io
+import json
 import sys
 import tarfile
 import zipfile
@@ -27,6 +28,32 @@ def load_tool(name):
 
 collector = load_tool("collect_license_texts")
 generator = load_tool("generate_third_party_licenses")
+
+
+def test_inventory_preserves_platform_versions(tmp_path, monkeypatch):
+    monkeypatch.setattr(generator, "_load_overrides", lambda: {})
+    scan = tmp_path / "scan.json"
+    scan.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "packages": [
+                            {
+                                "package": {"name": "torch", "version": version},
+                                "licenses": ["BSD-3-Clause"],
+                            }
+                            for version in ["2.13.0", "2.13.0+cpu"]
+                        ]
+                    }
+                ]
+            }
+        )
+    )
+    assert [(r["name"], r["version"]) for r in generator._license_records(scan)] == [
+        ("torch", "2.13.0"),
+        ("torch", "2.13.0+cpu"),
+    ]
 
 
 def wheel(files):

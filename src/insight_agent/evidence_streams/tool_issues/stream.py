@@ -11,6 +11,7 @@ original pointer supplied by the caller.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -783,9 +784,10 @@ class ToolIssueEvidenceStream:
         if not isinstance(self.config, ToolIssueConfig):
             raise TypeError("tool-issues requires ToolIssueConfig")
 
-    def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         traces = (to_tool_issue_trace(trace) for trace in snapshot)
-        findings = detect(
+        findings = await asyncio.to_thread(
+            detect,
             traces,
             retry_threshold=self.config.retry_threshold,
         )

@@ -138,12 +138,13 @@ async def _run_evidence_streams(
         anomaly_and_patterns=config.anomaly_and_patterns,
         tool_issues=config.tool_issues,
         ethos_divergence=config.ethos_divergence,
+        user_sentiment=config.user_sentiment,
         eval_failure_patterns=config.eval_failure_patterns,
         llm_factory=llm_factory,
     )
 
     async def analyze(name: str) -> tuple[str, EvidenceStreamResult]:
-        result = await asyncio.to_thread(registry.analyze, name, snapshot)
+        result = await registry.analyze(name, snapshot)
         return name, result
 
     completed: dict[str, EvidenceStreamResult] = {}
@@ -237,6 +238,7 @@ async def _generate_insights(config: RunConfig) -> list[Insight]:
             ("anomaly and patterns", config.evidence_streams.anomaly_and_patterns),
             ("tool issues", config.evidence_streams.tool_issues),
             ("ethos divergence", config.evidence_streams.ethos_divergence),
+            ("user sentiment", config.evidence_streams.user_sentiment),
             ("evaluation failure patterns", config.evidence_streams.eval_failure_patterns),
         )
         if stream is not None
