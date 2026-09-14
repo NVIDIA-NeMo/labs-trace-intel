@@ -50,21 +50,6 @@ class InsightCompilation(Agent):
         must have more than one trace that supports it. We want to identify
         problems that are broader in scope than a one-off.
 
-        Each insight you produce has both a `description` and a
-        `hypothesis`, and these must stay separate:
-
-        - `description` is the finding: what actually happens in the traces
-          and why you believe it happens (e.g. "when users ask to cancel a
-          ticket, the agent tells them it isn't possible even though policy
-          allows it, because the cancellation tool is missing from the tool
-          schema"). It should be defensible directly from the referenced
-          traces, including your reasoning about the cause.
-
-        - `hypothesis` is the actionable fix: the concrete change a
-          developer should make (e.g. "add a cancel_ticket tool to the
-          schema"). Don't restate the finding here, and don't bury fix
-          suggestions inside the description.
-
         Fetch supporting traces one at a time with
         trace_snapshot.get_trace_by_id(trace_id).
 
