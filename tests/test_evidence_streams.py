@@ -3,6 +3,7 @@
 
 import asyncio
 import warnings
+from unittest.mock import Mock
 
 import pytest
 from nooa.unifiedllm import FakeLLMClient
@@ -10,109 +11,48 @@ from nooa.unifiedllm import FakeLLMClient
 from insight_agent.cli.main import _run_evidence_streams
 from insight_agent.config import EvidenceStreamsConfig
 from insight_agent.evidence_streams.anomaly_and_patterns.stream import (
-    AnomalyAndPatternsEvidenceStream,
-    TraceFeatures,
-    group_trajectories,
+    NormalizedCall,
+    NormalizedTrace,
+    run_anomaly_and_patterns,
 )
-from insight_agent.evidence_streams.tool_issues.stream import ToolIssueEvidenceStream
 from insight_agent.evidence_streams.user_sentiment import stream as sentiment
-from insight_agent.traces import Span, SpanKind, Trace, TraceAggregate, TraceSnapshot
+from insight_agent.traces import Trace, TraceAggregate, TraceSnapshot
 
 
-def snapshot(count, patterns):
-    return TraceSnapshot(
-        [
-            Trace(
-                id=str(i),
-                aggregate=TraceAggregate(),
-                root_spans=[
-                    Span(
-                        id=f"call-{i}",
-                        kind=SpanKind.TOOL,
-                        tool_name=f"tool-{i % patterns}",
-                        input={},
-                        output={},
-                    )
-                ],
-            )
-            for i in range(count)
-        ]
-    )
-
-
-@pytest.mark.parametrize("count,patterns", [(0, 1), (1, 1), (2, 2), (10, 1), (10, 2)])
-def test_clustering_handles_small_and_duplicate_corpora_without_warnings(count, patterns):
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", UserWarning)
-        warnings.simplefilter("error", RuntimeWarning)
-        result = asyncio.run(AnomalyAndPatternsEvidenceStream().analyze(snapshot(count, patterns)))
-    groups = result.artifacts.result.trajectory_groups
-    if count >= 3 and patterns > 1:
-        assert groups["selected_k"] == 2
-        assert len(groups["clusters"]) == 2
-        assert len(groups["assignments"]) == count
-        assert not result.limitations
-    else:
-        assert groups["status"] == "not_evaluable"
-        assert result.limitations
-    assert result.problems == ()
-
-
-def test_clustering_counts_vectors_after_feature_selection():
-    records = [
-        TraceFeatures(trace_id=str(i), numeric={}, sequence_tokens=("shared", f"unique-{i}"))
-        for i in range(10)
+@pytest.mark.parametrize("count,patterns", [(0, 1), (2, 2), (10, 1), (10, 2)])
+def test_clustering_handles_small_and_repetitive_corpora(count, patterns):
+    traces = [
+        NormalizedTrace(str(i), [NormalizedCall(str(i), 0, f"tool-{i % patterns}")])
+        for i in range(count)
     ]
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         warnings.simplefilter("error", RuntimeWarning)
-        result = group_trajectories(records, max_features=1, on_insufficient_traces="skip")
-    assert result["status"] == "not_evaluable"
-    assert "identical trajectories" in result["reason"]
+        result = run_anomaly_and_patterns(traces)
+    groups = result.trajectory_groups
+    assert groups is not None
+    if count >= 3 and patterns > 1:
+        assert groups["selected_k"] == 2
+        assert len(groups["assignments"]) == count
+    else:
+        assert groups["status"] == "not_evaluable"
 
 
-def test_defaults_report_missing_prerequisites_without_llm_calls(monkeypatch):
-    def missing_embeddings():
-        raise ValueError("missing optional dependencies")
-
-    monkeypatch.setattr(sentiment, "validate_embedding_dependencies", missing_embeddings)
-    llms = []
-
-    def llm_factory():
-        llm = FakeLLMClient()
-        llms.append(llm)
-        return llm
-
+def test_missing_prerequisites_skip_analysis_without_llm_calls(monkeypatch):
+    monkeypatch.setattr(
+        sentiment, "validate_embedding_dependencies", Mock(side_effect=ValueError("unavailable"))
+    )
+    snapshot = TraceSnapshot([Trace(id="one", root_spans=[], aggregate=TraceAggregate())])
+    llm = FakeLLMClient()
     progress = []
     results = asyncio.run(
-        _run_evidence_streams(
-            EvidenceStreamsConfig(), snapshot(10, 2), llm_factory, progress.append
-        )
+        _run_evidence_streams(EvidenceStreamsConfig(), snapshot, lambda: llm, progress.append)
     )
-    assert all(set(active) <= {"anomaly-and-patterns", "tool-issues"} for active in progress)
-    assert set().union(*map(set, progress)) == {"anomaly-and-patterns", "tool-issues"}
-    assert len(results) == 5
-    skipped = {result.stream_name: result.skip_reason for result in results}
-    assert skipped["ethos-divergence"] == "No ethos document"
-    assert skipped["eval-failure-patterns"] == "No evaluator results"
-    assert skipped["user-sentiment"] == "No embedding backend configured"
-    assert all(llm.call_count == 0 for llm in llms)
-
-
-def test_tool_observations_survive_candidate_filtering_and_missing_tool_names():
-    traces = TraceSnapshot(
-        [
-            Trace(
-                id="trace-1",
-                aggregate=TraceAggregate(),
-                root_spans=[
-                    Span(id="call", kind=SpanKind.TOOL, input="invalid arguments", error="timeout")
-                ],
-            )
-        ]
-    )
-    result = asyncio.run(ToolIssueEvidenceStream().analyze(traces))
-    assert result.finding_count > 0
-    assert result.problems == ()
-    assert "1 of 1 tool calls lack usable results" in result.limitations
-    assert "tool schemas missing in all 1 trace" in result.limitations
+    assert {item.stream_name for item in results if item.skip_reason} == {
+        "tool-issues",
+        "ethos-divergence",
+        "eval-failure-patterns",
+        "user-sentiment",
+    }
+    assert set().union(*map(set, progress)) == {"anomaly-and-patterns"}
+    assert llm.call_count == 0

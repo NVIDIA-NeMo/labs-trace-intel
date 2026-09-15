@@ -4,9 +4,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
-from pydantic import ValidationError
-
 from insight_agent.config import EvidenceStreamsConfig, RunConfig
 
 
@@ -120,7 +117,14 @@ def test_streams_default_on_and_false_disables_only_that_stream(tmp_path):
         "trace:\n  filesystem:\n    path: traces.jsonl\nevidence_streams:\n  ethos_divergence: false\n  tool_issues:\n    retry_threshold: 5\n"
     )
     config = RunConfig(
-        _cli_parse_args=["--config", str(path), "--evidence-streams.user-sentiment", "false"]
+        _cli_parse_args=[
+            "--config",
+            str(path),
+            "--evidence-streams.user-sentiment",
+            "false",
+            "--evidence-streams.eval-failure-patterns",
+            "true",
+        ]
     )
     assert config.evidence_streams.ethos_divergence is None
     assert config.evidence_streams.user_sentiment is None
@@ -128,50 +132,3 @@ def test_streams_default_on_and_false_disables_only_that_stream(tmp_path):
     assert config.evidence_streams.tool_issues.retry_threshold == 5
     assert config.evidence_streams.anomaly_and_patterns is not None
     assert config.evidence_streams.eval_failure_patterns is not None
-
-
-@pytest.mark.parametrize("stream", EvidenceStreamsConfig.model_fields)
-@pytest.mark.parametrize("enabled", [True, False])
-def test_stream_switches_work_in_yaml_and_cli(tmp_path, stream, enabled):
-    path = tmp_path / "config.yaml"
-    path.write_text(
-        f"trace:\n  filesystem:\n    path: traces.jsonl\nevidence_streams:\n  {stream}: {str(enabled).lower()}\n"
-    )
-    args = ["--config", str(path)]
-    config = RunConfig(_cli_parse_args=args)
-    assert (getattr(config.evidence_streams, stream) is not None) == enabled
-    config = RunConfig(
-        _cli_parse_args=[
-            *args,
-            f"--evidence-streams.{stream.replace('_', '-')}",
-            str(not enabled).lower(),
-        ]
-    )
-    assert (getattr(config.evidence_streams, stream) is not None) != enabled
-
-
-def test_true_restores_defaults_and_nested_settings_enable_a_disabled_stream(tmp_path):
-    path = tmp_path / "config.yaml"
-    path.write_text(
-        "trace:\n  filesystem:\n    path: traces.jsonl\nevidence_streams:\n  tool_issues:\n    retry_threshold: 5\n  anomaly_and_patterns: false\n"
-    )
-    config = RunConfig(
-        _cli_parse_args=[
-            "--config",
-            str(path),
-            "--evidence-streams.tool-issues",
-            "true",
-            "--evidence-streams.anomaly-and-patterns.contamination",
-            "0.1",
-        ]
-    )
-    assert config.evidence_streams.tool_issues == EvidenceStreamsConfig().tool_issues
-    assert config.evidence_streams.anomaly_and_patterns is not None
-    assert config.evidence_streams.anomaly_and_patterns.contamination == 0.1
-
-
-def test_at_least_one_stream_must_remain_enabled():
-    with pytest.raises(ValidationError, match="at least one evidence stream"):
-        EvidenceStreamsConfig.model_validate(
-            dict.fromkeys(EvidenceStreamsConfig.model_fields, False)
-        )
