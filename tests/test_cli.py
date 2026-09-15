@@ -4,16 +4,148 @@
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 from nooa.unifiedllm import FakeLLMClient
 
 import insight_agent.cli.main as cli
-from insight_agent.config import EvidenceStreamsConfig
+from insight_agent.config import EvidenceStreamsConfig, RunConfig
 from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult, Problem
 from insight_agent.evidence_streams.registry import EvidenceStreamRegistry
 from insight_agent.insight import Insight, load_insights
+from insight_agent.insights_generation.config import load_dotenv
 from insight_agent.traces import Trace, TraceAggregate, TraceSnapshot
+
+
+@pytest.fixture
+def clean_environment(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli.os, "environ", {})
+    monkeypatch.setattr(cli, "load_dotenv", lambda: load_dotenv(tmp_path / ".env"))
+
+
+@pytest.mark.parametrize("value", [None, "", " \t"])
+def test_missing_environment_exits_before_loading_traces(
+    clean_environment, monkeypatch, tmp_path, capsys, value
+):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "trace:\n  langsmith:\n    project: production\n"
+        "evidence_streams:\n  user_sentiment:\n    litellm:\n"
+        "      model: openai/embedding\n      api_key_env: EMBEDDING_API_KEY\n"
+    )
+    if value is not None:
+        for name in ("INSIGHT_AGENT_API_KEY", "LANGSMITH_API_KEY", "EMBEDDING_API_KEY"):
+            monkeypatch.setenv(name, value)
+    loader = Mock(side_effect=AssertionError("must fail before constructing a loader"))
+    monkeypatch.setattr(cli, "_configured_trace_loader", loader)
+    output = tmp_path / "insights.yml"
+
+    assert cli.main(["--config", str(config_path), "--output-path", str(output)]) == 2
+
+    loader.assert_not_called()
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "[insight-agent] Missing required environment settings:\n"
+        "  INSIGHT_AGENT_API_KEY — API key for the configured model\n"
+        "  LANGSMITH_API_KEY — API key for LangSmith\n"
+        "  EMBEDDING_API_KEY — API key named by evidence_streams.user_sentiment.litellm.api_key_env\n\n"
+        "Set these in .env in your working directory (NAME=value),\n"
+        "or export them in your shell, then rerun the command.\n"
+    )
+    assert not output.exists()
+
+
+def test_langfuse_checks_only_missing_settings_after_cli_overrides(
+    clean_environment, monkeypatch, tmp_path, capsys
+):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "trace:\n  langfuse:\n"
+        "    from_timestamp: 2026-01-01T00:00:00Z\n"
+        "    to_timestamp: 2026-01-02T00:00:00Z\n"
+        "evidence_streams:\n  tool_issues: {}\n"
+    )
+    monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "private-model-key")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "private-project-key")
+    args = ["--config", str(config_path)]
+    assert cli.main(args) == 2
+    error = capsys.readouterr().err
+    assert "LANGFUSE_SECRET_KEY" in error
+    assert "LANGFUSE_BASE_URL" in error
+    assert "LANGFUSE_PUBLIC_KEY" not in error
+    assert "private-" not in error
+
+    args += ["--trace.langfuse.base-url", "https://langfuse.example.com"]
+    assert cli.main(args) == 2
+    assert "LANGFUSE_BASE_URL" not in capsys.readouterr().err
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "private-secret-key")
+    assert cli._check_environment(cli.get_config(args)) == "private-model-key"
+
+
+@pytest.mark.parametrize(
+    "inference_key", ["INSIGHT_AGENT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+)
+@pytest.mark.parametrize("langsmith_key", ["LANGSMITH_API_KEY", "LANGCHAIN_API_KEY"])
+def test_environment_accepts_dotenv_and_existing_key_aliases(
+    clean_environment, monkeypatch, tmp_path, inference_key, langsmith_key
+):
+    (tmp_path / ".env").write_text(
+        f"{inference_key}=dotenv-model-key\n{langsmith_key}=dotenv-trace-key\n"
+    )
+    monkeypatch.setenv(inference_key, "exported-model-key")
+    config = RunConfig(
+        trace={"langsmith": {"project": "production"}}, evidence_streams={"tool_issues": {}}
+    )
+
+    assert cli._check_environment(config) == "exported-model-key"
+
+
+def test_anthropic_key_reaches_the_configured_model_client(clean_environment, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
+    config = RunConfig(
+        model="anthropic/claude-sonnet-4-20250514",
+        trace={"filesystem": {"path": "traces.jsonl"}},
+        evidence_streams={"tool_issues": {}},
+    )
+
+    async def check_client():
+        async with cli._build_llm(config, cli._check_environment(config)) as client:
+            assert client.model == config.model
+            assert client.config["api_key"] == "test-anthropic-key"
+
+    asyncio.run(check_client())
+
+
+@pytest.mark.parametrize(
+    "trace",
+    [
+        {"filesystem": {"path": "traces.jsonl"}},
+        {"atif": {"path": "traces.jsonl"}},
+        {"langsmith_trace_export_file": {"path": "traces.json"}},
+        {"langfuse_export": {"path": "traces.json"}},
+        {"mlflow_export": {"path": "traces.json"}},
+        {"mlflow_experiment": {"experiment": "local"}},
+        {
+            "intake": {
+                "base_url": "http://localhost:8000",
+                "workspace": "default",
+                "query": {
+                    "started_at_gte": "2026-01-01T00:00:00Z",
+                    "started_at_lte": "2026-01-02T00:00:00Z",
+                },
+            }
+        },
+    ],
+)
+def test_environment_does_not_require_optional_source_credentials(
+    clean_environment, monkeypatch, trace
+):
+    monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "model-key")
+    config = RunConfig(trace=trace, evidence_streams={"tool_issues": {}})
+
+    assert cli._check_environment(config) == "model-key"
 
 
 def test_cli_compiles_selected_evidence_with_existing_insights(tmp_path, monkeypatch, capsys):
