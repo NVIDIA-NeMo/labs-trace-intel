@@ -387,7 +387,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         config = get_config(argv)
         result = asyncio.run(_generate_insights(config, output))
         rendered = _render_insights(result.insights)
-        _write_insights(config.output_path, rendered)
+        if result.insights:
+            _write_insights(config.output_path, rendered)
         if config.output_path == Path("-") or not sys.stdout.isatty():
             print(rendered, end="")
         output.report(result, config.output_path)

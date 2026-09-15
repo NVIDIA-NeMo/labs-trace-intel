@@ -163,8 +163,13 @@ class UserSentimentEvidenceStream:
         self.config = config
         self.llm = llm
 
-    def validate_configuration(self) -> None:
-        pass
+    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
+        if self.config.litellm is None:
+            try:
+                validate_embedding_dependencies()
+            except ValueError:
+                return "No embedding backend configured"
+        return None
 
     @cached_property
     def embedding_generator(self) -> UserEmbeddingGenerator:
@@ -174,20 +179,7 @@ class UserSentimentEvidenceStream:
     def classifier(self) -> ComplaintClassifier:
         return ComplaintClassifier(self.embedding_generator.projection)
 
-    async def analyze(
-        self, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
-    ) -> EvidenceStreamResult:
-        if self.config.litellm is None:
-            try:
-                validate_embedding_dependencies()
-            except ValueError:
-                return EvidenceStreamResult(
-                    stream_name=self.name,
-                    problems=(),
-                    skip_reason="No embedding backend configured",
-                )
-        if on_start is not None:
-            on_start()
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         async with self.llm:
             return await self._analyze(snapshot)
 

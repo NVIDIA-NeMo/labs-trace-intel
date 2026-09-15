@@ -56,7 +56,8 @@ uv sync --locked
 uv run insight-agent --config examples/trace-analyst-config.yaml
 ```
 
-The command writes the complete Insight collection as YAML to `insights.yml`. Insight compilation requires an API key.
+The command writes a non-empty Insight collection as YAML to `insights.yml`; empty
+results leave output files untouched. Insight compilation requires an API key.
 
 ### Reading the output
 

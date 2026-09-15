@@ -13,7 +13,7 @@ from insight_agent.traces import TraceSnapshot
 
 
 class EvidenceStreamRegistry:
-    """Validated evidence streams keyed by their public names.
+    """Evidence streams keyed by their public names.
 
     Registration is explicit and preserves insertion order. A stream owns its
     configuration validation; the registry only enforces the shared contract.
@@ -32,7 +32,6 @@ class EvidenceStreamRegistry:
             raise ValueError("evidence stream name must not be empty")
         if name in self._streams:
             raise ValueError(f"evidence stream {name!r} is already registered")
-        stream.validate_configuration()
         self._streams[name] = stream
 
     async def analyze(
@@ -45,11 +44,14 @@ class EvidenceStreamRegistry:
             raise KeyError(
                 f"evidence stream {name!r} is not registered; available: {available}"
             ) from exc
+        skip_reason = await asyncio.to_thread(stream.validate_configuration, snapshot)
         if not len(snapshot):
-            return EvidenceStreamResult(
-                stream_name=name, problems=(), skip_reason="No traces loaded"
-            )
-        result = await stream.analyze(snapshot, on_start=on_start)
+            skip_reason = "No traces loaded"
+        if skip_reason is not None:
+            return EvidenceStreamResult(stream_name=name, problems=(), skip_reason=skip_reason)
+        if on_start is not None:
+            on_start()
+        result = await stream.analyze(snapshot)
         if result.stream_name != name:
             raise ValueError(f"evidence stream {name!r} returned result for {result.stream_name!r}")
         return result

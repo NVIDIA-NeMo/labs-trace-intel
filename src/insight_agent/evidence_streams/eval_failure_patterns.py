@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -110,25 +109,22 @@ class EvalFailurePatternsEvidenceStream:
     llm: UnifiedLLM
     config: EvalFailurePatternsConfig = field(default_factory=EvalFailurePatternsConfig)
 
-    def validate_configuration(self) -> None:
+    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
         if not isinstance(self.config, EvalFailurePatternsConfig):
             raise TypeError("eval-failure-patterns requires EvalFailurePatternsConfig")
+        if not any(
+            value is not None for trace in snapshot for value in trace.evaluator_results.values()
+        ):
+            return "No evaluator results"
+        return None
 
-    async def analyze(
-        self, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
-    ) -> EvidenceStreamResult:
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         evaluated = await asyncio.to_thread(
             lambda: sum(
                 any(value is not None for value in trace.evaluator_results.values())
                 for trace in snapshot
             )
         )
-        if not evaluated:
-            return EvidenceStreamResult(
-                stream_name=self.name, problems=(), skip_reason="No evaluator results"
-            )
-        if on_start is not None:
-            on_start()
         async with self.llm:
             agent = _build_agent(snapshot, self.llm, self.config)
             report = await agent.find_problems(await asyncio.to_thread(_trace_index, snapshot))

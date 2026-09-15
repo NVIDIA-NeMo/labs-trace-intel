@@ -224,6 +224,7 @@ class EvidenceStreamsConfig(ConfigModel):
     @field_validator("*", mode="before")
     @classmethod
     def parse_enabled(cls, value: object) -> object:
+        """Translate YAML switches to the config model (enabled) or None (disabled)."""
         if value is True:
             return {}
         return None if value is False else value

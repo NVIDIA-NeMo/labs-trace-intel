@@ -490,7 +490,7 @@ evidence_streams:
 ```
 
 Ethos divergence checks observed agent behavior against a business-purpose document.
-Supply an existing, non-empty UTF-8 Markdown file:
+Supply an existing, non-empty Markdown file:
 
 ```yaml
 evidence_streams:

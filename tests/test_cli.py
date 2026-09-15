@@ -191,12 +191,10 @@ def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
             def __init__(self, name):
                 self.name = name
 
-            def validate_configuration(self):
+            def validate_configuration(self, snapshot):
                 pass
 
-            async def analyze(self, snapshot, *, on_start=None):
-                if on_start is not None:
-                    on_start()
+            async def analyze(self, snapshot):
                 assert asyncio.get_running_loop() is loop
                 if self.name == "first":
                     await asyncio.wait_for(started.wait(), timeout=1)
@@ -220,7 +218,7 @@ def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
     asyncio.run(run())
 
 
-def test_empty_run_skips_synthesis_and_writes_valid_yaml(
+def test_empty_run_skips_synthesis_and_file_creation(
     clean_environment, tmp_path, monkeypatch, capsys, select_streams
 ):
     traces = tmp_path / "traces.jsonl"
@@ -244,5 +242,7 @@ def test_empty_run_skips_synthesis_and_writes_valid_yaml(
         == 0
     )
     compilation.assert_not_called()
-    assert load_insights(output) == []
-    assert capsys.readouterr().out == output.read_text()
+    assert not output.exists()
+    captured = capsys.readouterr()
+    assert captured.out == "[]\n"
+    assert "Saved:" not in captured.err

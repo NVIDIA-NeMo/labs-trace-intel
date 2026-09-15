@@ -16,7 +16,7 @@ import hashlib
 import json
 import re
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -780,20 +780,17 @@ class ToolIssueEvidenceStream:
 
     config: ToolIssueConfig = field(default_factory=ToolIssueConfig)
 
-    def validate_configuration(self) -> None:
+    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
         if not isinstance(self.config, ToolIssueConfig):
             raise TypeError("tool-issues requires ToolIssueConfig")
+        if not any(
+            visit.span.kind is SpanKind.TOOL for trace in snapshot for visit in walk_spans(trace)
+        ):
+            return "No tool calls"
+        return None
 
-    async def analyze(
-        self, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
-    ) -> EvidenceStreamResult:
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         traces = await asyncio.to_thread(lambda: [to_tool_issue_trace(trace) for trace in snapshot])
-        if not any(trace.calls for trace in traces):
-            return EvidenceStreamResult(
-                stream_name=self.name, problems=(), skip_reason="No tool calls"
-            )
-        if on_start is not None:
-            on_start()
         return await asyncio.to_thread(self._analyze, traces)
 
     def _analyze(self, traces: Sequence[TraceRecord]) -> EvidenceStreamResult:

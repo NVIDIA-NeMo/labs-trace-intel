@@ -139,5 +139,5 @@ class RunOutput:
                         detail += "; " + "; ".join(item.limitations)
                 table.add_row(Text(f"  {display_name(item.stream_name)}"), Text(detail))
             self.console.print(table)
-        if output_path != Path("-"):
+        if result.insights and output_path != Path("-"):
             self.console.print(f"\nSaved: {output_path}", soft_wrap=True)

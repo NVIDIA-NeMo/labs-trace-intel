@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
@@ -35,13 +34,11 @@ class EvidenceStream(Protocol):
     @property
     def name(self) -> str: ...
 
-    def validate_configuration(self) -> None:
-        """Raise when the stream cannot run with its current configuration."""
+    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
+        """Raise for invalid settings; return a reason for unavailable prerequisites."""
 
-    async def analyze(
-        self, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
-    ) -> EvidenceStreamResult:
-        """Call on_start only after prerequisites pass; return a skip reason otherwise."""
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        """Analyze after validate_configuration returns no skip reason."""
         ...
 
 

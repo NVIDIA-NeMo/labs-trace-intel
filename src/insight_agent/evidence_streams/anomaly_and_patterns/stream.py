@@ -17,7 +17,7 @@ import math
 import re
 import warnings
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from statistics import median
 from typing import Any, Literal
@@ -1187,15 +1187,12 @@ class AnomalyAndPatternsEvidenceStream:
 
     config: AnomalyAndPatternsConfig = field(default_factory=AnomalyAndPatternsConfig)
 
-    def validate_configuration(self) -> None:
+    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
         if not isinstance(self.config, AnomalyAndPatternsConfig):
             raise TypeError("anomaly-and-patterns requires AnomalyAndPatternsConfig")
+        return None
 
-    async def analyze(
-        self, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
-    ) -> EvidenceStreamResult:
-        if on_start is not None:
-            on_start()
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         traces = (to_anomaly_and_patterns_trace(trace) for trace in snapshot)
         result = await asyncio.to_thread(
             run_anomaly_and_patterns,

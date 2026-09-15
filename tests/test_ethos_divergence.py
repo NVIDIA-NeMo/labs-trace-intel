@@ -56,4 +56,4 @@ def test_ethos_rejects_missing_and_empty_documents(tmp_path):
         config=ethos.EthosDivergenceConfig(ethos_path=path), llm=FakeLLMClient()
     )
     with pytest.raises(ValueError, match="non-empty"):
-        stream.validate_configuration()
+        stream.validate_configuration(TraceSnapshot([]))
