@@ -1,18 +1,39 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Command-line entry point for the Insights Analyst."""
+"""Analyze agent traces and write insights as YAML.
+
+Complete setup example (run from the repository root; supply your OpenAI API key):
+
+  export INSIGHT_AGENT_API_KEY='your-openai-api-key'
+  cat > config.yaml <<'YAML'
+trace:
+  filesystem:
+    path: examples/tau_bench_traces.jsonl
+evidence_streams:
+  tool_issues: {}
+model: openai/gpt-5.2
+max_tokens: 16384
+YAML
+  uv run insight-agent --config config.yaml
+
+Nested CLI options override YAML, e.g. --trace.filesystem.path traces.jsonl.
+See docs/configuration.md for all trace sources and evidence-stream settings.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import sys
+from argparse import SUPPRESS, Action, ArgumentParser
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 import yaml
 from nooa.unifiedllm import CompletionClient, UnifiedLLM
+from pydantic_settings import CliSettingsSource
 
 from insight_agent.config import EvidenceStreamsConfig, RunConfig, TraceConfig
 from insight_agent.evidence_streams.builtins import registered_builtin_streams
@@ -347,7 +368,38 @@ def get_config(argv: Sequence[str] | None = None) -> RunConfig:
     return RunConfig(_cli_parse_args=list(sys.argv[1:] if argv is None else argv))
 
 
+# Pydantic hooks accept parser/group objects and argparse's heterogeneous keyword arguments.
+def _add_common_argument(parser: Any, *args: str, **kwargs: Any) -> Action:  # noqa: ANN401
+    if (
+        kwargs.get("dest") not in ("config", "output_path", "model")
+        and kwargs.get("action") != "help"
+    ):
+        kwargs["help"] = SUPPRESS
+    return parser.add_argument(*args, **kwargs)
+
+
+def _add_common_group(parser: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+    kwargs["description"] = None
+    return parser.add_argument_group(**kwargs)
+
+
+def _print_help(*, full: bool) -> None:
+    parser = CliSettingsSource(
+        RunConfig,
+        add_argument_method=ArgumentParser.add_argument if full else _add_common_argument,
+        add_argument_group_method=ArgumentParser.add_argument_group if full else _add_common_group,
+    ).root_parser
+    parser.description = __doc__
+    parser.add_argument("--help-all", action="help", help="Show all configuration options")
+    parser.print_help()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or any(arg in argv for arg in ("-h", "--help", "--help-all")):
+        _print_help(full="--help-all" in argv)
+        return EXIT_OK
+
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("[insight-agent] %(message)s"))
     _LOGGER.addHandler(handler)

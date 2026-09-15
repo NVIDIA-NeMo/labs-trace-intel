@@ -257,7 +257,7 @@ class RunConfig(BaseSettings):
         description="Optional local codebase used to validate trace-derived problems",
     )
 
-    model: str | None = None
+    model: str | None = Field(default=None, description="Inference model")
     max_tokens: int | None = Field(
         default=None,
         ge=1,
