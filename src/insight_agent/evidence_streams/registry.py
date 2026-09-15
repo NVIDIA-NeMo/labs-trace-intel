@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 
 from insight_agent.evidence_streams.evidence_streams import EvidenceStream, EvidenceStreamResult
 from insight_agent.traces import TraceSnapshot
@@ -34,7 +35,9 @@ class EvidenceStreamRegistry:
         stream.validate_configuration()
         self._streams[name] = stream
 
-    async def analyze(self, name: str, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+    async def analyze(
+        self, name: str, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
+    ) -> EvidenceStreamResult:
         try:
             stream = self._streams[name]
         except KeyError as exc:
@@ -42,7 +45,11 @@ class EvidenceStreamRegistry:
             raise KeyError(
                 f"evidence stream {name!r} is not registered; available: {available}"
             ) from exc
-        result = await stream.analyze(snapshot)
+        if not len(snapshot):
+            return EvidenceStreamResult(
+                stream_name=name, problems=(), skip_reason="No traces loaded"
+            )
+        result = await stream.analyze(snapshot, on_start=on_start)
         if result.stream_name != name:
             raise ValueError(f"evidence stream {name!r} returned result for {result.stream_name!r}")
         return result

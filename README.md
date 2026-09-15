@@ -56,20 +56,14 @@ uv sync --locked
 uv run insight-agent --config examples/trace-analyst-config.yaml
 ```
 
-The command prints the complete Insight collection as YAML and writes it to
-`insights.yml`. Insight compilation requires an API key.
+The command writes the complete Insight collection as YAML to `insights.yml`. Insight compilation requires an API key.
 
 ### Reading the output
 
-The CLI prints and writes a YAML list of final Insights. Each Insight contains
-a name, description, and the trace references that support it.
-
-Progress is written to stderr while the final YAML is printed to stdout and saved to
-`output_path` (by default, `insights.yml`). Long stages report elapsed time and the
-active streams. Empty runs explain whether evidence was absent or did not support
-actionable insights, with **Checks skipped** and **Limited checks** where needed.
-The output file and piped stdout still contain valid YAML; an interactive empty run
-shows the explanation instead of a bare `[]`.
+The terminal shows live progress followed by the outcome, completed and skipped
+analyses, and the saved file. Each saved Insight contains a name, description, and
+supporting trace references. Pipe stdout or use `--output-path -` for YAML output;
+progress and the report go to stderr.
 
 You can omit `evidence_streams` entirely. Set an entry to `false` to disable it;
 missing documents, evaluation results, or embedding dependencies are reported as

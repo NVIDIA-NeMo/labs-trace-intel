@@ -17,7 +17,7 @@ import math
 import re
 import warnings
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from statistics import median
 from typing import Any, Literal
@@ -1191,7 +1191,11 @@ class AnomalyAndPatternsEvidenceStream:
         if not isinstance(self.config, AnomalyAndPatternsConfig):
             raise TypeError("anomaly-and-patterns requires AnomalyAndPatternsConfig")
 
-    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+    async def analyze(
+        self, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
+    ) -> EvidenceStreamResult:
+        if on_start is not None:
+            on_start()
         traces = (to_anomaly_and_patterns_trace(trace) for trace in snapshot)
         result = await asyncio.to_thread(
             run_anomaly_and_patterns,
@@ -1208,7 +1212,7 @@ class AnomalyAndPatternsEvidenceStream:
             problems=problems,
             finding_count=len(result.failure_events)
             + sum(row.is_anomaly for row in result.anomalies),
-            skipped_checks=(str(result.trajectory_groups["reason"]),)
+            limitations=(str(result.trajectory_groups["reason"]),)
             if result.trajectory_groups
             and result.trajectory_groups.get("status") == "not_evaluable"
             else (),

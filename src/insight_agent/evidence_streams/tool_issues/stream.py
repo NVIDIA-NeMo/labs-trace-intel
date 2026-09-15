@@ -16,7 +16,7 @@ import hashlib
 import json
 import re
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -784,11 +784,19 @@ class ToolIssueEvidenceStream:
         if not isinstance(self.config, ToolIssueConfig):
             raise TypeError("tool-issues requires ToolIssueConfig")
 
-    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        return await asyncio.to_thread(self._analyze, snapshot)
+    async def analyze(
+        self, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
+    ) -> EvidenceStreamResult:
+        traces = await asyncio.to_thread(lambda: [to_tool_issue_trace(trace) for trace in snapshot])
+        if not any(trace.calls for trace in traces):
+            return EvidenceStreamResult(
+                stream_name=self.name, problems=(), skip_reason="No tool calls"
+            )
+        if on_start is not None:
+            on_start()
+        return await asyncio.to_thread(self._analyze, traces)
 
-    def _analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        traces = [to_tool_issue_trace(trace) for trace in snapshot]
+    def _analyze(self, traces: Sequence[TraceRecord]) -> EvidenceStreamResult:
         findings = detect(
             traces,
             retry_threshold=self.config.retry_threshold,
@@ -808,13 +816,15 @@ class ToolIssueEvidenceStream:
                 limited.append(f"{missing_results} of {len(calls)} tool calls lack usable results")
             missing_catalogs = sum(trace.tool_catalog is None for trace in traces)
             if missing_catalogs:
-                limited.append(f"{missing_catalogs} of {len(traces)} traces lack tool schemas")
+                scope = "all" if missing_catalogs == len(traces) else f"{missing_catalogs} of"
+                limited.append(
+                    f"tool schemas missing in {scope} {len(traces)} trace{'s' if len(traces) != 1 else ''}"
+                )
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=problems,
             finding_count=len(findings),
-            skipped_checks=("no tool calls",) if not calls else (),
-            limited_checks=tuple(limited),
+            limitations=tuple(limited),
             artifacts=ToolIssueEvidenceArtifacts(
                 findings=tuple(findings),
                 cards=tuple(cards),

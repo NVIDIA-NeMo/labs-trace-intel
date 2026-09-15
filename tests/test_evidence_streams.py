@@ -51,10 +51,10 @@ def test_clustering_handles_small_and_duplicate_corpora_without_warnings(count, 
         assert groups["selected_k"] == 2
         assert len(groups["clusters"]) == 2
         assert len(groups["assignments"]) == count
-        assert not result.skipped_checks
+        assert not result.limitations
     else:
         assert groups["status"] == "not_evaluable"
-        assert result.skipped_checks
+        assert result.limitations
     assert result.problems == ()
 
 
@@ -83,14 +83,19 @@ def test_defaults_report_missing_prerequisites_without_llm_calls(monkeypatch):
         llms.append(llm)
         return llm
 
+    progress = []
     results = asyncio.run(
-        _run_evidence_streams(EvidenceStreamsConfig(), snapshot(10, 2), llm_factory)
+        _run_evidence_streams(
+            EvidenceStreamsConfig(), snapshot(10, 2), llm_factory, progress.append
+        )
     )
+    assert all(set(active) <= {"anomaly-and-patterns", "tool-issues"} for active in progress)
+    assert set().union(*map(set, progress)) == {"anomaly-and-patterns", "tool-issues"}
     assert len(results) == 5
-    skipped = {result.stream_name: result.skipped_checks for result in results}
-    assert skipped["ethos-divergence"] == ("no ethos document",)
-    assert skipped["eval-failure-patterns"] == ("no evaluator results",)
-    assert "embedding backend unavailable" in skipped["user-sentiment"][0]
+    skipped = {result.stream_name: result.skip_reason for result in results}
+    assert skipped["ethos-divergence"] == "No ethos document"
+    assert skipped["eval-failure-patterns"] == "No evaluator results"
+    assert skipped["user-sentiment"] == "No embedding backend configured"
     assert all(llm.call_count == 0 for llm in llms)
 
 
@@ -109,5 +114,5 @@ def test_tool_observations_survive_candidate_filtering_and_missing_tool_names():
     result = asyncio.run(ToolIssueEvidenceStream().analyze(traces))
     assert result.finding_count > 0
     assert result.problems == ()
-    assert "1 of 1 tool calls lack usable results" in result.limited_checks
-    assert "1 of 1 traces lack tool schemas" in result.limited_checks
+    assert "1 of 1 tool calls lack usable results" in result.limitations
+    assert "tool schemas missing in all 1 trace" in result.limitations

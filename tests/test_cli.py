@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+from builtins import ExceptionGroup
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -45,7 +46,7 @@ def test_missing_environment_exits_before_loading_traces(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == (
-        "[insight-agent] Missing required environment settings:\n"
+        "Missing required environment settings:\n"
         "  INSIGHT_AGENT_API_KEY — API key for the configured model\n"
         "  LANGSMITH_API_KEY — API key for LangSmith\n"
         "  EMBEDDING_API_KEY — API key named by evidence_streams.user_sentiment.litellm.api_key_env\n\n"
@@ -133,16 +134,11 @@ def test_cli_preserves_existing_insights_without_synthesizing_empty_evidence(
     assert result == cli.EXIT_OK
     captured = capsys.readouterr()
     assert output_path.read_text(encoding="utf-8") == captured.out
-    assert captured.err.splitlines() == [
-        "[insight-agent] Loading traces from canonical JSONL...",
-        "[insight-agent] Loaded 1 trace with 0 tool calls across 1 logical case from canonical JSONL.",
-        "[insight-agent] Running 1 evidence stream: tool issues.",
-        '[insight-agent] Evidence stream "tool issues" — checks skipped: no tool calls (1/1 complete).',
-        "[insight-agent] Generated 1 final insight.",
-        "[insight-agent] Checks skipped:",
-        "  tool issues — no tool calls",
-        f"[insight-agent] Wrote 1 final insight to {output_path}.",
-    ]
+    assert "No new insights produced from 1 trace." in captured.err
+    assert "1 existing insight retained." in captured.err
+    assert "Skipped" in captured.err
+    assert "Tool issues" in captured.err and "No tool calls" in captured.err
+    assert f"Saved: {output_path}" in captured.err
     assert load_insights(output_path) == existing
 
 
@@ -186,13 +182,15 @@ def test_code_validation_filters_problems_and_preserves_stream_result(
     ]
 
 
-def test_evidence_progress_reports_findings_as_streams_finish(monkeypatch):
+def test_evidence_progress_tracks_only_active_analyses(monkeypatch):
     release_slow_stream = asyncio.Event()
 
     class FakeRegistry:
         names = ("slow-stream", "fast-stream")
 
-        async def analyze(self, name, snapshot):
+        async def analyze(self, name, snapshot, *, on_start=None):
+            if on_start is not None:
+                on_start()
             assert snapshot.trace_count == 1
             if name == "slow-stream":
                 await asyncio.wait_for(release_slow_stream.wait(), timeout=1)
@@ -220,12 +218,9 @@ def test_evidence_progress_reports_findings_as_streams_finish(monkeypatch):
     )
 
     assert [result.stream_name for result in results] == ["slow-stream", "fast-stream"]
-    assert progress == [
-        'Evidence stream "fast stream" — found 1 candidate problem (1/2 complete).',
-        "  Candidate: fast-stream found a recurring issue.",
-        'Evidence stream "slow stream" — found 1 candidate problem (2/2 complete).',
-        "  Candidate: slow-stream found a recurring issue.",
-    ]
+    assert set().union(*map(set, progress)) == {"slow-stream", "fast-stream"}
+    assert progress[-1] == ()
+    assert all(isinstance(active, tuple) for active in progress)
 
 
 def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
@@ -241,7 +236,9 @@ def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
             def validate_configuration(self):
                 pass
 
-            async def analyze(self, snapshot):
+            async def analyze(self, snapshot, *, on_start=None):
+                if on_start is not None:
+                    on_start()
                 assert asyncio.get_running_loop() is loop
                 if self.name == "first":
                     await asyncio.wait_for(started.wait(), timeout=1)
@@ -276,8 +273,7 @@ def test_empty_result_explains_evidence_and_skips_unnecessary_synthesis(
             stream_name="tool-issues",
             problems=(problem,) if candidate else (),
             finding_count=findings,
-            skipped_checks=("no tool schemas",),
-            limited_checks=("8 of 10 calls lack results",),
+            limitations=("tool schemas missing", "8 of 10 calls lack results"),
         )
     ]
     monkeypatch.setattr(cli, "_run_evidence_streams", AsyncMock(return_value=evidence))
@@ -315,12 +311,21 @@ def test_empty_result_explains_evidence_and_skips_unnecessary_synthesis(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert output.read_text() == "[]\n"
-    assert "Loaded 1 trace; no insights produced." in captured.err
-    assert (
-        "Evidence found, but no actionable insights." if findings else "No evidence found."
-    ) in captured.err
-    assert "Checks skipped:\n  tool issues — no tool schemas" in captured.err
-    assert "Limited checks:\n  tool issues — 8 of 10 calls lack results" in captured.err
+    assert "No insights produced from 1 trace." in captured.err
+    if candidate:
+        assert "1 candidate issue found; none" in captured.err
+        assert (
+            "actionability criteria" if retained else "supported by the codebase"
+        ) in captured.err
+    elif findings:
+        assert "1 finding; no candidate issues" in captured.err
+    else:
+        assert "No findings" in captured.err
+    assert "Completed" in captured.err
+    assert "tool schemas missing" in captured.err
+    assert "8 of 10 calls lack results" in " ".join(captured.err.split())
+    assert "Skipped" not in captured.err
+    assert "No evidence found" not in captured.err
     assert compilation.compile_insights.await_count == int(candidate and retained)
 
 
@@ -354,64 +359,42 @@ def test_empty_corpus_runs_without_llm_and_keeps_machine_output(
     assert cli.main(["--trace.filesystem.path", str(path), "--output-path", output]) == 0
     captured = capsys.readouterr()
     assert captured.out == ("" if interactive and output != "-" else "[]\n")
-    assert "Loaded 0 traces; no insights produced." in captured.err
-    assert "Running 5 evidence streams:" in captured.err
-    assert "Checks skipped:" in captured.err
-    assert "no traces loaded" in captured.err
+    assert "No insights produced from 0 traces." in captured.err
+    assert "Completed" not in captured.err
+    assert "Skipped" in captured.err
+    assert captured.err.count("No traces loaded") == 5
     assert all(llm.call_count == 0 for llm in llms)
     compilation.assert_not_called()
 
 
-def test_progress_names_pending_streams_during_slow_work(monkeypatch):
-    snapshot = TraceSnapshot([Trace(id="trace-1", root_spans=[], aggregate=TraceAggregate())])
-
+def test_failed_analysis_cancels_siblings_and_clears_active_state(monkeypatch):
     async def run():
-        heartbeat = asyncio.Event()
-        messages = []
-
-        def log(message, *args):
-            messages.append(message % args)
-            heartbeat.set()
-
-        monkeypatch.setattr(cli._LOGGER, "info", log)
-        monkeypatch.setattr(cli, "_STATUS_INTERVAL", 0.001)
+        active = []
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
 
         class Registry:
-            names = ("slow-stream", "fast-stream")
+            names = ("slow-stream", "failed-stream")
 
-            async def analyze(self, name, snapshot):
+            async def analyze(self, name, snapshot, *, on_start=None):
+                assert on_start is not None
+                on_start()
                 if name == "slow-stream":
-                    await asyncio.wait_for(heartbeat.wait(), timeout=1)
-                return EvidenceStreamResult(stream_name=name, problems=())
+                    started.set()
+                    try:
+                        await asyncio.Event().wait()
+                    finally:
+                        cancelled.set()
+                await started.wait()
+                raise RuntimeError("model unavailable")
 
         monkeypatch.setattr(cli, "registered_builtin_streams", lambda **kwargs: Registry())
-        await cli._run_evidence_streams(EvidenceStreamsConfig(), snapshot)
-        assert messages and all("Still running: slow stream (" in message for message in messages)
-        assert not [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
-
-    asyncio.run(run())
-
-
-@pytest.mark.parametrize("fails", [False, True])
-def test_stage_status_stops_on_completion_or_failure(monkeypatch, fails):
-    async def run():
-        heartbeat = asyncio.Event()
-        messages = []
-
-        def log(message, *args):
-            messages.append(message % args)
-            heartbeat.set()
-
-        monkeypatch.setattr(cli._LOGGER, "info", log)
-        monkeypatch.setattr(cli, "_STATUS_INTERVAL", 0.001)
-        try:
-            async with cli._status("synthesizing final insights"):
-                await asyncio.wait_for(heartbeat.wait(), timeout=1)
-                if fails:
-                    raise RuntimeError("model unavailable")
-        except RuntimeError:
-            assert fails
-        assert messages and "synthesizing final insights" in messages[0]
+        with pytest.raises(ExceptionGroup, match="TaskGroup"):
+            await cli._run_evidence_streams(
+                EvidenceStreamsConfig(), TraceSnapshot([]), progress=active.append
+            )
+        assert cancelled.is_set()
+        assert active[-1] == ()
         assert not [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
 
     asyncio.run(run())

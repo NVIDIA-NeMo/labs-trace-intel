@@ -174,7 +174,9 @@ class UserSentimentEvidenceStream:
     def classifier(self) -> ComplaintClassifier:
         return ComplaintClassifier(self.embedding_generator.projection)
 
-    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+    async def analyze(
+        self, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
+    ) -> EvidenceStreamResult:
         if self.config.litellm is None:
             try:
                 validate_embedding_dependencies()
@@ -182,10 +184,10 @@ class UserSentimentEvidenceStream:
                 return EvidenceStreamResult(
                     stream_name=self.name,
                     problems=(),
-                    skipped_checks=(
-                        "embedding backend unavailable; install insight-agent[local-embedding] or configure user_sentiment.litellm",
-                    ),
+                    skip_reason="No embedding backend configured",
                 )
+        if on_start is not None:
+            on_start()
         async with self.llm:
             return await self._analyze(snapshot)
 
@@ -221,8 +223,8 @@ class UserSentimentEvidenceStream:
             stream_name=self.name,
             problems=tuple(problems),
             finding_count=len(candidates),
-            skipped_checks=("no recorded user messages",) if not any(messages.values()) else (),
-            limited_checks=(
+            skip_reason="No recorded user messages" if not any(messages.values()) else None,
+            limitations=(
                 f"{sum(not value for value in messages.values())} of {len(snapshot)} traces lack user messages",
             )
             if any(messages.values()) and not all(messages.values())

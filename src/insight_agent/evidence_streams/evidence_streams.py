@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
@@ -26,8 +27,8 @@ class EvidenceStreamResult(BaseModel):
     finding_count: int = Field(
         default=0, ge=0, description="Observations before candidate filtering"
     )
-    skipped_checks: tuple[str, ...] = ()
-    limited_checks: tuple[str, ...] = ()
+    skip_reason: str | None = None
+    limitations: tuple[str, ...] = ()
 
 
 class EvidenceStream(Protocol):
@@ -37,7 +38,11 @@ class EvidenceStream(Protocol):
     def validate_configuration(self) -> None:
         """Raise when the stream cannot run with its current configuration."""
 
-    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult: ...
+    async def analyze(
+        self, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
+    ) -> EvidenceStreamResult:
+        """Call on_start only after prerequisites pass; return a skip reason otherwise."""
+        ...
 
 
 __all__ = ["EvidenceStream", "EvidenceStreamResult", "Problem"]

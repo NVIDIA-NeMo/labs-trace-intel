@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from nooa.unifiedllm import UnifiedLLM
 from pydantic import BaseModel, ConfigDict, FilePath
 
@@ -66,10 +68,14 @@ class EthosDivergenceEvidenceStream:
         if not self.ethos.strip():
             raise ValueError("ethos-divergence requires a non-empty ethos document")
 
-    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+    async def analyze(
+        self, snapshot: TraceSnapshot, *, on_start: Callable[[], None] | None = None
+    ) -> EvidenceStreamResult:
         if self.config.ethos_path is None:
             return EvidenceStreamResult(
-                stream_name=self.name, problems=(), skipped_checks=("no ethos document",)
+                stream_name=self.name, problems=(), skip_reason="No ethos document"
             )
+        if on_start is not None:
+            on_start()
         problems = await detect_ethos_divergence(snapshot, self.llm, self.ethos)
         return EvidenceStreamResult(stream_name=self.name, problems=tuple(problems))

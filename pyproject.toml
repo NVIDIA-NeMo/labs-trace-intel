@@ -36,6 +36,7 @@ dependencies = [
     "litellm>=1.55,<2",
     "tokenizers>=0.21,<1",
     "nooa>=0.0.10,<0.1",
+    "rich>=14,<16",
 ]
 
 [project.urls]
