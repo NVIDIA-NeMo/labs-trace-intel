@@ -35,7 +35,7 @@ flowchart TB
 
     context["Optional agent context<br/>ETHOS.md, goals, constraints"]
     generation["InsightsCompilation<br/>investigate, synthesize, and consolidate"]
-    insights["Insights<br/>name, description, matching trace IDs"]
+    insights["Insights<br/>name, description, hypothesis, matching trace IDs"]
 
     source --> loader --> snapshot
     snapshot --> stream1 --> generation

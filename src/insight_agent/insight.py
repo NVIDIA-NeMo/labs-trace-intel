@@ -15,7 +15,20 @@ class Insight(BaseModel):
     """A validated, actionable problem found in the agent's traces."""
 
     name: str = Field(min_length=1)
-    description: str = Field(min_length=1)
+    description: str = Field(
+        min_length=1,
+        description=(
+            "The finding: what actually happens in the traces and why, defensible "
+            "directly from the referenced traces. Do not include a suggested fix here."
+        ),
+    )
+    hypothesis: str = Field(
+        min_length=1,
+        description=(
+            "The actionable fix: the concrete change a developer should make to "
+            "address the finding. Do not restate the finding here."
+        ),
+    )
     trace_refs: list[str] = Field(min_length=1)
 
 

@@ -103,6 +103,7 @@ def test_cli_compiles_selected_evidence_with_existing_insights(
         Insight(
             name="Search omits archived documents",
             description="Archived documents disappear from search results.",
+            hypothesis="Include archived documents in the search index by default.",
             trace_refs=["historical-trace"],
         )
     ]
