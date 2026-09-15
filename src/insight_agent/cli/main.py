@@ -1,7 +1,34 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Command-line entry point for the Insights Analyst."""
+"""Analyze agent traces and write insights as YAML.
+
+Usage: uv run insight-agent --config config.yaml [options]
+
+Options:
+  -h, --help          Show this quick-start guide
+  --help-all          Show the full generated configuration reference
+  --config PATH       Load YAML configuration
+  --output-path PATH  Write insights (default: insights.yml; - for stdout)
+  --model MODEL       Override the inference model
+
+Complete setup example (run from the repository root; supply your OpenAI API key):
+
+  export INSIGHT_AGENT_API_KEY='your-openai-api-key'
+  cat > config.yaml <<'YAML'
+trace:
+  filesystem:
+    path: examples/tau_bench_traces.jsonl
+evidence_streams:
+  tool_issues: {}
+model: openai/gpt-5.2
+max_tokens: 16384
+YAML
+  uv run insight-agent --config config.yaml
+
+Nested CLI options override YAML, e.g. --trace.filesystem.path traces.jsonl.
+See docs/configuration.md for all trace sources and evidence-stream settings.
+"""
 
 from __future__ import annotations
 
@@ -348,13 +375,18 @@ def get_config(argv: Sequence[str] | None = None) -> RunConfig:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or "--help" in argv or "-h" in argv:
+        print(__doc__)
+        return EXIT_OK
+
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("[insight-agent] %(message)s"))
     _LOGGER.addHandler(handler)
     _LOGGER.setLevel(logging.INFO)
     _LOGGER.propagate = False
     try:
-        config = get_config(argv)
+        config = get_config(["--help"] if "--help-all" in argv else argv)
         insights = asyncio.run(_generate_insights(config))
         rendered = _render_insights(insights)
         _write_insights(config.output_path, rendered)
