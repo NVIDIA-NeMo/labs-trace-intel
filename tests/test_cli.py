@@ -103,7 +103,7 @@ def test_cli_compiles_selected_evidence_with_existing_insights(
         Insight(
             name="Search omits archived documents",
             description="Archived documents disappear from search results.",
-            trace_refs=["historical-trace"],
+            trace_refs=["historical-trace-1", "historical-trace-2"],
         )
     ]
     existing_path = tmp_path / "existing.json"
