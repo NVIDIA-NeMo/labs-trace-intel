@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 from argparse import SUPPRESS, Action, ArgumentParser
 from collections.abc import Callable, Sequence
@@ -77,8 +78,49 @@ from insight_agent.trace_loaders.trace_loaders import TraceLoader
 from insight_agent.traces import TraceSnapshot
 
 EXIT_OK = 0
+EXIT_SETUP = 2
 DEFAULT_REASONING_EFFORT = "high"
 _LOGGER = logging.getLogger("insight_agent")
+
+
+class SetupError(ValueError):
+    """Required settings are missing from the environment for this run."""
+
+
+def _check_environment(config: RunConfig) -> str:
+    """Check the selected integrations before constructing clients or loading traces."""
+
+    load_dotenv()
+    api_key = resolve(ENV_API_KEY)
+    required = {f"{ENV_API_KEY} — API key for the configured model": api_key}
+    if config.trace.langsmith is not None:
+        # Match the LangSmith SDK's legacy alias without importing the optional SDK.
+        required["LANGSMITH_API_KEY — API key for LangSmith"] = os.environ.get(
+            "LANGSMITH_API_KEY", ""
+        ).strip() or os.environ.get("LANGCHAIN_API_KEY")
+    if config.trace.langfuse is not None:
+        for name in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"):
+            required[f"{name} — Langfuse project credentials"] = os.environ.get(name)
+        if not (config.trace.langfuse.base_url or "").strip():
+            required["LANGFUSE_BASE_URL — Langfuse URL; or set trace.langfuse.base_url"] = (
+                os.environ.get("LANGFUSE_BASE_URL")
+            )
+    sentiment = config.evidence_streams.user_sentiment
+    if sentiment is not None and sentiment.litellm is not None and sentiment.litellm.api_key_env:
+        name = sentiment.litellm.api_key_env
+        hint = "API key named by evidence_streams.user_sentiment.litellm.api_key_env"
+        required[f"{name} — {hint}"] = os.environ.get(name)
+
+    missing = [f"  {label}" for label, value in required.items() if not (value or "").strip()]
+    if missing:
+        raise SetupError(
+            "Missing required environment settings:\n"
+            + "\n".join(missing)
+            + "\n\nSet these in .env in your working directory (NAME=value),\n"
+            "or export them in your shell, then rerun the command."
+        )
+    assert api_key is not None
+    return api_key
 
 
 def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
@@ -238,10 +280,7 @@ def _build_llm(config: RunConfig, api_key: str) -> CompletionClient:
 
 
 async def _generate_insights(config: RunConfig) -> list[Insight]:
-    load_dotenv()
-    api_key = resolve(ENV_API_KEY)
-    if not api_key:
-        raise ValueError("Insight compilation needs an API key; set INSIGHT_AGENT_API_KEY")
+    api_key = _check_environment(config)
 
     loader = _configured_trace_loader(config.trace)
     source_name = _trace_source_name(config.trace)
@@ -420,6 +459,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         print(rendered, end="")
         return EXIT_OK
+    except SetupError as error:
+        _LOGGER.error("%s", error)
+        return EXIT_SETUP
     finally:
         _LOGGER.removeHandler(handler)
 
