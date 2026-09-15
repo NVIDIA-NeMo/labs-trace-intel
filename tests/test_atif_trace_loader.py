@@ -309,7 +309,7 @@ def test_yaml_cli_and_exclusive_source_selection(tmp_path):
         TraceConfig(atif={"path": FIXTURE}, filesystem={"path": FIXTURE})
 
 
-def test_complete_cli_runs_real_evidence_stream(tmp_path, monkeypatch, capsys):
+def test_complete_cli_runs_real_evidence_stream(tmp_path, monkeypatch, capsys, select_streams):
     compilation = SimpleNamespace(compile_insights=AsyncMock(return_value=[]))
     monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "not-real")
     monkeypatch.setattr(cli, "_build_llm", lambda config, api_key: FakeLLMClient())
@@ -320,8 +320,8 @@ def test_complete_cli_runs_real_evidence_stream(tmp_path, monkeypatch, capsys):
             [
                 "--trace.atif.path",
                 str(FIXTURE),
-                "--evidence-streams.tool-issues",
-                "{}",
+                "--evidence-streams",
+                json.dumps(select_streams(tool_issues={"include_audit_problems": True})),
                 "--output-path",
                 str(output),
             ]

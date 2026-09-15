@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+import json
 
 import pytest
 from nooa.unifiedllm import FakeLLMClient
@@ -10,21 +11,21 @@ from pydantic import ValidationError
 from insight_agent.cli.main import _run_evidence_streams, get_config
 from insight_agent.evidence_streams.ethos_divergence import ethos_divergence_detector as ethos
 from insight_agent.evidence_streams.evidence_streams import Problem
-from insight_agent.traces import TraceSnapshot
+from insight_agent.traces import Trace, TraceAggregate, TraceSnapshot
 
 
-def test_ethos_cli_runs_registered_detector(tmp_path, monkeypatch):
+def test_ethos_cli_runs_registered_detector(tmp_path, monkeypatch, select_streams):
     path = tmp_path / "ethos.md"
     path.write_text("Never issue refunds.", encoding="utf-8")
     config = get_config(
         [
             "--trace.filesystem.path",
             "unused.jsonl",
-            "--evidence-streams.ethos-divergence.ethos-path",
-            str(path),
+            "--evidence-streams",
+            json.dumps(select_streams(ethos_divergence={"ethos_path": str(path)})),
         ]
     )
-    snapshot = TraceSnapshot([])
+    snapshot = TraceSnapshot([Trace(id="trace-1", root_spans=[], aggregate=TraceAggregate())])
     llm = FakeLLMClient()
     problem = Problem(description="Issued a refund", supporting_trace_ids=("trace-1",))
 

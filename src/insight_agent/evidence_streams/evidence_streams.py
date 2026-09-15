@@ -23,6 +23,11 @@ class EvidenceStreamResult(BaseModel):
     stream_name: str = Field(min_length=1)
     problems: tuple[Problem, ...]
     artifacts: Any = None
+    finding_count: int = Field(
+        default=0, ge=0, description="Observations before candidate filtering"
+    )
+    skipped_checks: tuple[str, ...] = ()
+    limited_checks: tuple[str, ...] = ()
 
 
 class EvidenceStream(Protocol):

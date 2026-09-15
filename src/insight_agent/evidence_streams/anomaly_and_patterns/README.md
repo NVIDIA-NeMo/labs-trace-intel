@@ -13,7 +13,7 @@ The stream:
 
 1. extracts the built-in trace features plus requested numeric metrics;
 2. scores unusual traces with `IsolationForest`;
-3. clusters trajectory shapes when at least three traces are available;
+3. clusters trajectory shapes when at least three traces and two distinct feature vectors are available;
 4. groups observed verdicts and recurring strict failures; and
 5. renders an evidence digest with supporting trace identifiers and source pointers.
 
@@ -39,8 +39,8 @@ remains available in `AnomalyAndPatternsArtifacts`.
 uv run insight-agent --config trace-analyst-config.yaml
 ```
 
-Include `evidence_streams.anomaly_and_patterns` in `trace-analyst-config.yaml` and omit the
-other stream keys for an anomaly-only run.
+Include `evidence_streams.anomaly_and_patterns` in `trace-analyst-config.yaml` and set the
+other stream keys to `false` for an anomaly-only run.
 
 The CLI writes `out/anomaly_and_patterns/digest.md`, extracted features, anomalies, trajectory and verdict groups,
 failure groups, projected problems, and run metadata.

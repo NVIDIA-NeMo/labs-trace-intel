@@ -14,12 +14,13 @@ and synthesize findings. It is shared for collaboration, not production use or b
 
 ## What it can find
 
-Choose one or more evidence streams:
+All evidence streams are enabled by default:
 
 - **Anomalies and patterns:** unusual traces and recurring behavior across the corpus.
 - **Tool issues:** tool-calling problems detected by deterministic checks.
 - **Ethos divergence:** behavior that conflicts with a supplied business-purpose document.
 - **Evaluation failure patterns:** recurring behavior associated with recorded evaluation results.
+- **User sentiment:** recurring complaints in recorded user messages.
 
 The agent can also check candidate problems against your local codebase and reconcile findings
 with a previous Insight collection. It reports problems and supporting evidence; it does not
@@ -64,7 +65,15 @@ The CLI prints and writes a YAML list of final Insights. Each Insight contains
 a name, description, and the trace references that support it.
 
 Progress is written to stderr while the final YAML is printed to stdout and saved to
-`output_path` (by default, `insights.yml`).
+`output_path` (by default, `insights.yml`). Long stages report elapsed time and the
+active streams. Empty runs explain whether evidence was absent or did not support
+actionable insights, with **Checks skipped** and **Limited checks** where needed.
+The output file and piped stdout still contain valid YAML; an interactive empty run
+shows the explanation instead of a bare `[]`.
+
+You can omit `evidence_streams` entirely. Set an entry to `false` to disable it;
+missing documents, evaluation results, or embedding dependencies are reported as
+skipped checks.
 
 ### Reusable run configuration
 
@@ -103,9 +112,6 @@ trace:
     # filter: 'eq(status, "error")'
     # tree_filter: 'eq(run_type, "tool")'
 
-evidence_streams:
-  anomaly_and_patterns: {}
-  tool_issues: {}
 ```
 
 ```bash
@@ -138,9 +144,6 @@ trace:
     # filter: >-
     #   [{"type":"string","column":"environment","operator":"=","value":"production"}]
 
-evidence_streams:
-  anomaly_and_patterns: {}
-  tool_issues: {}
 ```
 
 ```bash
@@ -175,9 +178,6 @@ trace:
     tracking_uri: https://mlflow.example.com
     # filter: "trace.status = 'ERROR'"
 
-evidence_streams:
-  anomaly_and_patterns: {}
-  tool_issues: {}
 ```
 
 ```bash
@@ -216,9 +216,6 @@ trace:
       # status: error  # success, error, cancelled, or unknown.
       # max_traces: 100  # trace.max_traces takes precedence when set.
       # sort: started_at  # Or -started_at for newest first.
-evidence_streams:
-  anomaly_and_patterns: {}
-  tool_issues: {}
 ```
 
 ```bash
@@ -238,9 +235,6 @@ Other trace platforms can be analyzed after an adapter maps their data to the pu
 trace:
   filesystem:
     path: traces.jsonl
-evidence_streams:
-  anomaly_and_patterns: {}
-  tool_issues: {}
 ```
 
 Run Trace Analyst on the resulting file:

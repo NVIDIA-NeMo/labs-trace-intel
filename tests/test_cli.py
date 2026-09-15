@@ -96,8 +96,8 @@ def test_environment_accepts_dotenv_and_existing_key_aliases(
     assert cli._check_environment(config) == "exported-model-key"
 
 
-def test_cli_compiles_selected_evidence_with_existing_insights(
-    clean_environment, tmp_path, monkeypatch, capsys
+def test_cli_preserves_existing_insights_without_synthesizing_empty_evidence(
+    clean_environment, tmp_path, monkeypatch, capsys, select_streams
 ):
     existing = [
         Insight(
@@ -120,8 +120,8 @@ def test_cli_compiles_selected_evidence_with_existing_insights(
         [
             "--trace.filesystem.path",
             str(trace_path),
-            "--evidence-streams.tool-issues.retry-threshold",
-            "3",
+            "--evidence-streams",
+            json.dumps(select_streams(tool_issues={"retry_threshold": 3})),
             "--existing-insights",
             str(existing_path),
             "--output-path",
@@ -129,9 +129,7 @@ def test_cli_compiles_selected_evidence_with_existing_insights(
         ]
     )
 
-    evidence, _, prior = compilation.compile_insights.await_args.args
-    assert [item.stream_name for item in evidence] == ["tool-issues"]
-    assert prior == existing
+    compilation.compile_insights.assert_not_awaited()
     assert result == cli.EXIT_OK
     captured = capsys.readouterr()
     assert output_path.read_text(encoding="utf-8") == captured.out
@@ -139,9 +137,10 @@ def test_cli_compiles_selected_evidence_with_existing_insights(
         "[insight-agent] Loading traces from canonical JSONL...",
         "[insight-agent] Loaded 1 trace with 0 tool calls across 1 logical case from canonical JSONL.",
         "[insight-agent] Running 1 evidence stream: tool issues.",
-        '[insight-agent] Evidence stream "tool issues" found 0 candidate problems (1/1 complete).',
-        "[insight-agent] Synthesizing 0 candidate problems and 1 existing insight into final insights...",
+        '[insight-agent] Evidence stream "tool issues" — checks skipped: no tool calls (1/1 complete).',
         "[insight-agent] Generated 1 final insight.",
+        "[insight-agent] Checks skipped:",
+        "  tool issues — no tool calls",
         f"[insight-agent] Wrote 1 final insight to {output_path}.",
     ]
     assert load_insights(output_path) == existing
@@ -194,7 +193,7 @@ def test_evidence_progress_reports_findings_as_streams_finish(monkeypatch):
         names = ("slow-stream", "fast-stream")
 
         async def analyze(self, name, snapshot):
-            assert snapshot.trace_count == 0
+            assert snapshot.trace_count == 1
             if name == "slow-stream":
                 await asyncio.wait_for(release_slow_stream.wait(), timeout=1)
             else:
@@ -214,15 +213,17 @@ def test_evidence_progress_reports_findings_as_streams_finish(monkeypatch):
 
     results = asyncio.run(
         cli._run_evidence_streams(
-            EvidenceStreamsConfig(tool_issues={}), TraceSnapshot([]), progress=progress.append
+            EvidenceStreamsConfig(tool_issues={}),
+            TraceSnapshot([Trace(id="trace-1", root_spans=[], aggregate=TraceAggregate())]),
+            progress=progress.append,
         )
     )
 
     assert [result.stream_name for result in results] == ["slow-stream", "fast-stream"]
     assert progress == [
-        'Evidence stream "fast stream" found 1 candidate problem (1/2 complete).',
+        'Evidence stream "fast stream" — found 1 candidate problem (1/2 complete).',
         "  Candidate: fast-stream found a recurring issue.",
-        'Evidence stream "slow stream" found 1 candidate problem (2/2 complete).',
+        'Evidence stream "slow stream" — found 1 candidate problem (2/2 complete).',
         "  Candidate: slow-stream found a recurring issue.",
     ]
 
@@ -252,8 +253,165 @@ def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
             registry.register(stream)
         monkeypatch.setattr(cli, "registered_builtin_streams", lambda **kwargs: registry)
         results = await cli._run_evidence_streams(
-            EvidenceStreamsConfig(tool_issues={}), TraceSnapshot([])
+            EvidenceStreamsConfig(tool_issues={}),
+            TraceSnapshot([Trace(id="trace-1", root_spans=[], aggregate=TraceAggregate())]),
         )
         assert [result.stream_name for result in results] == ["first", "second"]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "findings,candidate,retained",
+    [(0, False, True), (1, False, True), (1, True, True), (1, True, False)],
+)
+def test_empty_result_explains_evidence_and_skips_unnecessary_synthesis(
+    clean_environment, tmp_path, monkeypatch, capsys, findings, candidate, retained
+):
+    trace_path = tmp_path / "traces.jsonl"
+    trace_path.write_text('{"id":"trace-1","root_spans":[],"aggregate":{}}')
+    problem = Problem(description="Recurring timeout", supporting_trace_ids=("trace-1",))
+    evidence = [
+        EvidenceStreamResult(
+            stream_name="tool-issues",
+            problems=(problem,) if candidate else (),
+            finding_count=findings,
+            skipped_checks=("no tool schemas",),
+            limited_checks=("8 of 10 calls lack results",),
+        )
+    ]
+    monkeypatch.setattr(cli, "_run_evidence_streams", AsyncMock(return_value=evidence))
+    monkeypatch.setattr(
+        cli,
+        "_validate_evidence_with_code",
+        AsyncMock(
+            return_value=[
+                evidence[0].model_copy(
+                    update={"problems": evidence[0].problems if retained else ()}
+                )
+            ]
+        ),
+    )
+    monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "test-key")
+    monkeypatch.setattr(cli, "_build_llm", lambda config, api_key: FakeLLMClient())
+    compilation = SimpleNamespace(compile_insights=AsyncMock(return_value=[]))
+    monkeypatch.setattr(cli, "InsightCompilation", lambda llm: compilation)
+    monkeypatch.setattr(cli.sys.stdout, "isatty", lambda: True)
+    output = tmp_path / "insights.yml"
+
+    assert (
+        cli.main(
+            [
+                "--trace.filesystem.path",
+                str(trace_path),
+                "--code-base",
+                str(tmp_path),
+                "--output-path",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert output.read_text() == "[]\n"
+    assert "Loaded 1 trace; no insights produced." in captured.err
+    assert (
+        "Evidence found, but no actionable insights." if findings else "No evidence found."
+    ) in captured.err
+    assert "Checks skipped:\n  tool issues — no tool schemas" in captured.err
+    assert "Limited checks:\n  tool issues — 8 of 10 calls lack results" in captured.err
+    assert compilation.compile_insights.await_count == int(candidate and retained)
+
+
+@pytest.mark.parametrize(
+    "interactive,output_name", [(True, "insights.yml"), (False, "insights.yml"), (True, "-")]
+)
+def test_empty_corpus_runs_without_llm_and_keeps_machine_output(
+    clean_environment, tmp_path, monkeypatch, capsys, interactive, output_name
+):
+    path = tmp_path / "empty.jsonl"
+    path.write_text("")
+    loader = SimpleNamespace(
+        load=lambda: TraceSnapshot([]),
+        describe=lambda: {"trace_count": 0, "call_count": 0, "distinct_logical_cases": 0},
+    )
+    monkeypatch.setattr(cli, "_configured_trace_loader", lambda config: loader)
+    monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "test-key")
+    llms = []
+
+    def build_llm(config, api_key):
+        llm = FakeLLMClient()
+        llms.append(llm)
+        return llm
+
+    monkeypatch.setattr(cli, "_build_llm", build_llm)
+    compilation = Mock()
+    monkeypatch.setattr(cli, "InsightCompilation", compilation)
+    monkeypatch.setattr(cli.sys.stdout, "isatty", lambda: interactive)
+    output = "-" if output_name == "-" else str(tmp_path / output_name)
+
+    assert cli.main(["--trace.filesystem.path", str(path), "--output-path", output]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ("" if interactive and output != "-" else "[]\n")
+    assert "Loaded 0 traces; no insights produced." in captured.err
+    assert "Running 5 evidence streams:" in captured.err
+    assert "Checks skipped:" in captured.err
+    assert "no traces loaded" in captured.err
+    assert all(llm.call_count == 0 for llm in llms)
+    compilation.assert_not_called()
+
+
+def test_progress_names_pending_streams_during_slow_work(monkeypatch):
+    snapshot = TraceSnapshot([Trace(id="trace-1", root_spans=[], aggregate=TraceAggregate())])
+
+    async def run():
+        heartbeat = asyncio.Event()
+        messages = []
+
+        def log(message, *args):
+            messages.append(message % args)
+            heartbeat.set()
+
+        monkeypatch.setattr(cli._LOGGER, "info", log)
+        monkeypatch.setattr(cli, "_STATUS_INTERVAL", 0.001)
+
+        class Registry:
+            names = ("slow-stream", "fast-stream")
+
+            async def analyze(self, name, snapshot):
+                if name == "slow-stream":
+                    await asyncio.wait_for(heartbeat.wait(), timeout=1)
+                return EvidenceStreamResult(stream_name=name, problems=())
+
+        monkeypatch.setattr(cli, "registered_builtin_streams", lambda **kwargs: Registry())
+        await cli._run_evidence_streams(EvidenceStreamsConfig(), snapshot)
+        assert messages and all("Still running: slow stream (" in message for message in messages)
+        assert not [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_stage_status_stops_on_completion_or_failure(monkeypatch, fails):
+    async def run():
+        heartbeat = asyncio.Event()
+        messages = []
+
+        def log(message, *args):
+            messages.append(message % args)
+            heartbeat.set()
+
+        monkeypatch.setattr(cli._LOGGER, "info", log)
+        monkeypatch.setattr(cli, "_STATUS_INTERVAL", 0.001)
+        try:
+            async with cli._status("synthesizing final insights"):
+                await asyncio.wait_for(heartbeat.wait(), timeout=1)
+                if fails:
+                    raise RuntimeError("model unavailable")
+        except RuntimeError:
+            assert fails
+        assert messages and "synthesizing final insights" in messages[0]
+        assert not [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
 
     asyncio.run(run())

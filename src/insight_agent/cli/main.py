@@ -10,8 +10,6 @@ Complete setup example (run from the repository root; supply your OpenAI API key
 trace:
   filesystem:
     path: examples/tau_bench_traces.jsonl
-evidence_streams:
-  tool_issues: {}
 model: openai/gpt-5.2
 max_tokens: 16384
 YAML
@@ -27,8 +25,10 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from argparse import SUPPRESS, Action, ArgumentParser
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +81,29 @@ EXIT_OK = 0
 EXIT_SETUP = 2
 DEFAULT_REASONING_EFFORT = "high"
 _LOGGER = logging.getLogger("insight_agent")
+_STATUS_INTERVAL = 10
+
+
+@asynccontextmanager
+async def _status(activity: str | Callable[[], str]) -> AsyncIterator[None]:
+    """Keep long stages visible, and stop reporting when their scope exits."""
+    started = time.monotonic()
+
+    async def report() -> None:
+        while True:
+            await asyncio.sleep(_STATUS_INTERVAL)
+            _LOGGER.info(
+                "Still running: %s (%ds elapsed).",
+                activity() if callable(activity) else activity,
+                time.monotonic() - started,
+            )
+
+    task = asyncio.create_task(report())
+    try:
+        yield
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 class SetupError(ValueError):
@@ -210,26 +233,37 @@ async def _run_evidence_streams(
     )
 
     async def analyze(name: str) -> tuple[str, EvidenceStreamResult]:
+        if not len(snapshot):
+            return name, EvidenceStreamResult(
+                stream_name=name, problems=(), skipped_checks=("no traces loaded",)
+            )
         result = await registry.analyze(name, snapshot)
         return name, result
 
     completed: dict[str, EvidenceStreamResult] = {}
     total = len(registry.names)
     tasks = [analyze(name) for name in registry.names]
-    for future in asyncio.as_completed(tasks):
-        name, result = await future
-        completed[name] = result
-        if progress is not None:
-            progress(
-                f'Evidence stream "{_display_name(name)}" found '
-                f"{_count(len(result.problems), 'candidate problem')} "
-                f"({len(completed)}/{total} complete)."
-            )
-            for problem in result.problems[:3]:
-                progress(f"  Candidate: {_summary(problem.description)}")
-            remaining = len(result.problems) - 3
-            if remaining > 0:
-                progress(f"  {_count(remaining, 'additional candidate')} not shown.")
+    async with _status(
+        lambda: ", ".join(_display_name(name) for name in registry.names if name not in completed)
+    ):
+        for future in asyncio.as_completed(tasks):
+            name, result = await future
+            completed[name] = result
+            if progress is not None:
+                outcome = (
+                    f"checks skipped: {'; '.join(result.skipped_checks)}"
+                    if result.skipped_checks and not (result.problems or result.finding_count)
+                    else f"found {_count(len(result.problems), 'candidate problem')}"
+                )
+                progress(
+                    f'Evidence stream "{_display_name(name)}" — {outcome} '
+                    f"({len(completed)}/{total} complete)."
+                )
+                for problem in result.problems[:3]:
+                    progress(f"  Candidate: {_summary(problem.description)}")
+                remaining = len(result.problems) - 3
+                if remaining > 0:
+                    progress(f"  {_count(remaining, 'additional candidate')} not shown.")
     return [completed[name] for name in registry.names]
 
 
@@ -285,7 +319,8 @@ async def _generate_insights(config: RunConfig) -> list[Insight]:
     loader = _configured_trace_loader(config.trace)
     source_name = _trace_source_name(config.trace)
     _LOGGER.info("Loading traces from %s...", source_name)
-    snapshot = await asyncio.to_thread(loader.load)
+    async with _status(f"loading traces from {source_name}"):
+        snapshot = await asyncio.to_thread(loader.load)
     corpus = loader.describe()
     _LOGGER.info(
         "Loaded %s with %s across %s from %s.",
@@ -296,15 +331,9 @@ async def _generate_insights(config: RunConfig) -> list[Insight]:
     )
 
     stream_names = tuple(
-        name
-        for name, stream in (
-            ("anomaly and patterns", config.evidence_streams.anomaly_and_patterns),
-            ("tool issues", config.evidence_streams.tool_issues),
-            ("ethos divergence", config.evidence_streams.ethos_divergence),
-            ("user sentiment", config.evidence_streams.user_sentiment),
-            ("evaluation failure patterns", config.evidence_streams.eval_failure_patterns),
-        )
-        if stream is not None
+        name.replace("_", " ")
+        for name in EvidenceStreamsConfig.model_fields
+        if getattr(config.evidence_streams, name) is not None
     )
     _LOGGER.info(
         "Running %s: %s.",
@@ -318,21 +347,56 @@ async def _generate_insights(config: RunConfig) -> list[Insight]:
         _LOGGER.info,
     )
     existing_insights = load_insights(config.existing_insights) if config.existing_insights else []
+    found_evidence = any(result.problems or result.finding_count for result in evidence)
 
+    if any(result.problems for result in evidence):
+        insights = await _compile_evidence(config, api_key, evidence, snapshot, existing_insights)
+    else:
+        insights = existing_insights
+    if insights:
+        _LOGGER.info("Generated %s.", _count(len(insights), "final insight"))
+    else:
+        _LOGGER.info("Loaded %s; no insights produced.", _count(len(snapshot), "trace"))
+        _LOGGER.info(
+            "Evidence found, but no actionable insights."
+            if found_evidence
+            else "No evidence found."
+        )
+    for label, field in (
+        ("Checks skipped", "skipped_checks"),
+        ("Limited checks", "limited_checks"),
+    ):
+        notes = [
+            f"  {_display_name(result.stream_name)} — {note}"
+            for result in evidence
+            for note in getattr(result, field)
+        ]
+        if notes:
+            _LOGGER.info("%s:\n%s", label, "\n".join(notes))
+    return insights
+
+
+async def _compile_evidence(
+    config: RunConfig,
+    api_key: str,
+    evidence: list[EvidenceStreamResult],
+    snapshot: TraceSnapshot,
+    existing_insights: list[Insight],
+) -> list[Insight]:
     async with _build_llm(config, api_key) as llm:
-        compilation = InsightCompilation(llm=llm)
         if config.code_base is not None:
             candidate_count = sum(len(result.problems) for result in evidence)
             _LOGGER.info(
                 "Validating %s against the codebase...",
                 _count(candidate_count, "candidate problem"),
             )
-            evidence = await _validate_evidence_with_code(
-                evidence,
-                snapshot,
-                config.code_base,
-                llm,
-            )
+            async with _status("validating candidate problems against the codebase"):
+                evidence = await _validate_evidence_with_code(
+                    evidence,
+                    snapshot,
+                    config.code_base,
+                    llm,
+                )
             retained_count = sum(len(result.problems) for result in evidence)
             _LOGGER.info(
                 "Code validation retained %s.",
@@ -340,6 +404,8 @@ async def _generate_insights(config: RunConfig) -> list[Insight]:
             )
 
         candidate_count = sum(len(result.problems) for result in evidence)
+        if not candidate_count:
+            return existing_insights
         existing_context = (
             f" and {_count(len(existing_insights), 'existing insight')}"
             if existing_insights
@@ -350,9 +416,10 @@ async def _generate_insights(config: RunConfig) -> list[Insight]:
             _count(candidate_count, "candidate problem"),
             existing_context,
         )
-        insights = await compilation.compile_insights(evidence, snapshot, existing_insights)
-    _LOGGER.info("Generated %s.", _count(len(insights), "final insight"))
-    return insights
+        async with _status("synthesizing final insights"):
+            return await InsightCompilation(llm=llm).compile_insights(
+                evidence, snapshot, existing_insights
+            )
 
 
 def _trace_source_name(config: TraceConfig) -> str:
@@ -449,15 +516,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         insights = asyncio.run(_generate_insights(config))
         rendered = _render_insights(insights)
         _write_insights(config.output_path, rendered)
-        if config.output_path == Path("-"):
+        if config.output_path == Path("-") and insights:
             _LOGGER.info("Final insights follow on standard output.")
-        else:
+        elif config.output_path != Path("-"):
             _LOGGER.info(
                 "Wrote %s to %s.",
                 _count(len(insights), "final insight"),
                 config.output_path,
             )
-        print(rendered, end="")
+        if insights or config.output_path == Path("-") or not sys.stdout.isatty():
+            print(rendered, end="")
         return EXIT_OK
     except SetupError as error:
         _LOGGER.error("%s", error)

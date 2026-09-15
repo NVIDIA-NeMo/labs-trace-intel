@@ -607,7 +607,7 @@ def build_cards(
                 "trace_id": member["trace_id"],
                 "call_id": member["call_id"],
                 "call_index": member["call_index"],
-                "tool_name": member["tool_name"],
+                "tool_name": member["tool_name"] or "unknown tool",
                 "source_pointer": member["source_pointer"],
                 "observation": member["summary"],
             }
@@ -785,9 +785,11 @@ class ToolIssueEvidenceStream:
             raise TypeError("tool-issues requires ToolIssueConfig")
 
     async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        traces = (to_tool_issue_trace(trace) for trace in snapshot)
-        findings = await asyncio.to_thread(
-            detect,
+        return await asyncio.to_thread(self._analyze, snapshot)
+
+    def _analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        traces = [to_tool_issue_trace(trace) for trace in snapshot]
+        findings = detect(
             traces,
             retry_threshold=self.config.retry_threshold,
         )
@@ -796,9 +798,23 @@ class ToolIssueEvidenceStream:
             minimum_independent_cases=self.config.minimum_independent_cases,
         )
         problems = problems_from_cards(cards, include_audit=self.config.include_audit_problems)
+        calls = [call for trace in traces for call in trace.calls]
+        limited = []
+        if calls:
+            missing_results = sum(
+                call.result is MISSING or call.result in (None, "", {}, []) for call in calls
+            )
+            if missing_results:
+                limited.append(f"{missing_results} of {len(calls)} tool calls lack usable results")
+            missing_catalogs = sum(trace.tool_catalog is None for trace in traces)
+            if missing_catalogs:
+                limited.append(f"{missing_catalogs} of {len(traces)} traces lack tool schemas")
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=problems,
+            finding_count=len(findings),
+            skipped_checks=("no tool calls",) if not calls else (),
+            limited_checks=tuple(limited),
             artifacts=ToolIssueEvidenceArtifacts(
                 findings=tuple(findings),
                 cards=tuple(cards),

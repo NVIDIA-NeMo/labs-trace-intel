@@ -164,8 +164,7 @@ class UserSentimentEvidenceStream:
         self.llm = llm
 
     def validate_configuration(self) -> None:
-        if self.config.litellm is None:
-            validate_embedding_dependencies()
+        pass
 
     @cached_property
     def embedding_generator(self) -> UserEmbeddingGenerator:
@@ -176,6 +175,17 @@ class UserSentimentEvidenceStream:
         return ComplaintClassifier(self.embedding_generator.projection)
 
     async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        if self.config.litellm is None:
+            try:
+                validate_embedding_dependencies()
+            except ValueError:
+                return EvidenceStreamResult(
+                    stream_name=self.name,
+                    problems=(),
+                    skipped_checks=(
+                        "embedding backend unavailable; install insight-agent[local-embedding] or configure user_sentiment.litellm",
+                    ),
+                )
         async with self.llm:
             return await self._analyze(snapshot)
 
@@ -183,13 +193,13 @@ class UserSentimentEvidenceStream:
         messages = {}
         if len(snapshot):
             extraction = await UserMessageExtractor(llm=self.llm).build_extractor(snapshot)
-            messages = extraction.extract(snapshot)
+            messages = await asyncio.to_thread(extraction.extract, snapshot)
         messages = TypeAdapter(dict[str, list[str]]).validate_python(messages, strict=True)
         if messages.keys() != snapshot.traces_by_id.keys():
             raise ValueError("User message extraction must cover exactly the supplied trace IDs")
         screening = (
             await asyncio.to_thread(
-                screen_user_messages, messages, self.embedding_generator, self.classifier
+                lambda: screen_user_messages(messages, self.embedding_generator, self.classifier)
             )
             if any(messages.values())
             else {trace_id: TraceScreeningResult() for trace_id in messages}
@@ -210,6 +220,13 @@ class UserSentimentEvidenceStream:
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=tuple(problems),
+            finding_count=len(candidates),
+            skipped_checks=("no recorded user messages",) if not any(messages.values()) else (),
+            limited_checks=(
+                f"{sum(not value for value in messages.values())} of {len(snapshot)} traces lack user messages",
+            )
+            if any(messages.values()) and not all(messages.values())
+            else (),
             artifacts={
                 "user_messages": messages,
                 "screening": {

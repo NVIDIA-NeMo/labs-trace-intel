@@ -48,7 +48,7 @@ async def detect_ethos_divergence(
 class EthosDivergenceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    ethos_path: FilePath
+    ethos_path: FilePath | None = None
 
 
 class EthosDivergenceEvidenceStream:
@@ -60,10 +60,16 @@ class EthosDivergenceEvidenceStream:
         self.ethos = ""
 
     def validate_configuration(self) -> None:
+        if self.config.ethos_path is None:
+            return
         self.ethos = self.config.ethos_path.read_text(encoding="utf-8")
         if not self.ethos.strip():
             raise ValueError("ethos-divergence requires a non-empty ethos document")
 
     async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        if self.config.ethos_path is None:
+            return EvidenceStreamResult(
+                stream_name=self.name, problems=(), skipped_checks=("no ethos document",)
+            )
         problems = await detect_ethos_divergence(snapshot, self.llm, self.ethos)
         return EvidenceStreamResult(stream_name=self.name, problems=tuple(problems))
