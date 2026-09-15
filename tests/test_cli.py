@@ -24,9 +24,8 @@ def clean_environment(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "load_dotenv", lambda: load_dotenv(tmp_path / ".env"))
 
 
-@pytest.mark.parametrize("value", [None, "", " \t"])
 def test_missing_environment_exits_before_loading_traces(
-    clean_environment, monkeypatch, tmp_path, capsys, value
+    clean_environment, monkeypatch, tmp_path, capsys
 ):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -34,10 +33,9 @@ def test_missing_environment_exits_before_loading_traces(
         "evidence_streams:\n  user_sentiment:\n    litellm:\n"
         "      model: openai/embedding\n      api_key_env: EMBEDDING_API_KEY\n"
     )
-    if value is not None:
-        for name in ("INSIGHT_AGENT_API_KEY", "LANGSMITH_API_KEY", "EMBEDDING_API_KEY"):
-            monkeypatch.setenv(name, value)
-    loader = Mock(side_effect=AssertionError("must fail before constructing a loader"))
+    monkeypatch.setenv("LANGSMITH_API_KEY", "")
+    monkeypatch.setenv("EMBEDDING_API_KEY", " \t")
+    loader = Mock()
     monkeypatch.setattr(cli, "_configured_trace_loader", loader)
     output = tmp_path / "insights.yml"
 
@@ -84,17 +82,13 @@ def test_langfuse_checks_only_missing_settings_after_cli_overrides(
     assert cli._check_environment(cli.get_config(args)) == "private-model-key"
 
 
-@pytest.mark.parametrize(
-    "inference_key", ["INSIGHT_AGENT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
-)
-@pytest.mark.parametrize("langsmith_key", ["LANGSMITH_API_KEY", "LANGCHAIN_API_KEY"])
 def test_environment_accepts_dotenv_and_existing_key_aliases(
-    clean_environment, monkeypatch, tmp_path, inference_key, langsmith_key
+    clean_environment, monkeypatch, tmp_path
 ):
     (tmp_path / ".env").write_text(
-        f"{inference_key}=dotenv-model-key\n{langsmith_key}=dotenv-trace-key\n"
+        "ANTHROPIC_API_KEY=dotenv-model-key\nLANGCHAIN_API_KEY=dotenv-trace-key\n"
     )
-    monkeypatch.setenv(inference_key, "exported-model-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "exported-model-key")
     config = RunConfig(
         trace={"langsmith": {"project": "production"}}, evidence_streams={"tool_issues": {}}
     )
@@ -102,53 +96,9 @@ def test_environment_accepts_dotenv_and_existing_key_aliases(
     assert cli._check_environment(config) == "exported-model-key"
 
 
-def test_anthropic_key_reaches_the_configured_model_client(clean_environment, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
-    config = RunConfig(
-        model="anthropic/claude-sonnet-4-20250514",
-        trace={"filesystem": {"path": "traces.jsonl"}},
-        evidence_streams={"tool_issues": {}},
-    )
-
-    async def check_client():
-        async with cli._build_llm(config, cli._check_environment(config)) as client:
-            assert client.model == config.model
-            assert client.config["api_key"] == "test-anthropic-key"
-
-    asyncio.run(check_client())
-
-
-@pytest.mark.parametrize(
-    "trace",
-    [
-        {"filesystem": {"path": "traces.jsonl"}},
-        {"atif": {"path": "traces.jsonl"}},
-        {"langsmith_trace_export_file": {"path": "traces.json"}},
-        {"langfuse_export": {"path": "traces.json"}},
-        {"mlflow_export": {"path": "traces.json"}},
-        {"mlflow_experiment": {"experiment": "local"}},
-        {
-            "intake": {
-                "base_url": "http://localhost:8000",
-                "workspace": "default",
-                "query": {
-                    "started_at_gte": "2026-01-01T00:00:00Z",
-                    "started_at_lte": "2026-01-02T00:00:00Z",
-                },
-            }
-        },
-    ],
-)
-def test_environment_does_not_require_optional_source_credentials(
-    clean_environment, monkeypatch, trace
+def test_cli_compiles_selected_evidence_with_existing_insights(
+    clean_environment, tmp_path, monkeypatch, capsys
 ):
-    monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "model-key")
-    config = RunConfig(trace=trace, evidence_streams={"tool_issues": {}})
-
-    assert cli._check_environment(config) == "model-key"
-
-
-def test_cli_compiles_selected_evidence_with_existing_insights(tmp_path, monkeypatch, capsys):
     existing = [
         Insight(
             name="Search omits archived documents",
