@@ -3,15 +3,6 @@
 
 """Analyze agent traces and write insights as YAML.
 
-Usage: uv run insight-agent --config config.yaml [options]
-
-Options:
-  -h, --help          Show this quick-start guide
-  --help-all          Show the full generated configuration reference
-  --config PATH       Load YAML configuration
-  --output-path PATH  Write insights (default: insights.yml; - for stdout)
-  --model MODEL       Override the inference model
-
 Complete setup example (run from the repository root; supply your OpenAI API key):
 
   export INSIGHT_AGENT_API_KEY='your-openai-api-key'
@@ -35,11 +26,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from argparse import SUPPRESS
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import yaml
 from nooa.unifiedllm import CompletionClient, UnifiedLLM
+from pydantic_settings import CliSettingsSource
 
 from insight_agent.config import EvidenceStreamsConfig, RunConfig, TraceConfig
 from insight_agent.evidence_streams.builtins import registered_builtin_streams
@@ -376,8 +369,17 @@ def get_config(argv: Sequence[str] | None = None) -> RunConfig:
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or "--help" in argv or "-h" in argv:
-        print(__doc__)
+    if not argv or any(arg in argv for arg in ("-h", "--help", "--help-all")):
+        parser = CliSettingsSource(RunConfig).root_parser
+        parser.description = __doc__
+        parser.add_argument("--help-all", action="help", help="Show all configuration options")
+        if "--help-all" not in argv:
+            for group in parser._action_groups:
+                group.description = None
+                for action in group._group_actions:
+                    if action.dest not in ("help", "help_all", "config", "output_path", "model"):
+                        action.help = SUPPRESS
+        parser.print_help()
         return EXIT_OK
 
     handler = logging.StreamHandler()
@@ -386,7 +388,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     _LOGGER.setLevel(logging.INFO)
     _LOGGER.propagate = False
     try:
-        config = get_config(["--help"] if "--help-all" in argv else argv)
+        config = get_config(argv)
         insights = asyncio.run(_generate_insights(config))
         rendered = _render_insights(insights)
         _write_insights(config.output_path, rendered)
