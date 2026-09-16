@@ -21,7 +21,7 @@ def test_cli_compiles_selected_evidence_with_existing_insights(tmp_path, monkeyp
         Insight(
             name="Search omits archived documents",
             description="Archived documents disappear from search results.",
-            hypothesis="Include archived documents in the search index by default.",
+            next_steps="Check whether the search index excludes archived documents by design.",
             trace_refs=["historical-trace"],
         )
     ]
