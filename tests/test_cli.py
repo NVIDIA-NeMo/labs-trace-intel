@@ -18,6 +18,26 @@ from insight_agent.insights_generation.config import load_dotenv
 from insight_agent.traces import Trace, TraceAggregate, TraceSnapshot
 
 
+def test_reasoning_kwargs_omits_reasoning_effort_for_adaptive_thinking_models():
+    # Known-adaptive-thinking model per litellm's model map. Sending it a
+    # reasoning_effort/thinking override has been observed to break on at
+    # least one OpenAI-compatible gateway once max_tokens is large (the norm
+    # for this CLI), so this CLI sends nothing and lets the model default.
+    assert cli._reasoning_kwargs("azure/anthropic/claude-sonnet-5") == {}
+
+
+def test_reasoning_kwargs_uses_reasoning_effort_for_legacy_thinking_models():
+    assert cli._reasoning_kwargs("azure/anthropic/claude-sonnet-4-5") == {
+        "reasoning_effort": cli.DEFAULT_REASONING_EFFORT
+    }
+
+
+def test_reasoning_kwargs_falls_back_for_unknown_models():
+    assert cli._reasoning_kwargs("openai/some-custom-nim-model") == {
+        "reasoning_effort": cli.DEFAULT_REASONING_EFFORT
+    }
+
+
 @pytest.fixture
 def clean_environment(monkeypatch, tmp_path):
     monkeypatch.setattr(cli.os, "environ", {})

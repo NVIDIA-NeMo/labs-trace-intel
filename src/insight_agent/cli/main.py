@@ -32,6 +32,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+import litellm
 import yaml
 from nooa.unifiedllm import CompletionClient, UnifiedLLM
 from pydantic_settings import CliSettingsSource
@@ -265,17 +266,46 @@ async def _validate_evidence_with_code(
     return list(await asyncio.gather(*(validate_result(result) for result in evidence)))
 
 
+def _reasoning_kwargs(model: str) -> dict[str, Any]:
+    """Build the reasoning-effort request kwargs for this model.
+
+    Affected: ``claude-sonnet-5`` / ``claude-opus-5`` ("adaptive thinking"
+    models) called via litellm's generic ``openai`` provider (e.g. model
+    strings like ``openai/azure/anthropic/claude-sonnet-5``) against an
+    OpenAI-compatible gateway whose own ``reasoning_effort`` -> ``thinking``
+    translation still hardcodes the legacy ``thinking.type.enabled`` shape
+    these models reject. For those models we send no reasoning kwargs at all
+    and let the model use its default reasoning behavior. Other models keep
+    the normal ``reasoning_effort`` param.
+    """
+    try:
+        supports_adaptive_thinking = bool(
+            litellm.get_model_info(model, custom_llm_provider="openai").get(
+                "supports_adaptive_thinking"
+            )
+        )
+    except Exception:
+        # Unknown to litellm's model map (e.g. a custom NIM/NVIDIA model);
+        # fall back to the normalized param, as before.
+        supports_adaptive_thinking = False
+
+    if supports_adaptive_thinking:
+        return {}
+    return {"reasoning_effort": DEFAULT_REASONING_EFFORT}
+
+
 def _build_llm(config: RunConfig, api_key: str) -> CompletionClient:
     """Construct an LLM client with the run's shared model settings."""
 
+    model = config.model or resolve(ENV_MODEL) or DEFAULT_MODEL
     return CompletionClient(
-        model=config.model or resolve(ENV_MODEL) or DEFAULT_MODEL,
+        model=model,
         api_base=config.api_base or resolve(ENV_API_BASE),
         api_key=api_key,
         max_tokens=config.max_tokens or DEFAULT_MAX_TOKENS,
-        reasoning_effort=DEFAULT_REASONING_EFFORT,
         allowed_openai_params=["tool_choice", "reasoning_effort"],
         drop_params=True,
+        **_reasoning_kwargs(model),
     )
 
 
