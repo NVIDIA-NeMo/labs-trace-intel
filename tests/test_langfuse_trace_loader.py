@@ -168,8 +168,10 @@ def test_export_cli_runs_evidence_without_langfuse_client(tmp_path, monkeypatch,
             )
         ]
     )
-    export_path = tmp_path / "trace.json"
-    export_path.write_text(native.json(by_alias=True))
+    export_path = tmp_path / "traces.jsonl"
+    export_path.write_text(
+        native.json(by_alias=True) + "\n" + provider_trace("second-trace").json(by_alias=True)
+    )
     compilation = SimpleNamespace(compile_insights=AsyncMock(return_value=[]))
     monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "test-key")
     monkeypatch.setattr(Langfuse, "__init__", lambda *a, **kw: pytest.fail("offline client"))
