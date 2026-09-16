@@ -5,6 +5,7 @@ import asyncio
 import json
 
 import nooa.unifiedllm.unifiedllm as unifiedllm
+import pytest
 from litellm import ModelResponse
 from nooa.unifiedllm import FakeLLMClient, LLMResponse, ToolCall
 
@@ -84,6 +85,25 @@ def test_eval_model_request_honors_cli_token_limit(monkeypatch):
     )
     assert requests
     assert all(request["max_tokens"] == 32768 for request in requests)
+
+
+def test_stream_skips_gracefully_without_evaluator_results():
+    trace = Trace(id="no-eval", aggregate=TraceAggregate(), root_spans=[])
+    config = RunConfig(
+        trace={"filesystem": {"path": "unused.jsonl"}},
+        evidence_streams={"eval_failure_patterns": {}},
+    )
+
+    llm = FakeLLMClient([])
+
+    with pytest.warns(UserWarning, match="no Trace.evaluator_results"):
+        results = asyncio.run(
+            _run_evidence_streams(config.evidence_streams, TraceSnapshot([trace]), lambda: llm)
+        )
+
+    assert results[0].stream_name == "eval-failure-patterns"
+    assert results[0].problems == ()
+    assert llm.call_count == 0
 
 
 def test_configured_stream_fetches_traces_before_reporting():

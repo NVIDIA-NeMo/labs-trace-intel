@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -113,13 +114,19 @@ class EvalFailurePatternsEvidenceStream:
             raise TypeError("eval-failure-patterns requires EvalFailurePatternsConfig")
 
     async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        if not any(
+            value is not None
+            for trace in snapshot
+            for value in trace.evaluator_results.values()
+        ):
+            warnings.warn(
+                "eval-failure-patterns found no Trace.evaluator_results in this "
+                "corpus; skipping the stream and returning no candidate problems. "
+                "Attach evaluator results to the trace source to enable it.",
+                stacklevel=2,
+            )
+            return EvidenceStreamResult(stream_name=self.name, problems=())
         async with self.llm:
-            if not any(
-                value is not None
-                for trace in snapshot
-                for value in trace.evaluator_results.values()
-            ):
-                raise ValueError("eval-failure-patterns requires Trace.evaluator_results")
             agent = _build_agent(snapshot, self.llm, self.config)
             report = await agent.find_problems(_trace_index(snapshot))
         return EvidenceStreamResult(
