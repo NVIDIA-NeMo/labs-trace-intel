@@ -1,50 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Trace Analyst example configuration
-# Analyzes the bundled Tau Bench traces. Run from the repository root:
-# uv run insight-agent --config examples/trace-analyst-config.yaml
-# Optional settings below are commented out. Values illustrate usage; stream
-# tuning values show the defaults. See docs/configuration.md for details.
-# Keep credentials in .env. Relative paths resolve from the working directory.
-
+# Run from the repository root. See examples/README.md for setup.
 trace:
-  # Select exactly one source. Comment out filesystem before enabling another.
   filesystem:
     path: examples/tau_bench_traces.jsonl
-
-output_path: insights.yml
-
-evidence_streams:
-  # All streams are enabled by default; this entire section is optional.
-  # Use false to disable a stream, true or {} for defaults, or a mapping to tune it.
-  anomaly_and_patterns: {}
-    # contamination: 0.02
-    # input_scaling: none  # Or robust.
-    # cluster_candidates: [2, 3, 4, 5, 6, 7, 8]
-    # minimum_independent_traces: 3
-    # feature_names: null  # All built-in features, or a list of feature names.
-
-  tool_issues: {}
-    # minimum_independent_cases: 3
-    # retry_threshold: 3
-    # include_audit_problems: false
-
-  # Requires recorded evaluator_results in the traces.
-  # eval_failure_patterns:
-  #   max_tool_rounds: 50
-
-  # Requires an existing, non-empty business-purpose document.
-  # ethos_divergence:
-  #   ethos_path: ./ethos.md
-
-# Validate findings against the agent's local source code.
-# code_base: ../my-agent
-
-# Reconcile results with a previous JSON or YAML Insight collection.
-# existing_insights: previous-insights.yml
-
-# Optional inference overrides. Use a model and token limit your provider supports.
-# api_base: https://gateway.example.com/v1
-# model: openai/your-model-name
-# max_tokens: 32768
+max_tokens: 16384

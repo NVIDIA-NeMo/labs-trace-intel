@@ -1,22 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Analyze agent traces and write insights as YAML.
+"""Analyze your agent's behavior and surface actionable insights from its traces.
 
-Complete setup example (run from the repository root; supply your OpenAI API key):
+After configuring your model and credentials, run:
+  insight-agent --config config.yaml
 
-  export INSIGHT_AGENT_API_KEY='your-openai-api-key'
-  cat > config.yaml <<'YAML'
-trace:
-  filesystem:
-    path: examples/tau_bench_traces.jsonl
-model: openai/gpt-5.2
-max_tokens: 16384
-YAML
-  uv run insight-agent --config config.yaml
+Start with your trace source (LangSmith, Langfuse, MLflow, Intake, or files):
+  https://github.com/NVIDIA-NeMo/labs-trace-intel/blob/main/README.md#start-here
 
-Nested CLI options override YAML, e.g. --trace.filesystem.path traces.jsonl.
-See docs/configuration.md for all trace sources and evidence-stream settings.
+Understand your results:
+  https://github.com/NVIDIA-NeMo/labs-trace-intel/blob/main/docs/results.md
+
+Use --help-all for every setting. CLI options override individual YAML values.
 """
 
 from __future__ import annotations
@@ -115,7 +111,8 @@ def _check_environment(config: RunConfig) -> str:
             "Missing required environment settings:\n"
             + "\n".join(missing)
             + "\n\nSet these in .env in your working directory (NAME=value),\n"
-            "or export them in your shell, then rerun the command."
+            "or export them in your shell, then rerun the command.\n"
+            "Setup: https://github.com/NVIDIA-NeMo/labs-trace-intel/blob/main/docs/model-access.md"
         )
     assert api_key is not None
     return api_key

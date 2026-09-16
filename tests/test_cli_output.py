@@ -33,4 +33,5 @@ def test_report_separates_completed_and_skipped_analyses():
     assert "Completed" in completed and "Tool issues" in completed
     assert "Missing schemas" in completed and "Ethos divergence" not in completed
     assert "Ethos divergence" in skipped and "No ethos document" in skipped
+    assert "evidence_streams to false" in skipped and "docs/checks.md" in skipped
     assert "Saved:" not in skipped
