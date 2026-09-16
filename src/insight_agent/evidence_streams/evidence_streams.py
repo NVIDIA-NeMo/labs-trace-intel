@@ -34,11 +34,11 @@ class EvidenceStream(Protocol):
     @property
     def name(self) -> str: ...
 
-    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         """Raise for invalid settings; return a reason for unavailable prerequisites."""
 
     async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        """Analyze after validate_configuration returns no skip reason."""
+        """Analyze after check_prerequisites returns no skip reason."""
         ...
 
 

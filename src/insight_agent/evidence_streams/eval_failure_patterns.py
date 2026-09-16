@@ -109,7 +109,7 @@ class EvalFailurePatternsEvidenceStream:
     llm: UnifiedLLM
     config: EvalFailurePatternsConfig = field(default_factory=EvalFailurePatternsConfig)
 
-    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if not isinstance(self.config, EvalFailurePatternsConfig):
             raise TypeError("eval-failure-patterns requires EvalFailurePatternsConfig")
         if not any(

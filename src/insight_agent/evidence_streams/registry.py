@@ -44,7 +44,7 @@ class EvidenceStreamRegistry:
             raise KeyError(
                 f"evidence stream {name!r} is not registered; available: {available}"
             ) from exc
-        skip_reason = await asyncio.to_thread(stream.validate_configuration, snapshot)
+        skip_reason = await asyncio.to_thread(stream.check_prerequisites, snapshot)
         if not len(snapshot):
             skip_reason = "No traces loaded"
         if skip_reason is not None:

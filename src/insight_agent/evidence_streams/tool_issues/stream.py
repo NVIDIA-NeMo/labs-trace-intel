@@ -780,7 +780,7 @@ class ToolIssueEvidenceStream:
 
     config: ToolIssueConfig = field(default_factory=ToolIssueConfig)
 
-    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if not isinstance(self.config, ToolIssueConfig):
             raise TypeError("tool-issues requires ToolIssueConfig")
         if not any(

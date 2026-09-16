@@ -59,7 +59,7 @@ class EthosDivergenceEvidenceStream:
         self.llm = llm
         self.ethos = ""
 
-    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if self.config.ethos_path is None:
             return "No ethos document"
         self.ethos = self.config.ethos_path.read_text(encoding="utf-8")

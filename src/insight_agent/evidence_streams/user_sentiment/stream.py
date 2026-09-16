@@ -163,7 +163,7 @@ class UserSentimentEvidenceStream:
         self.config = config
         self.llm = llm
 
-    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if self.config.litellm is None:
             try:
                 validate_embedding_dependencies()

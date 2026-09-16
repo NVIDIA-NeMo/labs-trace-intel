@@ -191,7 +191,7 @@ def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
             def __init__(self, name):
                 self.name = name
 
-            def validate_configuration(self, snapshot):
+            def check_prerequisites(self, snapshot):
                 pass
 
             async def analyze(self, snapshot):
@@ -218,7 +218,7 @@ def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
     asyncio.run(run())
 
 
-def test_empty_run_skips_synthesis_and_file_creation(
+def test_no_candidates_skips_synthesis_and_file_creation(
     clean_environment, tmp_path, monkeypatch, capsys, select_streams
 ):
     traces = tmp_path / "traces.jsonl"

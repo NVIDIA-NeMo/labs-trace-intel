@@ -298,7 +298,12 @@ async def _generate_insights(config: RunConfig, output: RunOutput) -> RunResult:
             progress,
         )
         existing = load_insights(config.existing_insights) if config.existing_insights else []
-        result = RunResult(len(snapshot), evidence, list(existing), existing)
+        result = RunResult(
+            trace_count=len(snapshot),
+            evidence=evidence,
+            insights=list(existing),
+            existing_insights=existing,
+        )
         if any(item.problems for item in evidence):
             result.insights = await _compile_evidence(config, api_key, snapshot, result, output)
         return result

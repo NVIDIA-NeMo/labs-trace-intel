@@ -1187,7 +1187,7 @@ class AnomalyAndPatternsEvidenceStream:
 
     config: AnomalyAndPatternsConfig = field(default_factory=AnomalyAndPatternsConfig)
 
-    def validate_configuration(self, snapshot: TraceSnapshot) -> str | None:
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if not isinstance(self.config, AnomalyAndPatternsConfig):
             raise TypeError("anomaly-and-patterns requires AnomalyAndPatternsConfig")
         return None
