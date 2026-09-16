@@ -619,3 +619,167 @@ def test_intake_failed_load_does_not_cache_partial_snapshot_and_can_retry():
     assert description["distinct_logical_cases"] == 1
     description["query"].clear()
     assert loader.describe()["query"] == _query().describe()
+
+
+@pytest.mark.parametrize("sort", ["started_at", "-started_at"])
+def test_experiment_selection_pages_evaluations_and_merges_traces_before_limit(sort):
+    requests = []
+    trace_pages = []
+    records = {
+        "eval-a": [("a1", "2026-08-28T18:40:01"), ("a3", "2026-08-28T18:40:03")],
+        "eval-b": [("b2", "2026-08-28T18:40:02"), ("b4", "2026-08-28T18:40:04")],
+    }
+
+    def handler(request):
+        requests.append(request)
+        page = int(request.url.params["page"])
+        if request.url.path.endswith("/evaluations"):
+            assert request.url.params["filter[experiment_id]"] == "experiment-1"
+            assert request.url.params["sort"] == "name"
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"name": ["eval-a", "eval-b"][page - 1]}],
+                    "pagination": _pagination(page=page, total_pages=2, total_results=2, size=1),
+                },
+            )
+        if request.url.path.endswith("/traces"):
+            params = request.url.params
+            assert "filter[experiment_id]" not in params
+            assert params["filter[agent_name]"] == "agent-a"
+            assert params["filter[status]"] == "success"
+            assert params["filter[started_at][gte]"] == "2026-08-28T18:40:00+00:00"
+            assert params["filter[started_at][lte]"] == "2026-08-28T18:42:00+00:00"
+            assert params["sort"] == sort
+            name = params["filter[evaluation_name]"]
+            selected = sorted(records[name], reverse=sort.startswith("-"))
+            trace_id, timestamp = selected[page - 1]
+            trace_pages.append((name, page))
+            record = _trace_record(trace_id)
+            record["started_at"] = timestamp
+            record["ended_at"] = None
+            record["evaluation_context"]["evaluation_name"] = name
+            return httpx.Response(
+                200,
+                json={
+                    "data": [record],
+                    "pagination": _pagination(page=page, total_pages=2, total_results=2, size=1),
+                },
+            )
+        if request.url.path.endswith("/spans"):
+            trace_id = request.url.params["filter[trace_id]"]
+            return httpx.Response(
+                200,
+                json={
+                    "data": [_span_record("root", trace_id=trace_id)],
+                    "pagination": _pagination(page=1, total_pages=1, total_results=1, size=1),
+                },
+            )
+        return _empty_evaluator_page()
+
+    config = _config(
+        page_size=1,
+        query=_query().model_copy(
+            update={
+                "experiment_id": "experiment-1",
+                "agent_name": "agent-a",
+                "status": IntakeStatus.SUCCESS,
+                "sort": sort,
+            }
+        ),
+    )
+    loader = _configured_trace_loader(TraceConfig(intake=config, max_traces=2))
+    assert isinstance(loader, IntakeTraceLoader)
+    loader.transport = httpx.MockTransport(handler)
+    snapshot = loader.load()
+
+    assert [trace.id for trace in snapshot] == (
+        ["b4", "a3"] if sort.startswith("-") else ["a1", "b2"]
+    )
+    assert len(trace_pages) == 3
+    assert len([r for r in requests if r.url.path.endswith("/spans")]) == 2
+    assert loader.describe()["query"]["experiment_id"] == "experiment-1"
+    assert loader.load() is snapshot
+
+
+@pytest.mark.parametrize("evaluation_name", [None, "eval-a", "outside-experiment"])
+@pytest.mark.parametrize("has_evaluations", [True, False])
+def test_experiment_selection_intersects_evaluation_name_and_never_falls_back(
+    evaluation_name, has_evaluations
+):
+    trace_requests = []
+
+    def handler(request):
+        if request.url.path.endswith("/evaluations"):
+            data = [{"name": "eval-a"}] if has_evaluations else []
+            return httpx.Response(
+                200,
+                json={
+                    "data": data,
+                    "pagination": _pagination(
+                        page=1,
+                        total_pages=int(has_evaluations),
+                        total_results=len(data),
+                        size=len(data),
+                    ),
+                },
+            )
+        if request.url.path.endswith("/traces"):
+            trace_requests.append(request)
+            assert request.url.params["filter[evaluation_name]"] == "eval-a"
+        return _handler(request)
+
+    loader = IntakeTraceLoader(
+        _config(
+            query=_query().model_copy(
+                update={
+                    "experiment_id": "experiment-1",
+                    "evaluation_name": evaluation_name,
+                }
+            )
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    if has_evaluations and evaluation_name != "outside-experiment":
+        assert loader.load().trace_count == 1
+        assert len(trace_requests) == 1
+    else:
+        with pytest.raises(IntakeLoadError, match="returned no traces"):
+            loader.load()
+        assert trace_requests == []
+
+
+def test_experiment_lookup_failure_does_not_load_unfiltered_traces(monkeypatch):
+    monkeypatch.setenv("NMP_ACCESS_TOKEN", "test-token")
+
+    def handler(request):
+        assert request.url.path.endswith("/evaluations")
+        assert request.headers["Authorization"] == "Bearer test-token"
+        return httpx.Response(403)
+
+    loader = IntakeTraceLoader(
+        _config(query=_query().model_copy(update={"experiment_id": "experiment-1"})),
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(IntakeLoadError, match="evaluations request failed.*403"):
+        loader.load()
+
+
+def test_experiment_id_cli_overrides_yaml(tmp_path):
+    from insight_agent.cli.main import get_config
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "trace:\n  intake:\n    base_url: https://platform.example.test\n"
+        "    workspace: test\n    query:\n"
+        "      started_at_gte: 2026-08-28T18:40:00Z\n"
+        "      started_at_lte: 2026-08-28T18:42:00Z\n"
+        "      experiment_id: from-yaml\n"
+    )
+    config = get_config(
+        ["--config", str(config_path), "--trace.intake.query.experiment-id", "from-cli"]
+    )
+    loader = _configured_trace_loader(config.trace)
+    assert isinstance(loader, IntakeTraceLoader)
+    assert loader.config.query.experiment_id == "from-cli"
+    assert "filter[experiment_id]" not in loader.config.query.params()
