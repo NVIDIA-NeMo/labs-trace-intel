@@ -50,6 +50,11 @@ from insight_agent.insights_generation.defaults import DEFAULT_MAX_TOKENS, DEFAU
 from insight_agent.insights_generation.insight_compilation import InsightCompilation
 from insight_agent.insights_generation.validation import ProblemValidation
 from insight_agent.trace_loaders.atif import ATIFTraceLoader
+from insight_agent.trace_loaders.braintrust import (
+    BRAINTRUST_DEFAULT_MAX_TRACES,
+    BraintrustTraceConfig,
+    BraintrustTraceLoader,
+)
 from insight_agent.trace_loaders.fs import FSDataLoader
 from insight_agent.trace_loaders.intake import IntakeTraceLoader
 from insight_agent.trace_loaders.langfuse import (
@@ -96,6 +101,10 @@ def _check_environment(config: RunConfig) -> str:
         required["LANGSMITH_API_KEY — API key for LangSmith"] = os.environ.get(
             "LANGSMITH_API_KEY", ""
         ).strip() or os.environ.get("LANGCHAIN_API_KEY")
+    if config.trace.braintrust is not None:
+        required["BRAINTRUST_API_KEY — API key for Braintrust"] = os.environ.get(
+            "BRAINTRUST_API_KEY"
+        )
     if config.trace.langfuse is not None:
         for name in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"):
             required[f"{name} — Langfuse project credentials"] = os.environ.get(name)
@@ -134,6 +143,18 @@ def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
             query = source.query.model_copy(update={"max_traces": config.max_traces})
             source = source.model_copy(update={"query": query})
         return IntakeTraceLoader(config=source)
+    if config.braintrust is not None:
+        source = config.braintrust
+        return BraintrustTraceLoader(
+            BraintrustTraceConfig(
+                project_id=source.project_id,
+                experiment_id=source.experiment_id,
+                api_url=source.api_url,
+                from_timestamp=source.from_timestamp,
+                to_timestamp=source.to_timestamp,
+                max_traces=config.max_traces or BRAINTRUST_DEFAULT_MAX_TRACES,
+            )
+        )
     if config.langfuse is not None:
         source = config.langfuse
         return LangfuseTraceLoader(

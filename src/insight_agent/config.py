@@ -22,6 +22,7 @@ from insight_agent.evidence_streams.eval_failure_patterns import EvalFailurePatt
 from insight_agent.evidence_streams.tool_issues.stream import ToolIssueConfig
 from insight_agent.evidence_streams.user_sentiment.stream import UserSentimentConfig
 from insight_agent.trace_loaders.atif import ATIFTraceConfig
+from insight_agent.trace_loaders.braintrust import validate_braintrust_selection
 from insight_agent.trace_loaders.intake import IntakeTraceLoaderConfig
 from insight_agent.trace_loaders.langfuse import validate_langfuse_time_window
 
@@ -80,6 +81,23 @@ class LangfuseExportConfig(ConfigModel):
     """Settings owned by the native Langfuse v3 export loader."""
 
     path: Path
+
+
+class BraintrustConfig(ConfigModel):
+    """Settings owned by the live Braintrust SQL trace loader."""
+
+    project_id: str | None = None
+    experiment_id: str | None = None
+    api_url: str | None = None
+    from_timestamp: datetime
+    to_timestamp: datetime
+
+    @model_validator(mode="after")
+    def selection_is_valid(self) -> BraintrustConfig:
+        validate_braintrust_selection(
+            self.project_id, self.experiment_id, self.from_timestamp, self.to_timestamp
+        )
+        return self
 
 
 class LangfuseConfig(ConfigModel):
@@ -148,6 +166,10 @@ class TraceConfig(ConfigModel):
         default=None,
         description="Bounded NeMo Platform Intake query",
     )
+    braintrust: BraintrustConfig | None = Field(
+        default=None,
+        description="Live Braintrust project logs or experiment traces",
+    )
     langfuse: LangfuseConfig | None = Field(
         default=None,
         description="Live Langfuse v3 trace loader",
@@ -175,6 +197,7 @@ class TraceConfig(ConfigModel):
                 self.mlflow_experiment,
                 self.mlflow_export,
                 self.intake,
+                self.braintrust,
                 self.langfuse,
                 self.langfuse_export,
                 self.langsmith,

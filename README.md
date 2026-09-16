@@ -5,7 +5,8 @@
 
 Trace Analyst analyzes agent execution traces to find recurring, actionable problems,
 then produces YAML insights with supporting trace references. It reads live traces or native
-exports from LangSmith, Langfuse, and MLflow, live NeMo Platform Intake traces, and canonical JSONL.
+exports from LangSmith, Langfuse, and MLflow, live Braintrust and NeMo Platform Intake traces,
+and canonical JSONL.
 
 This research preview explores a more scalable approach than the
 [earlier implementation](https://github.com/NVIDIA-NeMo/nemo-platform/blob/f57bb6ca64d84e505742e73f6234fd31e27e7a4a/plugins/nemo-insights/README.md):
@@ -80,11 +81,34 @@ explicit CLI options override individual file values. See
 ## Analyze your own traces
 
 Trace Analyst can read live projects or native exports from LangSmith, Langfuse, and MLflow,
-and live traces from NeMo Platform Intake. Every
+and live traces from Braintrust and NeMo Platform Intake. Every
 source is normalized before the same evidence streams run. Choose one integration below. Each YAML
 snippet is a complete `trace-analyst-config.yaml` file. Set up inference as described above,
 then choose your endpoint, project, and a time window containing your traces where applicable.
 Platform credentials are separate from the inference API key.
+
+### Braintrust
+
+Load complete traces directly from Braintrust project logs or evaluation experiments.
+No optional extra is required. Set `BRAINTRUST_API_KEY`, then configure:
+
+```yaml
+trace:
+  max_traces: 100
+  braintrust:
+    project_id: your-project-id
+    # Use experiment_id instead for an evaluation experiment.
+    from_timestamp: 2026-09-01T00:00:00Z
+    to_timestamp: 2026-09-02T00:00:00Z
+    # api_url: https://api.braintrust.dev
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
+```
+
+See the [Braintrust configuration docs](docs/configuration.md#braintrust) for
+selection, regional endpoints, normalization, and CLI options.
 
 ### LangSmith
 

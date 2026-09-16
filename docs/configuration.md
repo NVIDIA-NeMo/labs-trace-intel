@@ -57,7 +57,8 @@ Save your chosen example, customize its source settings, and run:
 uv run --no-sync insight-agent --config trace-analyst-config.yaml
 ```
 
-Install the appropriate extra before using a platform loader, including its native-export loader.
+Install the appropriate extra for SDK-based platform loaders, including their native-export loaders.
+Braintrust uses the existing HTTP client and requires no extra.
 Credentials below are for live platform access; offline loading does not need platform credentials,
 but Insight compilation still needs [inference credentials](#credentials).
 Relative input and export paths resolve from the directory where `insight-agent` is run.
@@ -94,6 +95,62 @@ trace:
 
 The file must contain one complete ATIF trajectory object per nonblank line.
 The loader reads the entire file.
+
+### Braintrust
+
+Load live project logs or experiment traces with Braintrust's
+[SQL query API](https://www.braintrust.dev/docs/api-reference/query).
+No platform extra is required. Set `BRAINTRUST_API_KEY` in the environment:
+
+```bash
+export BRAINTRUST_API_KEY=<braintrust-api-key>
+```
+
+```yaml
+# trace-analyst-config.yaml
+trace:
+  max_traces: 100
+  braintrust:
+    project_id: your-project-id
+    # Use experiment_id instead of project_id for an evaluation experiment.
+    from_timestamp: 2026-09-01T00:00:00Z
+    to_timestamp: 2026-09-02T00:00:00Z
+    # api_url: https://api.braintrust.dev
+
+evidence_streams:
+  anomaly_and_patterns: {}
+  tool_issues: {}
+```
+
+Select exactly one of `project_id` or `experiment_id`. Both timestamps are
+required and must include a timezone. The window applies to root `created`
+timestamps, inclusive at the start and exclusive at the end. Selection follows
+Braintrust's descending `_pagination_key` order, up to `max_traces` (default 100).
+All spans for each selected root are fetched across every page, including children
+outside the time window, then traces are ordered by root creation time and ID.
+Use a window of completed runs: this loader does not wait for in-flight spans.
+
+`api_url` overrides `BRAINTRUST_API_URL`, which defaults to
+`https://api.braintrust.dev`. Use `https://api-eu.braintrust.dev` for EU data or your
+self-hosted data plane URL. SQL requires data plane v1.1.29 or later.
+
+The loader preserves native inputs, outputs, errors, scores, and metadata;
+root scores become trace evaluation results. Per-span `metrics.estimated_cost`
+becomes span cost. Other metrics remain in `attributes.braintrust.metrics`;
+whole-trace latency is derived from the span time range. Missing outputs stay
+missing, while explicit JSON null remains a recorded result. Duplicate IDs,
+missing parents, cycles, and multiple-parent spans fail with a Braintrust-specific
+error because they cannot represent a complete, unambiguous canonical tree.
+
+One-off CLI configuration uses the same fields:
+
+```bash
+uv run insight-agent \
+  --trace.braintrust.project-id your-project-id \
+  --trace.braintrust.from-timestamp 2026-09-01T00:00:00Z \
+  --trace.braintrust.to-timestamp 2026-09-02T00:00:00Z \
+  --trace.max-traces 25
+```
 
 ### LangSmith
 
