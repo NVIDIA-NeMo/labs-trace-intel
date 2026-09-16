@@ -194,7 +194,7 @@ async def _run_evidence_streams(
     config: EvidenceStreamsConfig,
     snapshot: TraceSnapshot,
     llm_factory: Callable[[], UnifiedLLM] | None = None,
-    progress: Callable[[tuple[str, ...]], None] | None = None,
+    progress: Callable[[Sequence[str]], None] | None = None,
 ) -> list[EvidenceStreamResult]:
     """Run the configured evidence streams concurrently in registration order."""
 
@@ -282,13 +282,13 @@ async def _generate_insights(config: RunConfig, output: RunOutput) -> RunResult:
     async with output.progress():
         snapshot = await asyncio.to_thread(_configured_trace_loader(config.trace).load)
         output.trace_count = len(snapshot)
-        output.activity = "Checking available analyses"
+        output.activity = "Checking prerequisites"
 
-        def progress(active: tuple[str, ...]) -> None:
+        def progress(active: Sequence[str]) -> None:
             output.activity = (
                 "Analyzing: " + ", ".join(display_name(name).lower() for name in active)
                 if active
-                else "Checking available analyses"
+                else "Checking prerequisites"
             )
 
         evidence = await _run_evidence_streams(
