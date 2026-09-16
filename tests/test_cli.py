@@ -103,17 +103,13 @@ def test_cli_preserves_existing_insights_without_synthesizing_empty_evidence(
         Insight(
             name="Search omits archived documents",
             description="Archived documents disappear from search results.",
-            trace_refs=["historical-trace-1", "historical-trace-2"],
+            trace_refs=["historical-trace"],
         )
     ]
     existing_path = tmp_path / "existing.json"
     existing_path.write_text(json.dumps([item.model_dump() for item in existing]), encoding="utf-8")
     trace_path = tmp_path / "traces.jsonl"
-    trace_path.write_text(
-        "\n".join(
-            json.dumps({"id": f"unscored-{i}", "root_spans": [], "aggregate": {}}) for i in range(2)
-        )
-    )
+    trace_path.write_text('{"id":"unscored","root_spans":[],"aggregate":{}}', encoding="utf-8")
     output_path = tmp_path / "results" / "insights.yml"
     compilation = SimpleNamespace(compile_insights=AsyncMock(return_value=existing))
     monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "test-key-not-real")
@@ -137,7 +133,7 @@ def test_cli_preserves_existing_insights_without_synthesizing_empty_evidence(
     assert result == cli.EXIT_OK
     captured = capsys.readouterr()
     assert output_path.read_text(encoding="utf-8") == captured.out
-    assert "No new insights produced from 2 traces." in captured.err
+    assert "No new insights produced from 1 trace." in captured.err
     assert "1 existing insight retained." in captured.err
     assert "Skipped" in captured.err
     assert "Tool issues" in captured.err and "No tool calls" in captured.err
@@ -222,40 +218,31 @@ def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("trace_count", [1, 2])
-def test_cli_requires_two_traces_before_analysis(
-    clean_environment, tmp_path, monkeypatch, capsys, select_streams, trace_count
+def test_empty_run_skips_synthesis_and_file_creation(
+    clean_environment, tmp_path, monkeypatch, capsys, select_streams
 ):
     traces = tmp_path / "traces.jsonl"
-    traces.write_text(
-        "\n".join(
-            json.dumps({"id": f"trace-{i}", "root_spans": [], "aggregate": {}})
-            for i in range(trace_count)
-        )
-    )
-    streams = AsyncMock(wraps=cli._run_evidence_streams)
-    monkeypatch.setattr(cli, "_run_evidence_streams", streams)
+    traces.write_text('{"id":"trace-1","root_spans":[],"aggregate":{}}')
     output = tmp_path / "insights.yml"
     compilation = Mock()
     monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "test-key")
     monkeypatch.setattr(cli, "InsightCompilation", compilation)
 
-    assert cli.main(
-        [
-            "--trace.filesystem.path",
-            str(traces),
-            "--evidence-streams",
-            json.dumps(select_streams(tool_issues=True)),
-            "--output-path",
-            str(output),
-        ]
-    ) == (cli.EXIT_SETUP if trace_count < 2 else cli.EXIT_OK)
-    assert streams.await_count == (0 if trace_count < 2 else 1)
+    assert (
+        cli.main(
+            [
+                "--trace.filesystem.path",
+                str(traces),
+                "--evidence-streams",
+                json.dumps(select_streams(tool_issues=True)),
+                "--output-path",
+                str(output),
+            ]
+        )
+        == 0
+    )
     compilation.assert_not_called()
     assert not output.exists()
     captured = capsys.readouterr()
-    assert captured.out == ("" if trace_count < 2 else "[]\n")
-    if trace_count < 2:
-        assert "Not enough traces" in captured.err
-        assert "at least 2 are required" in captured.err
+    assert captured.out == "[]\n"
     assert "Saved:" not in captured.err

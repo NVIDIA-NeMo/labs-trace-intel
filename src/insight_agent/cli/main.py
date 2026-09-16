@@ -34,7 +34,7 @@ from nooa.unifiedllm import CompletionClient, UnifiedLLM
 from pydantic_settings import CliSettingsSource
 from rich.console import Console
 
-from insight_agent.cli.output import RunOutput, RunResult, count, display_name
+from insight_agent.cli.output import RunOutput, RunResult, display_name
 from insight_agent.config import EvidenceStreamsConfig, RunConfig, TraceConfig
 from insight_agent.evidence_streams.builtins import registered_builtin_streams
 from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult
@@ -82,7 +82,7 @@ DEFAULT_REASONING_EFFORT = "high"
 
 
 class SetupError(ValueError):
-    """Required settings or input are missing for this run."""
+    """Required settings are missing from the environment for this run."""
 
 
 def _check_environment(config: RunConfig) -> str:
@@ -282,11 +282,6 @@ async def _generate_insights(config: RunConfig, output: RunOutput) -> RunResult:
     async with output.progress():
         snapshot = await asyncio.to_thread(_configured_trace_loader(config.trace).load)
         output.trace_count = len(snapshot)
-        if output.trace_count < 2:
-            raise SetupError(
-                "Not enough traces to generate insights.\n"
-                f"Loaded {count(output.trace_count, 'trace')}; at least 2 are required."
-            )
         output.activity = "Checking prerequisites"
 
         def progress(active: Sequence[str]) -> None:

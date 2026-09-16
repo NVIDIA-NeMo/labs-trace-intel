@@ -314,14 +314,12 @@ def test_complete_cli_runs_real_evidence_stream(tmp_path, monkeypatch, capsys, s
     monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "not-real")
     monkeypatch.setattr(cli, "_build_llm", lambda config, api_key: FakeLLMClient())
     monkeypatch.setattr(cli, "InsightCompilation", lambda llm: compilation)
-    traces = tmp_path / "traces.jsonl"
-    traces.write_text(FIXTURE.read_text() + "\n" + json.dumps(minimal()))
     output = tmp_path / "insights.yml"
     assert (
         cli.main(
             [
                 "--trace.atif.path",
-                str(traces),
+                str(FIXTURE),
                 "--evidence-streams",
                 json.dumps(select_streams(tool_issues={"include_audit_problems": True})),
                 "--output-path",
@@ -331,7 +329,7 @@ def test_complete_cli_runs_real_evidence_stream(tmp_path, monkeypatch, capsys, s
         == cli.EXIT_OK
     )
     evidence, snapshot, existing = compilation.compile_insights.await_args.args
-    assert len(snapshot) == 2
+    assert len(snapshot) == 1
     assert existing == []
     assert evidence[0].stream_name == "tool-issues"
     artifacts = evidence[0].artifacts
