@@ -440,6 +440,7 @@ trace:
       started_at_gte: 2026-09-01T00:00:00Z
       started_at_lte: 2026-09-02T00:00:00Z
       # agent_name: my-agent
+      # experiment_id: my-experiment-id
       # evaluation_name: my-evaluation
       # test_case_name: my-test-case
       # session_id: my-session
@@ -457,6 +458,22 @@ Both time bounds are required, inclusive, and must include a timezone. `sort` de
 `started_at` (oldest first); use `-started_at` for newest first. Optional query fields narrow
 the selection by agent, evaluation, test case, session, or status (`success`, `error`,
 `cancelled`, or `unknown`). Without either trace limit, all matching traces in the window are loaded.
+
+Use `--trace.intake.query.experiment-id` (YAML: `trace.intake.query.experiment_id`)
+to retrieve only traces belonging to an experiment:
+
+```bash
+uv run --no-sync insight-agent --config trace-analyst-config.yaml \
+  --trace.intake.query.experiment-id my-experiment-id
+```
+
+Intake filters experiment membership on the evaluations endpoint using
+`filter[experiment_id]`. The loader resolves all matching evaluation names, then
+queries traces using `filter[evaluation_name]`; the trace endpoint does not accept
+`experiment_id`. Results are merged by start time before applying the trace limit.
+If `evaluation_name` is also set, it must belong to the selected experiment for any
+traces to match. Other query filters and the required time window still apply.
+An experiment with no matching traces produces the usual empty-selection error.
 
 `page_size` controls API pagination (1–1,000, default 100), not the final trace count.
 `timeout_seconds` is a positive HTTP timeout, defaulting to 30 seconds. Endpoint and workspace

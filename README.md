@@ -205,6 +205,7 @@ trace:
       started_at_gte: 2026-09-01T00:00:00Z
       started_at_lte: 2026-09-02T00:00:00Z
       # agent_name: my-agent
+      # experiment_id: my-experiment-id
       # evaluation_name: my-evaluation
       # test_case_name: my-test-case
       # session_id: my-session

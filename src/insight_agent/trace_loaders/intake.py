@@ -147,6 +147,15 @@ class _EvaluatorResultPage(_WireModel):
     pagination: _Pagination
 
 
+class _Evaluation(_WireModel):
+    name: str = Field(min_length=1)
+
+
+class _EvaluationPage(_WireModel):
+    data: list[_Evaluation]
+    pagination: _Pagination
+
+
 class _TracePage(_WireModel):
     data: list[_IntakeTrace]
     pagination: _Pagination
@@ -163,6 +172,9 @@ class IntakeTraceQuery(_StrictModel):
     started_at_gte: datetime
     started_at_lte: datetime
     agent_name: str | None = None
+    experiment_id: str | None = Field(
+        default=None, min_length=1, description="Restrict traces to evaluations in this experiment."
+    )
     evaluation_name: str | None = None
     test_case_name: str | None = None
     session_id: str | None = None
@@ -239,7 +251,7 @@ class IntakeTraceDescription(TraceDescription):
     query: dict[str, JsonValue]
 
 
-_Page = TypeVar("_Page", _TracePage, _SpanPage, _EvaluatorResultPage)
+_Page = TypeVar("_Page", _TracePage, _SpanPage, _EvaluatorResultPage, _EvaluationPage)
 
 
 class _IntakeClient:
@@ -272,6 +284,36 @@ class _IntakeClient:
             params={**query.params(), "sort": query.sort, "mode": "detailed"},
         )
 
+    def traces(self, query: IntakeTraceQuery) -> Iterator[_IntakeTrace]:
+        def records(selection: IntakeTraceQuery) -> Iterator[_IntakeTrace]:
+            for page in self.trace_pages(selection):
+                yield from page.data
+
+        if query.experiment_id is None:
+            yield from records(query)
+            return
+
+        names = {
+            evaluation.name
+            for page in self._pages(
+                endpoint="evaluations",
+                model=_EvaluationPage,
+                params={"filter[experiment_id]": query.experiment_id, "sort": "name"},
+            )
+            for evaluation in page.data
+        }
+        if query.evaluation_name is not None:
+            names.intersection_update({query.evaluation_name})
+        # Merge the ordered selections before applying the shared trace limit.
+        yield from heapq.merge(
+            *(
+                records(query.model_copy(update={"evaluation_name": name}))
+                for name in sorted(names)
+            ),
+            key=lambda trace: _aware_utc(trace.started_at),
+            reverse=query.sort == "-started_at",
+        )
+
     def span_pages(self, trace_id: str) -> Iterator[_SpanPage]:
         yield from self._pages(
             endpoint="spans",
@@ -293,7 +335,7 @@ class _IntakeClient:
     def _pages(
         self,
         *,
-        endpoint: Literal["traces", "spans", "evaluator-results"],
+        endpoint: Literal["traces", "spans", "evaluator-results", "evaluations"],
         model: type[_Page],
         params: Mapping[str, str],
     ) -> Iterator[_Page]:
@@ -385,33 +427,30 @@ class IntakeTraceLoader:
 
     def _traces(self, client: _IntakeClient) -> Iterator[Trace]:
         count = 0
-        for page in client.trace_pages(self.config.query):
-            for intake_trace in page.data:
-                raw_spans = [
-                    span
-                    for span_page in client.span_pages(intake_trace.id)
-                    for span in span_page.data
-                ]
-                raw_results = [
-                    result
-                    for result_page in client.evaluator_result_pages(intake_trace.session_id)
-                    for result in result_page.data
-                ]
-                try:
-                    yield _normalize_trace(
-                        intake_trace,
-                        raw_spans,
-                        raw_results,
-                        base_url=self.config.base_url,
-                        workspace=self.config.workspace,
-                    )
-                except (ValueError, TypeError) as error:
-                    raise IntakeLoadError(
-                        f"failed to normalize Intake trace {intake_trace.id!r}: {error}"
-                    ) from error
-                count += 1
-                if count == self.config.query.max_traces:
-                    return
+        for intake_trace in client.traces(self.config.query):
+            raw_spans = [
+                span for span_page in client.span_pages(intake_trace.id) for span in span_page.data
+            ]
+            raw_results = [
+                result
+                for result_page in client.evaluator_result_pages(intake_trace.session_id)
+                for result in result_page.data
+            ]
+            try:
+                yield _normalize_trace(
+                    intake_trace,
+                    raw_spans,
+                    raw_results,
+                    base_url=self.config.base_url,
+                    workspace=self.config.workspace,
+                )
+            except (ValueError, TypeError) as error:
+                raise IntakeLoadError(
+                    f"failed to normalize Intake trace {intake_trace.id!r}: {error}"
+                ) from error
+            count += 1
+            if count == self.config.query.max_traces:
+                return
 
     def describe(self) -> IntakeTraceDescription:
         """Describe the configured source and most recently loaded corpus."""
