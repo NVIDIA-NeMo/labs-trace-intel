@@ -149,7 +149,7 @@ def test_export_empty_directory_and_invalid_limit(tmp_path):
         LangfuseFileTraceConfig(Path("unused"), max_traces=0)
 
 
-def test_export_cli_runs_evidence_without_langfuse_client(tmp_path, monkeypatch):
+def test_export_cli_runs_evidence_without_langfuse_client(tmp_path, monkeypatch, select_streams):
     from unittest.mock import AsyncMock
 
     from nooa.unifiedllm import FakeLLMClient
@@ -180,10 +180,12 @@ def test_export_cli_runs_evidence_without_langfuse_client(tmp_path, monkeypatch)
             [
                 "--trace.langfuse-export.path",
                 str(export_path),
-                "--evidence-streams.tool-issues",
-                "{}",
-                "--evidence-streams.anomaly-and-patterns",
-                "{}",
+                "--evidence-streams",
+                json.dumps(
+                    select_streams(
+                        tool_issues={"include_audit_problems": True}, anomaly_and_patterns={}
+                    )
+                ),
                 "--output-path",
                 str(tmp_path / "insights.yml"),
             ]

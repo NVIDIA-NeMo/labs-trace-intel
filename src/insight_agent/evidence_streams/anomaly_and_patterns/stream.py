@@ -530,31 +530,31 @@ def group_trajectories(
 ) -> dict[str, Any]:
     """Group recurring ordered action patterns without outcome labels.
 
-    Clustering needs some ``k`` with ``2 <= k < len(records)``, so a corpus of
-    fewer than three traces cannot be grouped. The default is to raise, which
-    is what the measured pipeline did. Pass ``on_insufficient_traces="skip"``
-    to get an explicit abstention instead — useful when running the stage over
-    a small smoke corpus.
+    Clustering needs at least three traces and two distinct feature vectors.
+    Candidate counts are capped at the number of distinct vectors. Pass
+    ``on_insufficient_traces="skip"`` to return a reason when grouping is unavailable.
     """
 
     if on_insufficient_traces not in ("raise", "skip"):
         raise ValueError("on_insufficient_traces must be 'raise' or 'skip'")
-    if on_insufficient_traces == "skip" and not [
-        k for k in cluster_candidates if 2 <= k < len(records)
-    ]:
+
+    def abstain(reason: str) -> dict[str, Any]:
+        reason = f"trajectory clustering — {reason}"
+        if on_insufficient_traces == "raise":
+            raise ValueError(reason)
         return {
             "status": "not_evaluable",
-            "reason": (
-                f"trajectory grouping needs at least three traces and a candidate k with "
-                f"2 <= k < {len(records)}; got {len(records)} trace(s) and candidates "
-                f"{list(cluster_candidates)}"
-            ),
+            "reason": reason,
             "trace_count": len(records),
             "clusters": [],
             "assignments": {},
         }
 
+    if len(records) < 3:
+        return abstain("needs at least 3 traces")
     documents = [" ".join(record.sequence_tokens) for record in records]
+    if not any(document.strip() for document in documents):
+        return abstain("no recorded trajectories")
     vectorizer = TfidfVectorizer(
         tokenizer=str.split,
         token_pattern=None,
@@ -564,8 +564,18 @@ def group_trajectories(
         sublinear_tf=True,
     )
     matrix = vectorizer.fit_transform(documents)
+    # Count distinct vectors, since TF-IDF can map different sequences to the same point.
+    matrix.sort_indices()
+    distinct = len({(tuple(row.indices), tuple(row.data)) for row in matrix})
+    candidates = [k for k in cluster_candidates if 2 <= k < len(records) and k <= distinct]
+    if distinct < 2:
+        return abstain("traces have identical trajectories")
+    if not candidates:
+        return abstain(
+            f"configured cluster counts exceed the {distinct} distinct patterns or available traces"
+        )
     selected_k, selection_scores = _choose_cluster_count(
-        matrix, cluster_candidates, random_state=random_state
+        matrix, candidates, random_state=random_state
     )
     model = KMeans(n_clusters=selected_k, random_state=random_state, n_init=30).fit(matrix)
     labels = model.labels_
@@ -919,17 +929,19 @@ def run_anomaly_and_patterns(
     prepared.sort(key=lambda item: item.features.trace_id)
     failure_events = [dict(event) for item in prepared for event in item.failure_events]
     records = [item.features for item in prepared]
-    anomalies = select_anomalies(
-        records,
-        feature_names,
-        contamination=contamination,
-        input_scaling=input_scaling,
+    anomalies = (
+        select_anomalies(
+            records,
+            feature_names,
+            contamination=contamination,
+            input_scaling=input_scaling,
+        )
+        if records
+        else []
     )
-    trajectory_groups: dict[str, Any] | None
-    if len(records) >= 3:
-        trajectory_groups = group_trajectories(records, cluster_candidates=cluster_candidates)
-    else:
-        trajectory_groups = None
+    trajectory_groups = group_trajectories(
+        records, cluster_candidates=cluster_candidates, on_insufficient_traces="skip"
+    )
     failure_groups = group_failures(
         failure_events, minimum_independent_traces=minimum_independent_traces
     )
@@ -1175,9 +1187,10 @@ class AnomalyAndPatternsEvidenceStream:
 
     config: AnomalyAndPatternsConfig = field(default_factory=AnomalyAndPatternsConfig)
 
-    def validate_configuration(self) -> None:
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if not isinstance(self.config, AnomalyAndPatternsConfig):
             raise TypeError("anomaly-and-patterns requires AnomalyAndPatternsConfig")
+        return None
 
     async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
         traces = (to_anomaly_and_patterns_trace(trace) for trace in snapshot)
@@ -1194,6 +1207,12 @@ class AnomalyAndPatternsEvidenceStream:
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=problems,
+            finding_count=len(result.failure_events)
+            + sum(row.is_anomaly for row in result.anomalies),
+            limitations=(str(result.trajectory_groups["reason"]),)
+            if result.trajectory_groups
+            and result.trajectory_groups.get("status") == "not_evaluable"
+            else (),
             artifacts=AnomalyAndPatternsArtifacts(
                 result=result,
                 config=self.config,

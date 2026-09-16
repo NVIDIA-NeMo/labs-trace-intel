@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -203,23 +203,31 @@ class ToolIssueStreamConfig(ToolIssueConfig):
 
 
 class EvidenceStreamsConfig(ConfigModel):
-    """Selected evidence streams and their configuration."""
+    """All streams run by default; use false to disable, true or {} for defaults."""
 
     anomaly_and_patterns: AnomalyAndPatternsStreamConfig | None = Field(
-        default=None,
+        default_factory=AnomalyAndPatternsStreamConfig,
         description="Anomaly and recurring-pattern evidence",
     )
     tool_issues: ToolIssueStreamConfig | None = Field(
-        default=None,
+        default_factory=ToolIssueStreamConfig,
         description="Deterministic tool-issue evidence",
     )
     eval_failure_patterns: EvalFailurePatternsConfig | None = Field(
-        default=None,
+        default_factory=EvalFailurePatternsConfig,
         description="LLM review of evaluation-linked failures",
     )
 
-    ethos_divergence: EthosDivergenceConfig | None = None
-    user_sentiment: UserSentimentConfig | None = None
+    ethos_divergence: EthosDivergenceConfig | None = Field(default_factory=EthosDivergenceConfig)
+    user_sentiment: UserSentimentConfig | None = Field(default_factory=UserSentimentConfig)
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def parse_enabled(cls, value: object) -> object:
+        """Translate YAML switches to the config model (enabled) or None (disabled)."""
+        if value is True:
+            return {}
+        return None if value is False else value
 
     @model_validator(mode="after")
     def at_least_one_stream_is_configured(self) -> EvidenceStreamsConfig:
@@ -250,7 +258,7 @@ class RunConfig(BaseSettings):
     trace: TraceConfig = Field(description="Trace source and loading settings")
     output_path: Path = Field(default=Path("insights.yml"), description="Output path")
     evidence_streams: EvidenceStreamsConfig = Field(
-        description="Evidence-stream selection and settings"
+        default_factory=EvidenceStreamsConfig, description="Evidence-stream selection and settings"
     )
     code_base: Path | None = Field(
         default=None,

@@ -45,7 +45,7 @@ def test_missing_environment_exits_before_loading_traces(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == (
-        "[insight-agent] Missing required environment settings:\n"
+        "Missing required environment settings:\n"
         "  INSIGHT_AGENT_API_KEY — API key for the configured model\n"
         "  LANGSMITH_API_KEY — API key for LangSmith\n"
         "  EMBEDDING_API_KEY — API key named by evidence_streams.user_sentiment.litellm.api_key_env\n\n"
@@ -96,8 +96,8 @@ def test_environment_accepts_dotenv_and_existing_key_aliases(
     assert cli._check_environment(config) == "exported-model-key"
 
 
-def test_cli_compiles_selected_evidence_with_existing_insights(
-    clean_environment, tmp_path, monkeypatch, capsys
+def test_cli_preserves_existing_insights_without_synthesizing_empty_evidence(
+    clean_environment, tmp_path, monkeypatch, capsys, select_streams
 ):
     existing = [
         Insight(
@@ -120,8 +120,8 @@ def test_cli_compiles_selected_evidence_with_existing_insights(
         [
             "--trace.filesystem.path",
             str(trace_path),
-            "--evidence-streams.tool-issues.retry-threshold",
-            "3",
+            "--evidence-streams",
+            json.dumps(select_streams(tool_issues={"retry_threshold": 3})),
             "--existing-insights",
             str(existing_path),
             "--output-path",
@@ -129,21 +129,15 @@ def test_cli_compiles_selected_evidence_with_existing_insights(
         ]
     )
 
-    evidence, _, prior = compilation.compile_insights.await_args.args
-    assert [item.stream_name for item in evidence] == ["tool-issues"]
-    assert prior == existing
+    compilation.compile_insights.assert_not_awaited()
     assert result == cli.EXIT_OK
     captured = capsys.readouterr()
     assert output_path.read_text(encoding="utf-8") == captured.out
-    assert captured.err.splitlines() == [
-        "[insight-agent] Loading traces from canonical JSONL...",
-        "[insight-agent] Loaded 1 trace with 0 tool calls across 1 logical case from canonical JSONL.",
-        "[insight-agent] Running 1 evidence stream: tool issues.",
-        '[insight-agent] Evidence stream "tool issues" found 0 candidate problems (1/1 complete).',
-        "[insight-agent] Synthesizing 0 candidate problems and 1 existing insight into final insights...",
-        "[insight-agent] Generated 1 final insight.",
-        f"[insight-agent] Wrote 1 final insight to {output_path}.",
-    ]
+    assert "No new insights produced from 1 trace." in captured.err
+    assert "1 existing insight retained." in captured.err
+    assert "Skipped" in captured.err
+    assert "Tool issues" in captured.err and "No tool calls" in captured.err
+    assert f"Saved: {output_path}" in captured.err
     assert load_insights(output_path) == existing
 
 
@@ -187,46 +181,6 @@ def test_code_validation_filters_problems_and_preserves_stream_result(
     ]
 
 
-def test_evidence_progress_reports_findings_as_streams_finish(monkeypatch):
-    release_slow_stream = asyncio.Event()
-
-    class FakeRegistry:
-        names = ("slow-stream", "fast-stream")
-
-        async def analyze(self, name, snapshot):
-            assert snapshot.trace_count == 0
-            if name == "slow-stream":
-                await asyncio.wait_for(release_slow_stream.wait(), timeout=1)
-            else:
-                release_slow_stream.set()
-            return EvidenceStreamResult(
-                stream_name=name,
-                problems=(
-                    Problem(
-                        description=f"{name} found a recurring issue.",
-                        supporting_trace_ids=("trace-1",),
-                    ),
-                ),
-            )
-
-    monkeypatch.setattr(cli, "registered_builtin_streams", lambda **kwargs: FakeRegistry())
-    progress = []
-
-    results = asyncio.run(
-        cli._run_evidence_streams(
-            EvidenceStreamsConfig(tool_issues={}), TraceSnapshot([]), progress=progress.append
-        )
-    )
-
-    assert [result.stream_name for result in results] == ["slow-stream", "fast-stream"]
-    assert progress == [
-        'Evidence stream "fast stream" found 1 candidate problem (1/2 complete).',
-        "  Candidate: fast-stream found a recurring issue.",
-        'Evidence stream "slow stream" found 1 candidate problem (2/2 complete).',
-        "  Candidate: slow-stream found a recurring issue.",
-    ]
-
-
 def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
     async def run():
         loop = asyncio.get_running_loop()
@@ -237,7 +191,7 @@ def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
             def __init__(self, name):
                 self.name = name
 
-            def validate_configuration(self):
+            def check_prerequisites(self, snapshot):
                 pass
 
             async def analyze(self, snapshot):
@@ -251,9 +205,44 @@ def test_evidence_streams_share_cli_loop_and_run_concurrently(monkeypatch):
         for stream in (Stream("first"), Stream("second")):
             registry.register(stream)
         monkeypatch.setattr(cli, "registered_builtin_streams", lambda **kwargs: registry)
+        progress = []
         results = await cli._run_evidence_streams(
-            EvidenceStreamsConfig(tool_issues={}), TraceSnapshot([])
+            EvidenceStreamsConfig(tool_issues={}),
+            TraceSnapshot([Trace(id="trace-1", root_spans=[], aggregate=TraceAggregate())]),
+            progress=progress.append,
         )
         assert [result.stream_name for result in results] == ["first", "second"]
+        assert set().union(*map(set, progress)) == {"first", "second"}
+        assert progress[-1] == ()
 
     asyncio.run(run())
+
+
+def test_no_candidates_skips_synthesis_and_file_creation(
+    clean_environment, tmp_path, monkeypatch, capsys, select_streams
+):
+    traces = tmp_path / "traces.jsonl"
+    traces.write_text('{"id":"trace-1","root_spans":[],"aggregate":{}}')
+    output = tmp_path / "insights.yml"
+    compilation = Mock()
+    monkeypatch.setenv("INSIGHT_AGENT_API_KEY", "test-key")
+    monkeypatch.setattr(cli, "InsightCompilation", compilation)
+
+    assert (
+        cli.main(
+            [
+                "--trace.filesystem.path",
+                str(traces),
+                "--evidence-streams",
+                json.dumps(select_streams(tool_issues=True)),
+                "--output-path",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    compilation.assert_not_called()
+    assert not output.exists()
+    captured = capsys.readouterr()
+    assert captured.out == "[]\n"
+    assert "Saved:" not in captured.err

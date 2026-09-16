@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -108,21 +109,31 @@ class EvalFailurePatternsEvidenceStream:
     llm: UnifiedLLM
     config: EvalFailurePatternsConfig = field(default_factory=EvalFailurePatternsConfig)
 
-    def validate_configuration(self) -> None:
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if not isinstance(self.config, EvalFailurePatternsConfig):
             raise TypeError("eval-failure-patterns requires EvalFailurePatternsConfig")
+        if not any(
+            value is not None for trace in snapshot for value in trace.evaluator_results.values()
+        ):
+            return "No evaluator results"
+        return None
 
     async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        async with self.llm:
-            if not any(
-                value is not None
+        evaluated = await asyncio.to_thread(
+            lambda: sum(
+                any(value is not None for value in trace.evaluator_results.values())
                 for trace in snapshot
-                for value in trace.evaluator_results.values()
-            ):
-                raise ValueError("eval-failure-patterns requires Trace.evaluator_results")
+            )
+        )
+        async with self.llm:
             agent = _build_agent(snapshot, self.llm, self.config)
-            report = await agent.find_problems(_trace_index(snapshot))
+            report = await agent.find_problems(await asyncio.to_thread(_trace_index, snapshot))
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=report.problems,
+            limitations=(
+                f"{len(snapshot) - evaluated} of {len(snapshot)} traces lack evaluator results",
+            )
+            if evaluated < len(snapshot)
+            else (),
         )

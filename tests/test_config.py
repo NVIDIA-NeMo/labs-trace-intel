@@ -4,7 +4,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from insight_agent.config import RunConfig
+from insight_agent.config import EvidenceStreamsConfig, RunConfig
 
 
 def test_cli_nested_override_preserves_yaml_siblings(tmp_path: Path) -> None:
@@ -104,3 +104,31 @@ def test_langfuse_source_can_be_configured_entirely_through_cli() -> None:
     assert config.trace.langfuse.to_timestamp == datetime(2026, 8, 2, tzinfo=timezone.utc)
     assert config.trace.langfuse.base_url == "https://langfuse.example.com"
     assert config.trace.max_traces == 25
+
+
+def test_streams_default_on_and_false_disables_only_that_stream(tmp_path):
+    config = RunConfig(_cli_parse_args=["--trace.filesystem.path", "traces.jsonl"])
+    assert all(
+        getattr(config.evidence_streams, name) is not None
+        for name in EvidenceStreamsConfig.model_fields
+    )
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "trace:\n  filesystem:\n    path: traces.jsonl\nevidence_streams:\n  ethos_divergence: false\n  tool_issues:\n    retry_threshold: 5\n"
+    )
+    config = RunConfig(
+        _cli_parse_args=[
+            "--config",
+            str(path),
+            "--evidence-streams.user-sentiment",
+            "false",
+            "--evidence-streams.eval-failure-patterns",
+            "true",
+        ]
+    )
+    assert config.evidence_streams.ethos_divergence is None
+    assert config.evidence_streams.user_sentiment is None
+    assert config.evidence_streams.tool_issues is not None
+    assert config.evidence_streams.tool_issues.retry_threshold == 5
+    assert config.evidence_streams.anomaly_and_patterns is not None
+    assert config.evidence_streams.eval_failure_patterns is not None

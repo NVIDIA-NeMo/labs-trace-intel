@@ -607,7 +607,7 @@ def build_cards(
                 "trace_id": member["trace_id"],
                 "call_id": member["call_id"],
                 "call_index": member["call_index"],
-                "tool_name": member["tool_name"],
+                "tool_name": member["tool_name"] or "unknown tool",
                 "source_pointer": member["source_pointer"],
                 "observation": member["summary"],
             }
@@ -780,14 +780,21 @@ class ToolIssueEvidenceStream:
 
     config: ToolIssueConfig = field(default_factory=ToolIssueConfig)
 
-    def validate_configuration(self) -> None:
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if not isinstance(self.config, ToolIssueConfig):
             raise TypeError("tool-issues requires ToolIssueConfig")
+        if not any(
+            visit.span.kind is SpanKind.TOOL for trace in snapshot for visit in walk_spans(trace)
+        ):
+            return "No tool calls"
+        return None
 
     async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
-        traces = (to_tool_issue_trace(trace) for trace in snapshot)
-        findings = await asyncio.to_thread(
-            detect,
+        traces = await asyncio.to_thread(lambda: [to_tool_issue_trace(trace) for trace in snapshot])
+        return await asyncio.to_thread(self._analyze, traces)
+
+    def _analyze(self, traces: Sequence[TraceRecord]) -> EvidenceStreamResult:
+        findings = detect(
             traces,
             retry_threshold=self.config.retry_threshold,
         )
@@ -796,9 +803,25 @@ class ToolIssueEvidenceStream:
             minimum_independent_cases=self.config.minimum_independent_cases,
         )
         problems = problems_from_cards(cards, include_audit=self.config.include_audit_problems)
+        calls = [call for trace in traces for call in trace.calls]
+        limited = []
+        if calls:
+            missing_results = sum(
+                call.result is MISSING or call.result in (None, "", {}, []) for call in calls
+            )
+            if missing_results:
+                limited.append(f"{missing_results} of {len(calls)} tool calls lack usable results")
+            missing_catalogs = sum(trace.tool_catalog is None for trace in traces)
+            if missing_catalogs:
+                scope = "all" if missing_catalogs == len(traces) else f"{missing_catalogs} of"
+                limited.append(
+                    f"tool schemas missing in {scope} {len(traces)} trace{'s' if len(traces) != 1 else ''}"
+                )
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=problems,
+            finding_count=len(findings),
+            limitations=tuple(limited),
             artifacts=ToolIssueEvidenceArtifacts(
                 findings=tuple(findings),
                 cards=tuple(cards),

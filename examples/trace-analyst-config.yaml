@@ -16,8 +16,8 @@ trace:
 output_path: insights.yml
 
 evidence_streams:
-  # {} enables a stream with defaults. Remove {} before uncommenting its
-  # nested settings. Omit a stream to disable it; at least one is required.
+  # All streams are enabled by default; this entire section is optional.
+  # Use false to disable a stream, true or {} for defaults, or a mapping to tune it.
   anomaly_and_patterns: {}
     # contamination: 0.02
     # input_scaling: none  # Or robust.

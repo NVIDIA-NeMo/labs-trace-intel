@@ -38,8 +38,8 @@ the native artifacts without presenting them as recurring problems.
 uv run insight-agent --config trace-analyst-config.yaml
 ```
 
-Include `evidence_streams.tool_issues` in `trace-analyst-config.yaml` and omit the other
-stream keys for a tool-issue-only run.
+Include `evidence_streams.tool_issues` in `trace-analyst-config.yaml` and set the other
+stream keys to `false` for a tool-issue-only run.
 
 The CLI writes individual findings, cards, finding-type coverage, projected problems, rendered
 card Markdown, and run metadata under `out/tool_issues/`.

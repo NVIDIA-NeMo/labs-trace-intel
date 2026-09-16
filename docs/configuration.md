@@ -472,22 +472,25 @@ file, first convert it to canonical `Trace` JSONL and use the [filesystem loader
 #### Analysis and limitations
 
 The loader fetches evaluator results for the selected sessions and attaches only
-results targeting spans in each trace. Select `eval_failure_patterns: {}` under
-`evidence_streams` to use those results in analysis. It uses the same model and
+results targeting spans in each trace. Evaluation failure analysis runs by default
+when those results are present. It uses the same model and
 credentials as Insight compilation.
 
 ## Evidence streams
 
-The presence of a stream selects it for the run. Omit a stream when it should
-not run. An empty mapping selects the stream with its defaults:
+All five streams are enabled by default; the entire `evidence_streams` section is
+optional. Omitted entries, `true`, and `{}` use default settings; a mapping overrides
+individual settings, and `false` disables a stream. At least one stream must remain enabled.
+
+For example, keep the other defaults and disable user sentiment:
 
 ```yaml
 evidence_streams:
-  anomaly_and_patterns: {}
+  user_sentiment: false
 ```
 
 Ethos divergence checks observed agent behavior against a business-purpose document.
-Select it by providing an existing, non-empty UTF-8 Markdown file:
+Supply an existing, non-empty Markdown file:
 
 ```yaml
 evidence_streams:

@@ -23,16 +23,23 @@ class EvidenceStreamResult(BaseModel):
     stream_name: str = Field(min_length=1)
     problems: tuple[Problem, ...]
     artifacts: Any = None
+    finding_count: int = Field(
+        default=0, ge=0, description="Observations before candidate filtering"
+    )
+    skip_reason: str | None = None
+    limitations: tuple[str, ...] = ()
 
 
 class EvidenceStream(Protocol):
     @property
     def name(self) -> str: ...
 
-    def validate_configuration(self) -> None:
-        """Raise when the stream cannot run with its current configuration."""
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
+        """Raise for invalid settings; return a reason for unavailable prerequisites."""
 
-    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult: ...
+    async def analyze(self, snapshot: TraceSnapshot) -> EvidenceStreamResult:
+        """Analyze after check_prerequisites returns no skip reason."""
+        ...
 
 
 __all__ = ["EvidenceStream", "EvidenceStreamResult", "Problem"]

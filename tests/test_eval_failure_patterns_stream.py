@@ -24,7 +24,7 @@ def _response(name, arguments, call_id):
     )
 
 
-def test_eval_model_request_honors_cli_token_limit(monkeypatch):
+def test_eval_model_request_honors_cli_token_limit(monkeypatch, select_streams):
     requests = []
 
     async def completion(params):
@@ -57,8 +57,8 @@ def test_eval_model_request_honors_cli_token_limit(monkeypatch):
         [
             "--trace.filesystem.path",
             "unused.jsonl",
-            "--evidence-streams.eval-failure-patterns",
-            "{}",
+            "--evidence-streams",
+            json.dumps(select_streams(eval_failure_patterns={})),
             "--model",
             "openai/gpt-4o-mini",
             "--max-tokens",
@@ -86,7 +86,7 @@ def test_eval_model_request_honors_cli_token_limit(monkeypatch):
     assert all(request["max_tokens"] == 32768 for request in requests)
 
 
-def test_configured_stream_fetches_traces_before_reporting():
+def test_configured_stream_fetches_traces_before_reporting(select_streams):
     trace = Trace(
         id="failed",
         aggregate=TraceAggregate(),
@@ -104,7 +104,7 @@ def test_configured_stream_fetches_traces_before_reporting():
     )
     config = RunConfig(
         trace={"filesystem": {"path": "unused.jsonl"}},
-        evidence_streams={"eval_failure_patterns": {"max_tool_rounds": 1}},
+        evidence_streams=select_streams(eval_failure_patterns={"max_tool_rounds": 1}),
     )
 
     results = asyncio.run(

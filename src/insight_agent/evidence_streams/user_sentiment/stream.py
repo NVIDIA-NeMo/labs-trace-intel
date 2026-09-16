@@ -163,9 +163,13 @@ class UserSentimentEvidenceStream:
         self.config = config
         self.llm = llm
 
-    def validate_configuration(self) -> None:
+    def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if self.config.litellm is None:
-            validate_embedding_dependencies()
+            try:
+                validate_embedding_dependencies()
+            except ValueError:
+                return "No embedding backend configured"
+        return None
 
     @cached_property
     def embedding_generator(self) -> UserEmbeddingGenerator:
@@ -183,13 +187,13 @@ class UserSentimentEvidenceStream:
         messages = {}
         if len(snapshot):
             extraction = await UserMessageExtractor(llm=self.llm).build_extractor(snapshot)
-            messages = extraction.extract(snapshot)
+            messages = await asyncio.to_thread(extraction.extract, snapshot)
         messages = TypeAdapter(dict[str, list[str]]).validate_python(messages, strict=True)
         if messages.keys() != snapshot.traces_by_id.keys():
             raise ValueError("User message extraction must cover exactly the supplied trace IDs")
         screening = (
             await asyncio.to_thread(
-                screen_user_messages, messages, self.embedding_generator, self.classifier
+                lambda: screen_user_messages(messages, self.embedding_generator, self.classifier)
             )
             if any(messages.values())
             else {trace_id: TraceScreeningResult() for trace_id in messages}
@@ -210,6 +214,13 @@ class UserSentimentEvidenceStream:
         return EvidenceStreamResult(
             stream_name=self.name,
             problems=tuple(problems),
+            finding_count=len(candidates),
+            skip_reason="No recorded user messages" if not any(messages.values()) else None,
+            limitations=(
+                f"{sum(not value for value in messages.values())} of {len(snapshot)} traces lack user messages",
+            )
+            if any(messages.values()) and not all(messages.values())
+            else (),
             artifacts={
                 "user_messages": messages,
                 "screening": {
