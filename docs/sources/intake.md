@@ -8,10 +8,11 @@ selected traces are included automatically.
 
 ## Connect and run
 
-From the [repository root](../../README.md#start-here):
+With [uv and Git installed](../../README.md#start-here), install the CLI:
 
 ```bash
-uv sync --locked
+uv tool install --python 3.12 \
+  'insight-agent @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 
 [Configure your inference model and key](../model-access.md#choose-a-model).
@@ -32,7 +33,7 @@ trace:
 ```
 
 ```bash
-uv run --no-sync insight-agent --config config.yaml
+insight-agent --config config.yaml
 ```
 
 Open `insights.yml` if the run produced insights. [Read your results](../results.md)

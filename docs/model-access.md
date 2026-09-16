@@ -8,7 +8,7 @@ Its API key is separate from your LangSmith, Langfuse, MLflow, or Intake credent
 
 ## Choose a model
 
-In the repository root, create or edit `.env`. For OpenAI, use:
+In the folder where you’ll run Trace Analyst, create or edit `.env`. For OpenAI, use:
 
 ```dotenv
 INSIGHT_AGENT_MODEL=openai/gpt-5.2

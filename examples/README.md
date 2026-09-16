@@ -3,19 +3,22 @@
 
 # Try Trace Analyst
 
-Run the bundled customer-service traces to see the kinds of problems Trace Analyst finds.
+Run the example customer-service traces to explore the insights Trace Analyst produces.
 You only need an inference API key; no trace-platform account is required.
 
-From the [repository root](../README.md#start-here):
+With [uv and Git installed](../README.md#start-here), install the CLI:
 
 ```bash
-uv sync --locked
+uv tool install --python 3.12 \
+  'insight-agent @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 
-[Configure your model and API key](../docs/model-access.md#choose-a-model), then run:
+Download the [example traces](tau_bench_traces.jsonl) and
+[configuration](trace-analyst-config.yaml) into one folder, keeping their filenames.
+In that folder, [configure your model and API key](../docs/model-access.md#choose-a-model), then run:
 
 ```bash
-uv run --no-sync insight-agent --config examples/trace-analyst-config.yaml
+insight-agent --config trace-analyst-config.yaml
 ```
 
 The terminal reports completed and skipped checks. If it finds actionable insights,

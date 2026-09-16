@@ -11,10 +11,11 @@ The SmithDB-backed v2 query API is not yet supported.
 
 ## Connect and run
 
-From the [repository root](../../README.md#start-here), install the adapter:
+With [uv and Git installed](../../README.md#start-here), install the CLI with LangSmith support:
 
 ```bash
-uv sync --locked --extra langsmith
+uv tool install --python 3.12 \
+  'insight-agent[langsmith] @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 
 [Configure your inference model and key](../model-access.md#choose-a-model).
@@ -35,7 +36,7 @@ trace:
 ```
 
 ```bash
-uv run --no-sync insight-agent --config config.yaml
+insight-agent --config config.yaml
 ```
 
 Open `insights.yml` if the run produced insights. [Read your results](../results.md)

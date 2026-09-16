@@ -17,13 +17,9 @@ This is a research preview for collaboration and evaluation.
 
 ## Start here
 
-You’ll need Python 3.12 or 3.13 and [uv](https://docs.astral.sh/uv/).
-Clone the repository, then follow the guide for your data:
-
-```bash
-git clone https://github.com/NVIDIA-NeMo/labs-trace-intel.git
-cd labs-trace-intel
-```
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git, then choose
+a guide below. Each guide installs the CLI directly from GitHub; uv manages Python 3.12
+and dependencies for you. Keep your configuration and data in a folder of your choice.
 
 | Your starting point | Guide |
 | --- | --- |
@@ -33,6 +29,9 @@ cd labs-trace-intel
 | MLflow traces and assessments | [MLflow](docs/sources/mlflow.md) |
 | NeMo Platform Intake | [Intake](docs/sources/intake.md) |
 | JSONL, ATIF, or a custom source | [Trace files](docs/sources/files.md) |
+
+If `insight-agent` is not found after installation, run `uv tool update-shell`
+and restart your terminal. Private repository access uses your Git credentials.
 
 ## After your first run
 
@@ -45,7 +44,16 @@ cd labs-trace-intel
 
 [Development](DEVELOPMENT.md) · [Architecture](docs/architecture.md)
 
-Licensed under [Apache 2.0](LICENSE). See [NOTICE](NOTICE),
-[dependency licenses](THIRD_PARTY_LICENSES.md), and the [license inventory](third_party/licenses.jsonl).
 The bundled traces come from [τ-bench](third_party/tau-bench-LICENSE.txt).
+
+## License
+
+Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This project is licensed under the [Apache License, Version 2.0](LICENSE). See
+[NOTICE](NOTICE) for project attributions,
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for human-readable dependency license
+disclosures, and [third_party/licenses.jsonl](third_party/licenses.jsonl) for the machine-readable
+inventory.
+
 This project is currently not accepting contributions.

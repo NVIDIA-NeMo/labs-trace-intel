@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# Run from the repository root. See examples/README.md for setup.
+# Save alongside tau_bench_traces.jsonl and run from that folder.
 trace:
   filesystem:
-    path: examples/tau_bench_traces.jsonl
+    path: tau_bench_traces.jsonl
 max_tokens: 16384

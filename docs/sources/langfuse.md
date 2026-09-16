@@ -11,10 +11,11 @@ Python SDK 3.15. Langfuse v4 is not supported.
 
 ## Connect and run
 
-From the [repository root](../../README.md#start-here):
+With [uv and Git installed](../../README.md#start-here), install the CLI with Langfuse support:
 
 ```bash
-uv sync --locked --extra langfuse
+uv tool install --python 3.12 \
+  'insight-agent[langfuse] @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 
 [Configure your inference model and key](../model-access.md#choose-a-model).
@@ -38,7 +39,7 @@ trace:
 ```
 
 ```bash
-uv run --no-sync insight-agent --config config.yaml
+insight-agent --config config.yaml
 ```
 
 Open `insights.yml` if the run produced insights. [Read your results](../results.md)
@@ -77,13 +78,13 @@ of immediate `.json` or `.jsonl` files are accepted. The loader validates all re
 duplicate IDs, and selects the newest traces up to the limit. The extra installs SDK `>=3.15,<4`.
 
 <details>
-<summary>Create a complete export with the installed SDK</summary>
+<summary>Create a complete export</summary>
 
 Set your Langfuse credentials, including `LANGFUSE_BASE_URL`, in the shell and adjust the dates.
 This writes a new file and refuses to overwrite an existing one.
 
 ```bash
-uv run --no-sync python - <<'PY'
+uv run --isolated --no-project --python 3.12 --with 'langfuse>=3.15,<4' python - <<'PY'
 from datetime import UTC, datetime
 from itertools import count
 from langfuse import Langfuse

@@ -9,16 +9,17 @@ For native exports, follow the [LangSmith](langsmith.md#use-an-export),
 
 ## Run a file
 
-From the [repository root](../../README.md#start-here):
+With [uv and Git installed](../../README.md#start-here), install the CLI:
 
 ```bash
-uv sync --locked
+uv tool install --python 3.12 \
+  'insight-agent @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 
 [Configure your inference model and key](../model-access.md#choose-a-model), then run:
 
 ```bash
-uv run --no-sync insight-agent --trace.filesystem.path traces.jsonl --max-tokens 16384
+insight-agent --trace.filesystem.path traces.jsonl --max-tokens 16384
 ```
 
 For ATIF, use `--trace.atif.path trajectories.jsonl` instead.

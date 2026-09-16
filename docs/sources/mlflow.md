@@ -8,10 +8,11 @@ are included automatically in evaluation failure analysis.
 
 ## Connect and run
 
-From the [repository root](../../README.md#start-here):
+With [uv and Git installed](../../README.md#start-here), install the CLI with MLflow support:
 
 ```bash
-uv sync --locked --extra mlflow
+uv tool install --python 3.12 \
+  'insight-agent[mlflow] @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 
 [Configure your inference model and key](../model-access.md#choose-a-model).
@@ -36,7 +37,7 @@ trace:
 ```
 
 ```bash
-uv run --no-sync insight-agent --config config.yaml
+insight-agent --config config.yaml
 ```
 
 Open `insights.yml` if the run produced insights. [Read your results](../results.md)
@@ -55,7 +56,7 @@ fetched in pages of up to 500. Memory use grows with the number and size of trac
 With tracking-server access configured in the shell, export complete traces:
 
 ```bash
-uv run --no-sync mlflow traces search \
+uvx --python 3.12 --from 'mlflow-skinny>=3.6,<4' mlflow traces search \
   --experiment-id YOUR_EXPERIMENT_ID --max-results 100 --output json > mlflow-traces.json
 ```
 

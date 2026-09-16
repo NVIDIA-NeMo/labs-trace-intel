@@ -49,11 +49,13 @@ evidence_streams:
 
 Set `EMBEDDING_API_KEY` in `.env`. Replace the model alias and endpoint with your provider’s values.
 
-To run the 8B embedding model locally, install the extra into your existing environment:
+To run the 8B embedding model locally, add `local-embedding` to the extras in your
+install command. Keep your source extra too. For LangSmith:
 
 ```bash
-uv pip install -e '.[local-embedding]'
-uv run --no-sync insight-agent --config config.yaml
+uv tool install --python 3.12 \
+  'insight-agent[langsmith,local-embedding] @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
+insight-agent --config config.yaml
 ```
 
 Local inference downloads model weights and needs enough memory to run them.
