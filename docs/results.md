@@ -3,8 +3,8 @@
 
 # Read your results
 
-Start with the saved insights. Each describes a recurring problem and lists traces
-you can inspect in your source platform or export.
+Start with the saved insights. Each highlights your agent’s behavior and links it to
+supporting traces you can inspect in your source platform or export.
 
 An illustrative entry in `insights.yml`:
 
@@ -45,15 +45,15 @@ missing coverage; it does not mean the whole check was skipped.
 ## A check was skipped
 
 Open [Add context and checks](checks.md) for the prerequisite and a setup example.
-To hide a check you don’t need, [disable it](checks.md#hide-a-check) in your configuration.
+[Disable checks](checks.md#disable-a-check) you don’t need in your configuration.
 Disabled checks are omitted from the report.
 
 If no traces were loaded, check your source, filters, and time window first.
 
 ## No insights were produced
 
-Read the completed checks and their limitations. The run may have found no recurring
-problems, or its candidates may not have passed review. This result alone does not
+Read the completed checks and their limitations. The run may have found no actionable
+patterns, or its candidates may not have passed review. This result alone does not
 establish that your agent is free of problems.
 
 ## Saved output

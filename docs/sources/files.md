@@ -12,7 +12,7 @@ For native exports, follow the [LangSmith](langsmith.md#use-an-export),
 With [uv and Git installed](../../README.md#start-here), install the CLI:
 
 ```bash
-uv tool install --python 3.12 \
+uv tool install \
   'insight-agent @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 

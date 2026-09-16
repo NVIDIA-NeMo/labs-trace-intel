@@ -14,7 +14,7 @@ The SmithDB-backed v2 query API is not yet supported.
 With [uv and Git installed](../../README.md#start-here), install the CLI with LangSmith support:
 
 ```bash
-uv tool install --python 3.12 \
+uv tool install \
   'insight-agent[langsmith] @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 

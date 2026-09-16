@@ -17,9 +17,8 @@ This is a research preview for collaboration and evaluation.
 
 ## Start here
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git, then choose
-a guide below. Each guide installs the CLI directly from GitHub; uv manages Python 3.12
-and dependencies for you. Keep your configuration and data in a folder of your choice.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and
+[Git](https://git-scm.com/downloads/), then choose a guide:
 
 | Your starting point | Guide |
 | --- | --- |
@@ -31,7 +30,7 @@ and dependencies for you. Keep your configuration and data in a folder of your c
 | JSONL, ATIF, or a custom source | [Trace files](docs/sources/files.md) |
 
 If `insight-agent` is not found after installation, run `uv tool update-shell`
-and restart your terminal. Private repository access uses your Git credentials.
+and restart your terminal.
 
 ## After your first run
 
@@ -40,11 +39,7 @@ and restart your terminal. Private repository access uses your Git credentials.
 - [Data and model access](docs/model-access.md) — configure your inference endpoint and understand where data goes.
 - [Configuration reference](docs/configuration.md) — overrides, limits, and repeatable runs.
 
-## Project
-
 [Development](DEVELOPMENT.md) · [Architecture](docs/architecture.md)
-
-The bundled traces come from [τ-bench](third_party/tau-bench-LICENSE.txt).
 
 ## License
 

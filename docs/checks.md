@@ -34,7 +34,7 @@ The file must exist and contain text. Its path resolves from your working direct
 
 This check looks for recurring user complaints. It needs recorded user messages and
 an embedding backend serving **Qwen/Qwen3-Embedding-8B with 4,096-dimensional output**.
-The bundled classifier depends on that specific model.
+The bundled classifier was trained for this model; other embedding models are not supported.
 
 For a remote endpoint, add:
 
@@ -47,13 +47,14 @@ evidence_streams:
       api_key_env: EMBEDDING_API_KEY
 ```
 
-Set `EMBEDDING_API_KEY` in `.env`. Replace the model alias and endpoint with your provider’s values.
+Set `EMBEDDING_API_KEY` in your [environment file](model-access.md#credentials).
+Replace the model alias and endpoint with your provider’s values.
 
 To run the 8B embedding model locally, add `local-embedding` to the extras in your
 install command. Keep your source extra too. For LangSmith:
 
 ```bash
-uv tool install --python 3.12 \
+uv tool install \
   'insight-agent[langsmith,local-embedding] @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 insight-agent --config config.yaml
 ```
@@ -84,9 +85,9 @@ This check looks for unusual traces and recurring behavior across the loaded set
 A small or repetitive set may not support trajectory grouping; other analysis can still finish.
 Load more varied traces from the behavior you want to investigate.
 
-## Hide a check
+## Disable a check
 
-Set a check to `false` to omit it from the report, including skip messages:
+Set a check to `false` to disable it. Disabled checks produce no report entries or skip messages:
 
 ```yaml
 evidence_streams:

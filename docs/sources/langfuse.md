@@ -14,7 +14,7 @@ Python SDK 3.15. Langfuse v4 is not supported.
 With [uv and Git installed](../../README.md#start-here), install the CLI with Langfuse support:
 
 ```bash
-uv tool install --python 3.12 \
+uv tool install \
   'insight-agent[langfuse] @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 
@@ -80,12 +80,12 @@ duplicate IDs, and selects the newest traces up to the limit. The extra installs
 <details>
 <summary>Create a complete export</summary>
 
-Set your Langfuse credentials, including `LANGFUSE_BASE_URL`, in the shell and adjust the dates.
+Set your Langfuse credentials, including `LANGFUSE_BASE_URL`, in `.env` and adjust the dates.
 This writes a new file and refuses to overwrite an existing one.
 
 ```bash
-uv run --isolated --no-project --python 3.12 --with 'langfuse>=3.15,<4' python - <<'PY'
-from datetime import UTC, datetime
+uv run --isolated --no-project --env-file .env --with 'langfuse>=3.15,<4' python - <<'PY'
+from datetime import datetime, timezone
 from itertools import count
 from langfuse import Langfuse
 
@@ -93,8 +93,8 @@ client = Langfuse(tracing_enabled=False)
 with open("langfuse-traces.jsonl", "x", encoding="utf-8") as output:
     for page in count(1):
         result = client.api.trace.list(
-            from_timestamp=datetime(2026, 9, 1, tzinfo=UTC),
-            to_timestamp=datetime(2026, 9, 2, tzinfo=UTC),
+            from_timestamp=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            to_timestamp=datetime(2026, 9, 2, tzinfo=timezone.utc),
             page=page, limit=100, order_by="timestamp.asc",
         )
         for trace in result.data:

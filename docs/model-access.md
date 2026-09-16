@@ -8,7 +8,7 @@ Its API key is separate from your LangSmith, Langfuse, MLflow, or Intake credent
 
 ## Choose a model
 
-In the folder where you’ll run Trace Analyst, create or edit `.env`. For OpenAI, use:
+Save your model settings in `.env`. For OpenAI, use:
 
 ```dotenv
 INSIGHT_AGENT_MODEL=openai/gpt-5.2
@@ -31,12 +31,21 @@ The source guides set `max_tokens: 16384` to limit each model response.
 Adjust that YAML setting to a value your endpoint supports.
 You can also set `model` and `api_base` in YAML or override them on the CLI.
 
-Return to your [source guide](../README.md#start-here) to finish setup.
-
 ## Credentials
 
-The CLI loads `.env` from the working directory, or searches parent directories up to
-the project root. Exported variables take priority over values in `.env`.
+Keep `.env` in the folder where you run the command to load it automatically:
+
+```bash
+insight-agent --config config.yaml
+```
+
+Or select an environment file explicitly with uv:
+
+```bash
+uv tool run --env-file /path/to/.env insight-agent --config config.yaml
+```
+
+Exported variables take priority over values in either file.
 Keep credentials out of configuration YAML and source control.
 
 `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are accepted as fallback inference keys.
@@ -45,6 +54,8 @@ Choose the matching model explicitly. The CLI requires an inference key before l
 
 Each source guide names the credentials needed for live access.
 Loading a saved export does not require credentials for that trace platform.
+
+Return to your [source guide](../README.md#start-here) to finish setup.
 
 ## Where data goes
 

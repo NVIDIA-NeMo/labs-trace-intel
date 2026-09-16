@@ -11,7 +11,7 @@ are included automatically in evaluation failure analysis.
 With [uv and Git installed](../../README.md#start-here), install the CLI with MLflow support:
 
 ```bash
-uv tool install --python 3.12 \
+uv tool install \
   'insight-agent[mlflow] @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 
@@ -53,10 +53,10 @@ fetched in pages of up to 500. Memory use grows with the number and size of trac
 
 ## Use an export
 
-With tracking-server access configured in the shell, export complete traces:
+Set `MLFLOW_TRACKING_URI` and any tracking-server credentials in `.env`, then export complete traces:
 
 ```bash
-uvx --python 3.12 --from 'mlflow-skinny>=3.6,<4' mlflow traces search \
+uvx --env-file .env --from 'mlflow-skinny>=3.6,<4' mlflow traces search \
   --experiment-id YOUR_EXPERIMENT_ID --max-results 100 --output json > mlflow-traces.json
 ```
 

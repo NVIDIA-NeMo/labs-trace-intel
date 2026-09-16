@@ -11,7 +11,7 @@ selected traces are included automatically.
 With [uv and Git installed](../../README.md#start-here), install the CLI:
 
 ```bash
-uv tool install --python 3.12 \
+uv tool install \
   'insight-agent @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 
@@ -41,9 +41,18 @@ for help with findings or skipped checks.
 
 ## Narrow the input
 
-Both time bounds are required, inclusive, and timezone-aware. Under `trace.intake.query`,
-you can filter by `agent_name`, `evaluation_name`, `test_case_name`, `session_id`, or
-`status` (`success`, `error`, `cancelled`, or `unknown`).
+Both time bounds are required, inclusive, and timezone-aware.
+
+Under `trace.intake.query`, use `experiment_id` to select an experiment’s traces.
+You can also filter by `agent_name`, `evaluation_name`, `test_case_name`, `session_id`,
+or `status` (`success`, `error`, `cancelled`, or `unknown`). If you set both
+`experiment_id` and `evaluation_name`, the evaluation must belong to that experiment.
+
+For a single run:
+
+```bash
+insight-agent --config config.yaml --trace.intake.query.experiment-id my-experiment-id
+```
 
 `sort` defaults to `started_at` (oldest first); use `-started_at` for newest first.
 `trace.max_traces` overrides `query.max_traces`. Without either limit, all matching traces

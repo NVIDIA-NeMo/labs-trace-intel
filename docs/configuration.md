@@ -8,7 +8,8 @@ Use this page when you want to adjust an existing setup.
 
 ## Settings
 
-Save reusable settings in YAML and keep credentials in the environment or `.env`.
+Save reusable settings in YAML. Keep [credentials](model-access.md#credentials)
+in the environment or `.env`.
 
 | Setting | Purpose |
 | --- | --- |

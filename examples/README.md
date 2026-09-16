@@ -9,7 +9,7 @@ You only need an inference API key; no trace-platform account is required.
 With [uv and Git installed](../README.md#start-here), install the CLI:
 
 ```bash
-uv tool install --python 3.12 \
+uv tool install \
   'insight-agent @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
 ```
 
@@ -28,10 +28,6 @@ it saves them to `insights.yml`. Results vary with the model.
 
 ## About the example data
 
-The file contains 200 traces from τ-bench: 139 telecom, 51 retail, and 10 airline traces.
+The file contains 200 telecom, retail, and airline traces from τ-bench.
 Customer names, addresses, and order IDs are synthetic benchmark fixtures.
 The data is covered by the [τ-bench MIT license](../third_party/tau-bench-LICENSE.txt).
-
-The conversion preserves observed tool calls and per-trace tool schemas. It removes
-blanket `explicit_error: false` annotations, retains recorded errors, and uses dataset
-references in source pointers. It adds no unobserved agent steps.
