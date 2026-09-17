@@ -25,7 +25,7 @@ authors = [{ name = "Insight Agent contributors" }]
 keywords = ["agent-traces", "evaluation", "anomaly-detection", "tool-use"]
 
 dependencies = [
-    "trace-ingest==0.1.0rc1",
+    "trace-ingest==0.1.0",
     "numpy>=1.26,<3",
     "scikit-learn>=1.4,<2",
     "jsonschema>=4.18,<5",
@@ -44,12 +44,12 @@ Repository = "https://github.com/NVIDIA/nemo-platform-insights-preview"
 
 [project.optional-dependencies]
 # Source adapters only. Filesystem users do not install or import provider SDKs.
-langsmith = ["trace-ingest[langsmith]==0.1.0rc1"]
-mlflow = ["trace-ingest[mlflow]==0.1.0rc1"]
+langsmith = ["trace-ingest[langsmith]==0.1.0"]
+mlflow = ["trace-ingest[mlflow]==0.1.0"]
 local-embedding = ["torch==2.13.0", "transformers==5.16.1"]
 # Query-only adapter for the deployed Langfuse v3 API. The SDK remains optional
 # for users loading canonical JSONL or MLflow traces.
-langfuse = ["trace-ingest[langfuse]==0.1.0rc1"]
+langfuse = ["trace-ingest[langfuse]==0.1.0"]
 
 [dependency-groups]
 # Exercise the optional source adapters in the standard contributor and CI test environment without

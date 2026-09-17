@@ -2102,7 +2102,7 @@ wheels = [
 
 [[package]]
 name = "trace-ingest"
-version = "0.1.0rc1"
+version = "0.1.0"
 source = { editable = "packages/trace-ingest" }
 dependencies = [
     { name = "httpx" },

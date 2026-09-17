@@ -3,6 +3,9 @@
 
 # Development
 
+Models and loaders live in [trace-ingest](packages/trace-ingest/README.md).
+`uv sync` installs the workspace packages locally.
+
 ## Validation
 
 When adding NVIDIA-authored files or changing dependencies, update the tracked
@@ -47,10 +50,6 @@ uv run --locked ty check
 uv run --locked pytest
 uv build --all-packages
 ```
-
-Canonical models and loaders live in the [trace-ingest workspace package](packages/trace-ingest/README.md).
-`uv sync` installs it locally; existing application imports remain compatibility exports.
-Publish `trace-ingest` before publishing an `insight-agent` release that depends on it.
 
 ## Publish an internal release candidate
 

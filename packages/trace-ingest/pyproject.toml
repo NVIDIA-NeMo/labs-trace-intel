@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "trace-ingest"
-version = "0.1.0rc1"
+version = "0.1.0"
 description = "Canonical agent trace models and provider loaders"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
