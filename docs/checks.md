@@ -65,7 +65,7 @@ to investigate complaints. See [data access](model-access.md#where-data-goes).
 
 ## Evaluation failures
 
-Include Langfuse scores, MLflow assessments, or LangSmith feedback.
+Include Braintrust root-span scores, Langfuse scores, MLflow assessments, or LangSmith feedback.
 For canonical JSONL traces, populate `evaluator_results`.
 If you already record these, check that your selected traces and exports include them.
 

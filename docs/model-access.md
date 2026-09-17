@@ -4,7 +4,7 @@
 # Data and model access
 
 Trace Analyst needs an inference model to investigate traces and write insights.
-Its API key is separate from your LangSmith, Langfuse, MLflow, or Intake credentials.
+Its API key is separate from your Braintrust, LangSmith, Langfuse, MLflow, or Intake credentials.
 
 ## Choose a model
 

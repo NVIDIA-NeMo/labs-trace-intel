@@ -7,6 +7,12 @@ from insight_agent.trace_loaders.atif import (
     ATIFTraceLoader,
     ATIFTraceLoadError,
 )
+from insight_agent.trace_loaders.braintrust import (
+    BraintrustTraceConfig,
+    BraintrustTraceDescription,
+    BraintrustTraceLoader,
+    BraintrustTraceLoadError,
+)
 from insight_agent.trace_loaders.langfuse import (
     LangfuseFileTraceConfig,
     LangfuseFileTraceDescription,
@@ -14,6 +20,10 @@ from insight_agent.trace_loaders.langfuse import (
 )
 
 __all__ = [
+    "BraintrustTraceConfig",
+    "BraintrustTraceDescription",
+    "BraintrustTraceLoader",
+    "BraintrustTraceLoadError",
     "ATIFTraceConfig",
     "ATIFTraceDescription",
     "ATIFTraceLoadError",

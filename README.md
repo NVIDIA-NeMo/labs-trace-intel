@@ -23,6 +23,7 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and
 | Your starting point | Guide |
 | --- | --- |
 | Try it before connecting your data | [Run the example](examples/README.md) |
+| Braintrust project logs and experiments | [Braintrust](docs/sources/braintrust.md) |
 | LangSmith traces and feedback | [LangSmith](docs/sources/langsmith.md) |
 | Langfuse traces and scores | [Langfuse](docs/sources/langfuse.md) |
 | MLflow traces and assessments | [MLflow](docs/sources/mlflow.md) |

@@ -1,0 +1,269 @@
+{
+  "id": "root",
+  "root_spans": [
+    {
+      "id": "root-span",
+      "kind": "CHAIN",
+      "children": [
+        {
+          "id": "llm",
+          "kind": "LLM",
+          "children": [
+            {
+              "id": "tool-a",
+              "kind": "TOOL",
+              "children": [],
+              "start_time": "2026-09-01T00:00:02Z",
+              "end_time": "2026-09-01T00:00:03Z",
+              "input": null,
+              "output": null,
+              "cost_usd": null,
+              "token_counts": null,
+              "model": null,
+              "tool_name": "lookup",
+              "tool_call": {
+                "call_id": "tool-a",
+                "index": 0,
+                "result_id": null,
+                "result_count": 1,
+                "instrumentation_alias_of": null,
+                "prior_user_text": null
+              },
+              "error": null,
+              "attributes": {
+                "name": "lookup",
+                "subtype": "tool",
+                "source_pointer": {
+                  "provider": "braintrust",
+                  "api_url": "https://api.braintrust.dev",
+                  "project_id": "project",
+                  "experiment_id": null,
+                  "trace_id": "root",
+                  "span_id": "tool-a",
+                  "row_id": "row-tool-a"
+                },
+                "braintrust": {
+                  "id": "row-tool-a",
+                  "span_id": "tool-a",
+                  "root_span_id": "root",
+                  "span_parents": [
+                    "llm"
+                  ],
+                  "span_attributes": {
+                    "name": "lookup",
+                    "type": "tool"
+                  },
+                  "metrics": {
+                    "start": 1788220802,
+                    "end": 1788220803
+                  },
+                  "input": null,
+                  "output": null,
+                  "scores": null
+                }
+              }
+            },
+            {
+              "id": "tool-b",
+              "kind": "TOOL",
+              "children": [],
+              "start_time": "2026-09-01T00:00:02Z",
+              "end_time": "2026-09-01T00:00:03Z",
+              "input": {
+                "query": "missing"
+              },
+              "cost_usd": null,
+              "token_counts": null,
+              "model": null,
+              "tool_name": "lookup",
+              "tool_call": {
+                "call_id": "tool-b",
+                "index": 1,
+                "result_id": null,
+                "result_count": 0,
+                "instrumentation_alias_of": null,
+                "prior_user_text": null
+              },
+              "error": "not found",
+              "attributes": {
+                "name": "lookup",
+                "subtype": "tool",
+                "source_pointer": {
+                  "provider": "braintrust",
+                  "api_url": "https://api.braintrust.dev",
+                  "project_id": "project",
+                  "experiment_id": null,
+                  "trace_id": "root",
+                  "span_id": "tool-b",
+                  "row_id": "row-tool-b"
+                },
+                "braintrust": {
+                  "id": "row-tool-b",
+                  "span_id": "tool-b",
+                  "root_span_id": "root",
+                  "span_parents": [
+                    "llm"
+                  ],
+                  "span_attributes": {
+                    "name": "lookup",
+                    "type": "tool"
+                  },
+                  "metrics": {
+                    "start": 1788220802,
+                    "end": 1788220803
+                  },
+                  "input": {
+                    "query": "missing"
+                  },
+                  "error": "not found"
+                }
+              }
+            }
+          ],
+          "start_time": "2026-09-01T00:00:01Z",
+          "end_time": "2026-09-01T00:00:04Z",
+          "input": [
+            {
+              "role": "user",
+              "content": "Find a source"
+            }
+          ],
+          "output": [
+            {
+              "message": {
+                "role": "assistant",
+                "content": "Searching"
+              }
+            }
+          ],
+          "cost_usd": 0.001,
+          "token_counts": null,
+          "model": "test-model",
+          "tool_name": null,
+          "tool_call": null,
+          "error": null,
+          "attributes": {
+            "name": "chat",
+            "subtype": "llm",
+            "source_pointer": {
+              "provider": "braintrust",
+              "api_url": "https://api.braintrust.dev",
+              "project_id": "project",
+              "experiment_id": null,
+              "trace_id": "root",
+              "span_id": "llm",
+              "row_id": "row-llm"
+            },
+            "braintrust": {
+              "id": "row-llm",
+              "span_id": "llm",
+              "root_span_id": "root",
+              "span_parents": [
+                "root-span"
+              ],
+              "span_attributes": {
+                "name": "chat",
+                "type": "llm"
+              },
+              "metrics": {
+                "start": 1788220801,
+                "end": 1788220804,
+                "prompt_tokens": 20,
+                "completion_tokens": 5,
+                "estimated_cost": 0.001
+              },
+              "metadata": {
+                "model": "test-model"
+              },
+              "input": [
+                {
+                  "role": "user",
+                  "content": "Find a source"
+                }
+              ],
+              "output": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "Searching"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "start_time": "2026-09-01T00:00:00Z",
+      "end_time": "2026-09-01T00:00:05Z",
+      "input": {
+        "question": "Find a source"
+      },
+      "output": null,
+      "cost_usd": null,
+      "token_counts": null,
+      "model": null,
+      "tool_name": null,
+      "tool_call": null,
+      "error": null,
+      "attributes": {
+        "name": "research",
+        "subtype": "task",
+        "source_pointer": {
+          "provider": "braintrust",
+          "api_url": "https://api.braintrust.dev",
+          "project_id": "project",
+          "experiment_id": null,
+          "trace_id": "root",
+          "span_id": "root-span",
+          "row_id": "row-root"
+        },
+        "braintrust": {
+          "id": "row-root",
+          "span_id": "root-span",
+          "root_span_id": "root",
+          "span_attributes": {
+            "name": "research",
+            "type": "task"
+          },
+          "metrics": {
+            "start": 1788220800,
+            "end": 1788220805
+          },
+          "input": {
+            "question": "Find a source"
+          },
+          "output": null,
+          "scores": {
+            "accuracy": 0
+          },
+          "metadata": {
+            "environment": "test"
+          },
+          "tags": [
+            "regression"
+          ],
+          "expected": "A source",
+          "span_parents": null,
+          "is_root": true
+        }
+      }
+    }
+  ],
+  "aggregate": {
+    "cost_usd": null,
+    "latency_ms": 5000.0,
+    "token_counts": null
+  },
+  "evaluator_results": {
+    "accuracy": 0.0
+  },
+  "attributes": {
+    "source_pointer": {
+      "provider": "braintrust",
+      "api_url": "https://api.braintrust.dev",
+      "project_id": "project",
+      "experiment_id": null,
+      "trace_id": "root"
+    }
+  }
+}
