@@ -51,6 +51,7 @@ def test_missing_environment_exits_before_loading_traces(
         "  EMBEDDING_API_KEY — API key named by evidence_streams.user_sentiment.litellm.api_key_env\n\n"
         "Set these in .env in your working directory (NAME=value),\n"
         "or export them in your shell, then rerun the command.\n"
+        "Setup: https://github.com/NVIDIA-NeMo/labs-trace-intel/blob/main/docs/model-access.md\n"
     )
     assert not output.exists()
 

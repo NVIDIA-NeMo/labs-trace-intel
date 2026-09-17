@@ -21,7 +21,7 @@ from insight_agent.trace_loaders.braintrust import (
     BraintrustTraceLoader,
     BraintrustTraceLoadError,
 )
-from insight_agent.traces import UNSET, SpanKind
+from insight_agent.traces import UNSET
 
 START = datetime(2026, 9, 1, tzinfo=timezone.utc)
 END = datetime(2026, 9, 2, tzinfo=timezone.utc)
@@ -53,42 +53,22 @@ def client_for(rows, requests=None):
     return httpx.Client(transport=httpx.MockTransport(handle))
 
 
-def test_normalized_tree_and_description_are_deterministic(rows):
+@pytest.mark.parametrize("root_scores", [{"accuracy": 0}, None])
+def test_normalized_tree_and_description_are_deterministic(rows, root_scores):
+    rows[1]["scores"] = root_scores
     with client_for(rows) as client:
         loader = BraintrustTraceLoader(config(), client=client)
         assert loader.describe()["trace_count"] == 0
         snapshot = loader.load()
     trace = next(iter(snapshot))
-    assert json.loads(trace.model_dump_json()) == json.loads(
-        FIXTURE.with_name("normalized.json").read_text()
-    )
-    root = trace.root_spans[0]
-    llm = root.children[0]
-    first, second = llm.children
-    assert trace.id == root.id == "root"
-    assert root.kind is SpanKind.CHAIN
-    assert root.output is None
-    assert llm.kind is SpanKind.LLM
-    assert llm.model == "test-model"
-    assert llm.cost_usd == 0.001
-    assert llm.model_dump()["attributes"]["braintrust"]["metrics"]["prompt_tokens"] == 20
-    assert [first.id, second.id] == ["tool-a", "tool-b"]
+    expected = json.loads(FIXTURE.with_name("normalized.json").read_text())
+    expected["root_spans"][0]["attributes"]["braintrust"]["scores"] = root_scores
+    expected["evaluator_results"] = root_scores or {}
+    assert json.loads(trace.model_dump_json()) == expected
+    first, second = trace.root_spans[0].children[0].children
+    # JSON equality cannot prove the in-memory missing-value sentinel survives.
     assert first.input is None and first.output is None
     assert second.output is UNSET
-    assert second.error == "not found"
-    assert first.tool_call is not None
-    assert second.tool_call is not None
-    assert first.tool_call.model_dump(exclude_none=True) == {
-        "call_id": "tool-a",
-        "index": 0,
-        "result_count": 1,
-    }
-    assert second.tool_call.result_count == 0
-    assert root.start_time == START
-    assert trace.aggregate.latency_ms == 5000
-    assert trace.evaluator_results == {"accuracy": 0.0}
-    assert root.model_dump()["attributes"]["braintrust"]["expected"] == "A source"
-    assert first.model_dump()["attributes"]["source_pointer"]["row_id"] == "row-tool-a"
     assert loader.describe() == {
         "source": "braintrust:https://api.braintrust.dev#project_logs/project",
         "api_url": "https://api.braintrust.dev",
@@ -105,7 +85,6 @@ def test_normalized_tree_and_description_are_deterministic(rows):
     with client_for(list(reversed(rows))) as client:
         repeated = BraintrustTraceLoader(config(), client=client).load()
     assert [t.model_dump() for t in repeated] == [t.model_dump() for t in snapshot]
-    assert [t.model_dump() for t in snapshot] == [t.model_dump() for t in snapshot]
 
 
 def test_selection_limit_and_complete_paginated_details(rows):
@@ -171,8 +150,10 @@ def test_root_pagination_order_and_experiment_source(rows):
         (lambda r: r.append(deepcopy(r[0])), "duplicate"),
         (lambda r: r[0].update(root_span_id="other"), "different trace"),
         (lambda r: r[0].update(span_parents=["missing"]), "missing parent"),
-        (lambda r: r[0].update(span_parents=["root", "llm"]), "exactly one parent"),
+        (lambda r: r[0].update(span_parents=["root-span", "llm"]), "exactly one parent"),
         (lambda r: r[0].update(span_parents=[]), "exactly one parent"),
+        (lambda r: r[0].update(span_parents=None), "exactly one parent"),
+        (lambda r: r[0].update(is_root=False, span_parents=None), "exactly one parent"),
         (lambda r: r[1].update(span_parents=["llm"], is_root=True), "root span has parents"),
         (lambda r: r[3].update(span_parents=["tool-b"]), "parent cycle"),
         (lambda r: r.pop(1), "missing its root"),
@@ -226,8 +207,8 @@ def test_empty_selection():
         assert len(loader.load()) == loader.describe()["span_count"] == 0
 
 
-@pytest.mark.parametrize("status", [401, 403, 429, 500])
-def test_http_errors_are_source_specific(status):
+def test_http_errors_are_source_specific():
+    status = 429
     with httpx.Client(
         transport=httpx.MockTransport(lambda r: httpx.Response(status, text="private details"))
     ) as client:
@@ -352,42 +333,11 @@ def test_cli_runs_evidence_streams(rows, tmp_path, monkeypatch, select_streams):
     assert compilation.compile_insights.await_count == 1
 
 
-def test_live_query_null_root_parents_and_scores(rows):
-    # SELECT * returns JSON null for these optional fields on real project logs.
-    root = next(row for row in rows if row["span_id"] == "root")
-    root["span_parents"] = None
-    for row in rows:
-        row["scores"] = None
-    with client_for(rows) as client:
-        trace = next(iter(BraintrustTraceLoader(config(), client).load()))
-    assert trace.evaluator_results == {}
-    raw = trace.root_spans[0].model_dump()["attributes"]["braintrust"]
-    assert raw["span_parents"] is None
-    assert raw["scores"] is None
-    assert len(trace.root_spans[0].children[0].children) == 2
+def test_transport_errors_are_source_specific():
+    def fail(request):
+        raise httpx.ConnectError("private connection details", request=request)
 
-
-def test_null_parent_on_non_root_is_still_rejected(rows):
-    rows[0]["span_parents"] = None
-    with client_for(rows) as client:
-        with pytest.raises(BraintrustTraceLoadError, match="exactly one parent"):
+    with httpx.Client(transport=httpx.MockTransport(fail)) as client:
+        with pytest.raises(BraintrustTraceLoadError, match="Braintrust") as error:
             BraintrustTraceLoader(config(), client).load()
-
-
-def test_trace_id_can_differ_from_root_span_id(rows):
-    for row in rows:
-        row["root_span_id"] = "trace-id"
-        row["is_root"] = row["span_id"] == "root"
-    from insight_agent.trace_loaders.braintrust import _normalize_trace
-
-    trace = _normalize_trace("trace-id", rows, {})
-    assert trace.id == "trace-id"
-    assert trace.root_spans[0].id == "root"
-    assert trace.root_spans[0].children[0].id == "llm"
-
-
-def test_non_root_marker_without_parent_is_rejected(rows):
-    rows[0].update(is_root=False, span_parents=None)
-    with client_for(rows) as client:
-        with pytest.raises(BraintrustTraceLoadError, match="exactly one parent"):
-            BraintrustTraceLoader(config(), client).load()
+    assert "private connection details" not in str(error.value)

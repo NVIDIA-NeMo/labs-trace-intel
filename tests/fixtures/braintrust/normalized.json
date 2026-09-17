@@ -2,7 +2,7 @@
   "id": "root",
   "root_spans": [
     {
-      "id": "root",
+      "id": "root-span",
       "kind": "CHAIN",
       "children": [
         {
@@ -58,7 +58,8 @@
                     "end": 1788220803
                   },
                   "input": null,
-                  "output": null
+                  "output": null,
+                  "scores": null
                 }
               }
             },
@@ -158,14 +159,11 @@
               "span_id": "llm",
               "root_span_id": "root",
               "span_parents": [
-                "root"
+                "root-span"
               ],
               "span_attributes": {
                 "name": "chat",
                 "type": "llm"
-              },
-              "metadata": {
-                "model": "test-model"
               },
               "metrics": {
                 "start": 1788220801,
@@ -173,6 +171,9 @@
                 "prompt_tokens": 20,
                 "completion_tokens": 5,
                 "estimated_cost": 0.001
+              },
+              "metadata": {
+                "model": "test-model"
               },
               "input": [
                 {
@@ -213,35 +214,37 @@
           "project_id": "project",
           "experiment_id": null,
           "trace_id": "root",
-          "span_id": "root",
+          "span_id": "root-span",
           "row_id": "row-root"
         },
         "braintrust": {
           "id": "row-root",
-          "span_id": "root",
+          "span_id": "root-span",
           "root_span_id": "root",
           "span_attributes": {
             "name": "research",
             "type": "task"
           },
-          "metadata": {
-            "environment": "test"
-          },
           "metrics": {
             "start": 1788220800,
             "end": 1788220805
-          },
-          "scores": {
-            "accuracy": 0.0
           },
           "input": {
             "question": "Find a source"
           },
           "output": null,
+          "scores": {
+            "accuracy": 0
+          },
+          "metadata": {
+            "environment": "test"
+          },
           "tags": [
             "regression"
           ],
-          "expected": "A source"
+          "expected": "A source",
+          "span_parents": null,
+          "is_root": true
         }
       }
     }
