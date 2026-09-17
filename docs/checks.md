@@ -70,7 +70,7 @@ evidence_streams:
 ```
 
 Local inference downloads model weights and needs enough memory to run them.
-Hardware is selected automatically. A configured `litellm` endpoint takes precedence.
+Hardware is selected automatically by default. A configured `litellm` endpoint takes precedence.
 
 Both local and remote embeddings still use your main inference model to investigate
 complaints. See [data access](model-access.md#where-data-goes).

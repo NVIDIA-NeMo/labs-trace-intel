@@ -63,11 +63,14 @@ def test_sentiment_explicit_backends_check_only_local_dependencies(monkeypatch):
     monkeypatch.setattr(sentiment, "validate_embedding_dependencies", dependencies)
     snapshot = TraceSnapshot([])
     local = sentiment.UserSentimentEvidenceStream(
-        sentiment.UserSentimentConfig(local_embeddings=True), FakeLLMClient()
+        sentiment.UserSentimentConfig(device="cpu"), FakeLLMClient()
     )
+    assert local.check_prerequisites(snapshot) == "No embedding backend configured"
+    dependencies.assert_not_called()
+    local.config.local_embeddings = True
     assert local.check_prerequisites(snapshot) is None
     dependencies.assert_called_once_with()
-    assert local.embedding_generator.device is None
+    assert local.embedding_generator.device == "cpu"
     assert local.embedding_generator.litellm is None
     dependencies.side_effect = ValueError("Install local-embedding")
     with pytest.raises(ValueError, match="local-embedding"):

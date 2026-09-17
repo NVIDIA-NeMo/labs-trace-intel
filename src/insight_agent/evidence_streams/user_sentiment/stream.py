@@ -153,9 +153,10 @@ class UserSentimentConfig(BaseModel):
         default=False,
         description="Run the embedding model on your machine. Downloads model weights on first use.",
     )
+    device: str | None = Field(default=None, description="PyTorch device; auto-detected by default")
     litellm: LiteLLMEmbeddingConfig | None = Field(
         default=None,
-        description="Remote Qwen3-Embedding-8B endpoint; takes precedence over local embeddings",
+        description="Use remote Qwen3-Embedding-8B embeddings instead of local weights",
     )
 
 
@@ -175,7 +176,7 @@ class UserSentimentEvidenceStream:
 
     @cached_property
     def embedding_generator(self) -> UserEmbeddingGenerator:
-        return UserEmbeddingGenerator(litellm=self.config.litellm)
+        return UserEmbeddingGenerator(self.config.device, self.config.litellm)
 
     @cached_property
     def classifier(self) -> ComplaintClassifier:
