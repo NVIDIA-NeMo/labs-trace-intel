@@ -48,13 +48,17 @@ uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv run --locked ty check
 uv run --locked pytest
-uv build --all-packages
+uv build --all-packages --no-sources
 ```
+
+CI also installs the application wheel into a clean environment, resolving
+`trace-ingest` from the built wheels, and checks imports and the CLI.
 
 ## Publish an internal release candidate
 
-The package version is a PEP 440 release candidate such as `0.1.0rc1`. Put the internal
-Artifactory upload endpoint and your access or identity token in the gitignored `.env`:
+The `insight-agent` version must be a PEP 440 release candidate such as `0.1.0rc1`.
+`trace-ingest` can use a stable version. Put the internal Artifactory upload endpoint
+and your access or identity token in the gitignored `.env`:
 
 ```dotenv
 ARTIFACTORY_PYPI_URL=<internal-artifactory-pypi-upload-url>
@@ -70,21 +74,14 @@ Build and validate without uploading:
 uv run tools/publish_artifactory.py --dry-run
 ```
 
-Publish the wheel to internal Artifactory:
+Publish both wheels to internal Artifactory:
 
 ```bash
 uv run tools/publish_artifactory.py
 ```
 
-The script builds a clean wheel, rejects environment files, refuses non-NVIDIA upload endpoints,
-disables trusted/public publishing, uploads with `uv publish`, submits SHA-1 and SHA-256 client
-checksums, downloads the resulting artifact, and verifies its SHA-256 checksum. It refuses to
-overwrite an existing version with different bytes and then prints the direct wheel URL to register
-with nSpect. It refuses non-RC versions.
-
-Both CLI forms are supported after installing the wheel:
-
-```bash
-insight-agent --version
-python -m insight_agent --version
-```
+The script builds both wheels and publishes and verifies `trace-ingest` before `insight-agent`.
+For each wheel, it submits SHA-1 and SHA-256 checksums, verifies the downloaded bytes, and prints
+the direct URL to register with nSpect. Matching existing artifacts are reused; different bytes
+require a version bump. It rejects environment files and non-NVIDIA upload endpoints and disables
+trusted/public publishing.
