@@ -149,12 +149,13 @@ def screen_user_messages(
 class UserSentimentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    device: str | None = Field(
-        default=None, description="Select local embeddings on a PyTorch device, e.g. cuda or mps"
+    local_embeddings: bool = Field(
+        default=False,
+        description="Run the embedding model on your machine. Downloads model weights on first use.",
     )
     litellm: LiteLLMEmbeddingConfig | None = Field(
         default=None,
-        description="Remote Qwen3-Embedding-8B endpoint; takes precedence over device",
+        description="Remote Qwen3-Embedding-8B endpoint; takes precedence over local embeddings",
     )
 
 
@@ -167,14 +168,14 @@ class UserSentimentEvidenceStream:
 
     def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if self.config.litellm is None:
-            if self.config.device is None:
+            if not self.config.local_embeddings:
                 return "No embedding backend configured"
             validate_embedding_dependencies()
         return None
 
     @cached_property
     def embedding_generator(self) -> UserEmbeddingGenerator:
-        return UserEmbeddingGenerator(self.config.device, self.config.litellm)
+        return UserEmbeddingGenerator(litellm=self.config.litellm)
 
     @cached_property
     def classifier(self) -> ComplaintClassifier:

@@ -63,16 +63,21 @@ def test_sentiment_explicit_backends_check_only_local_dependencies(monkeypatch):
     monkeypatch.setattr(sentiment, "validate_embedding_dependencies", dependencies)
     snapshot = TraceSnapshot([])
     local = sentiment.UserSentimentEvidenceStream(
-        sentiment.UserSentimentConfig(device="cuda"), FakeLLMClient()
+        sentiment.UserSentimentConfig(local_embeddings=True), FakeLLMClient()
     )
     assert local.check_prerequisites(snapshot) is None
     dependencies.assert_called_once_with()
+    assert local.embedding_generator.device is None
+    assert local.embedding_generator.litellm is None
     dependencies.side_effect = ValueError("Install local-embedding")
     with pytest.raises(ValueError, match="local-embedding"):
         local.check_prerequisites(snapshot)
 
     remote = sentiment.UserSentimentEvidenceStream(
-        sentiment.UserSentimentConfig.model_validate({"litellm": {"model": "openai/qwen"}}),
+        sentiment.UserSentimentConfig.model_validate(
+            {"local_embeddings": True, "litellm": {"model": "openai/qwen"}}
+        ),
         FakeLLMClient(),
     )
     assert remote.check_prerequisites(snapshot) is None
+    assert remote.embedding_generator.litellm == remote.config.litellm
