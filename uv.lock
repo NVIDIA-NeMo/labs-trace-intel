@@ -7,6 +7,10 @@ resolution-markers = [
 ]
 
 [manifest]
+members = [
+    "insight-agent",
+    "trace-ingest",
+]
 overrides = [{ name = "protobuf", specifier = ">=7.35,<8" }]
 
 [[package]]
@@ -689,7 +693,6 @@ name = "insight-agent"
 version = "0.1.0rc1"
 source = { editable = "." }
 dependencies = [
-    { name = "httpx" },
     { name = "jsonschema" },
     { name = "litellm" },
     { name = "nooa" },
@@ -701,14 +704,15 @@ dependencies = [
     { name = "rich" },
     { name = "scikit-learn" },
     { name = "tokenizers" },
+    { name = "trace-ingest" },
 ]
 
 [package.optional-dependencies]
 langfuse = [
-    { name = "langfuse" },
+    { name = "trace-ingest", extra = ["langfuse"] },
 ]
 langsmith = [
-    { name = "langsmith" },
+    { name = "trace-ingest", extra = ["langsmith"] },
 ]
 local-embedding = [
     { name = "torch", version = "2.13.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
@@ -716,7 +720,7 @@ local-embedding = [
     { name = "transformers" },
 ]
 mlflow = [
-    { name = "mlflow-skinny" },
+    { name = "trace-ingest", extra = ["mlflow"] },
 ]
 
 [package.dev-dependencies]
@@ -731,12 +735,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "jsonschema", specifier = ">=4.18,<5" },
-    { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=3.15,<4" },
-    { name = "langsmith", marker = "extra == 'langsmith'", specifier = ">=0.12,<0.13" },
     { name = "litellm", specifier = ">=1.55,<2" },
-    { name = "mlflow-skinny", marker = "extra == 'mlflow'", specifier = ">=3.6,<4" },
     { name = "nooa", specifier = ">=0.0.10,<0.1" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "pydantic", specifier = ">=2.12,<3" },
@@ -748,6 +748,10 @@ requires-dist = [
     { name = "tokenizers", specifier = ">=0.21,<1" },
     { name = "torch", marker = "sys_platform == 'darwin' and extra == 'local-embedding'", specifier = "==2.13.0" },
     { name = "torch", marker = "sys_platform != 'darwin' and extra == 'local-embedding'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "trace-ingest", editable = "packages/trace-ingest" },
+    { name = "trace-ingest", extras = ["langfuse"], marker = "extra == 'langfuse'", editable = "packages/trace-ingest" },
+    { name = "trace-ingest", extras = ["langsmith"], marker = "extra == 'langsmith'", editable = "packages/trace-ingest" },
+    { name = "trace-ingest", extras = ["mlflow"], marker = "extra == 'mlflow'", editable = "packages/trace-ingest" },
     { name = "transformers", marker = "extra == 'local-embedding'", specifier = "==5.16.1" },
 ]
 provides-extras = ["langsmith", "mlflow", "local-embedding", "langfuse"]
@@ -2095,6 +2099,36 @@ sdist = { url = "https://files.pythonhosted.org/packages/21/3b/6c24bec5be5e743ff
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f9/1c/01bfd571a64e7f270e6bab5e33777debe0edc56759233ce84f27dec92d14/tqdm-4.70.0-py3-none-any.whl", hash = "sha256:7f585706bfddbdebf89daac705b2dfcc16890130727d3197ca62c732b4310953", size = 80184, upload-time = "2026-07-27T11:33:13.167Z" },
 ]
+
+[[package]]
+name = "trace-ingest"
+version = "0.1.0rc1"
+source = { editable = "packages/trace-ingest" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+langfuse = [
+    { name = "langfuse" },
+]
+langsmith = [
+    { name = "langsmith" },
+]
+mlflow = [
+    { name = "mlflow-skinny" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=3.15,<4" },
+    { name = "langsmith", marker = "extra == 'langsmith'", specifier = ">=0.12,<0.13" },
+    { name = "mlflow-skinny", marker = "extra == 'mlflow'", specifier = ">=3.6,<4" },
+    { name = "pydantic", specifier = ">=2.12,<3" },
+]
+provides-extras = ["langsmith", "mlflow", "langfuse"]
 
 [[package]]
 name = "transformers"

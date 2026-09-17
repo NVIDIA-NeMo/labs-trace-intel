@@ -67,4 +67,4 @@ jobs:
         run: uv run --locked pytest
 
       - name: Build package
-        run: uv build --clear --no-sources
+        run: uv build --all-packages --no-sources

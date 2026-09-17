@@ -25,7 +25,7 @@ authors = [{ name = "Insight Agent contributors" }]
 keywords = ["agent-traces", "evaluation", "anomaly-detection", "tool-use"]
 
 dependencies = [
-    "httpx>=0.28,<1",
+    "trace-ingest==0.1.0rc1",
     "numpy>=1.26,<3",
     "scikit-learn>=1.4,<2",
     "jsonschema>=4.18,<5",
@@ -44,12 +44,12 @@ Repository = "https://github.com/NVIDIA/nemo-platform-insights-preview"
 
 [project.optional-dependencies]
 # Source adapters only. Filesystem users do not install or import provider SDKs.
-langsmith = ["langsmith>=0.12,<0.13"]
-mlflow = ["mlflow-skinny>=3.6,<4"]
+langsmith = ["trace-ingest[langsmith]==0.1.0rc1"]
+mlflow = ["trace-ingest[mlflow]==0.1.0rc1"]
 local-embedding = ["torch==2.13.0", "transformers==5.16.1"]
 # Query-only adapter for the deployed Langfuse v3 API. The SDK remains optional
 # for users loading canonical JSONL or MLflow traces.
-langfuse = ["langfuse>=3.15,<4"]
+langfuse = ["trace-ingest[langfuse]==0.1.0rc1"]
 
 [dependency-groups]
 # Exercise the optional source adapters in the standard contributor and CI test environment without
@@ -72,7 +72,11 @@ managed = true
 # Protobuf 7.35 contains the complete ParseDict recursion-depth fix.
 override-dependencies = ["protobuf>=7.35,<8"]
 
+[tool.uv.workspace]
+members = ["packages/trace-ingest"]
+
 [tool.uv.sources]
+trace-ingest = { workspace = true }
 # macOS wheels include MPS; other platforms only need CPU inference for this extra.
 torch = [{ index = "pytorch-cpu", marker = "sys_platform != 'darwin'" }]
 

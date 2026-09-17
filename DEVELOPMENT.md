@@ -45,8 +45,12 @@ uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv run --locked ty check
 uv run --locked pytest
-uv build
+uv build --all-packages
 ```
+
+Canonical models and loaders live in the [trace-ingest workspace package](packages/trace-ingest/README.md).
+`uv sync` installs it locally; existing application imports remain compatibility exports.
+Publish `trace-ingest` before publishing an `insight-agent` release that depends on it.
 
 ## Publish an internal release candidate
 

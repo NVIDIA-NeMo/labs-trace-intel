@@ -22,14 +22,14 @@ shapes. Reject ambiguous or incomplete input with a source-specific error.
 
 Read these live contracts and examples in the repository:
 
-- `src/insight_agent/trace_loaders/trace_loaders.py` defines `TraceLoader` and
+- `packages/trace-ingest/src/trace_ingest/loaders/trace_loaders.py` defines `TraceLoader` and
   `TraceDescription`.
-- `src/insight_agent/traces.py` is the sole canonical definition of `Trace`,
+- `packages/trace-ingest/src/trace_ingest/models.py` is the sole canonical definition of `Trace`,
   `Span`, and `TraceSnapshot`.
-- `src/insight_agent/trace_loaders/mlflow.py` is the reference architecture for
+- `packages/trace-ingest/src/trace_ingest/loaders/mlflow.py` is the reference architecture for
   a provider loader, including configuration, SDK/file ingestion,
   normalization, deterministic ordering, diagnostics, and source description.
-- `src/insight_agent/trace_loaders/fs.py` is only for input already serialized
+- `packages/trace-ingest/src/trace_ingest/loaders/fs.py` is only for input already serialized
   as canonical Trace JSONL. Do not add source normalization to it.
 
 Treat the MLflow implementation as a structural example, not as a field-mapping
@@ -37,8 +37,8 @@ template. The mapping must come from the actual source being added.
 
 ## Implement the boundary
 
-Put the loader in `src/insight_agent/trace_loaders/<source>.py` and export its
-public types from `trace_loaders/__init__.py`.
+Put the loader in `packages/trace-ingest/src/trace_ingest/loaders/<source>.py` and export its
+public types from `trace_ingest/loaders/__init__.py`.
 
 Use typed configuration and a source-specific load error. `load()` should:
 
