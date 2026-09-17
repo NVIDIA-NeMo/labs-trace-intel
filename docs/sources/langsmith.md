@@ -1,0 +1,79 @@
+<!-- SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# Analyze LangSmith traces
+
+Choose a project whose agent behavior you want to understand. Recorded feedback on
+root and child runs is included automatically in evaluation failure analysis.
+
+The live adapter supports the v1 query API, tested with self-hosted LangSmith 0.15.
+The SmithDB-backed v2 query API is not yet supported.
+
+## Connect and run
+
+With [uv and Git installed](../../README.md#start-here), install the CLI with LangSmith support:
+
+```bash
+uv tool install \
+  'insight-agent[langsmith] @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
+```
+
+[Configure your inference model and key](../model-access.md#choose-a-model).
+Add your LangSmith key to `.env`:
+
+```dotenv
+LANGSMITH_API_KEY=your-langsmith-key
+```
+
+Save this as `config.yaml`, replacing the project name:
+
+```yaml
+max_tokens: 16384
+trace:
+  max_traces: 100
+  langsmith:
+    project: my-agent
+```
+
+```bash
+insight-agent --config config.yaml
+```
+
+Open `insights.yml` if the run produced insights. [Read your results](../results.md)
+for help with findings or skipped checks.
+
+## Narrow the input
+
+Add fields under `trace.langsmith` as needed:
+
+| Field | Example | What it selects |
+| --- | --- | --- |
+| `start_time` | `2026-09-01T00:00:00Z` | Traces starting at or after a timezone-aware timestamp. |
+| `filter` | `'eq(status, "error")'` | Matching root runs. |
+| `tree_filter` | `'eq(run_type, "tool")'` | Complete traces with a matching run anywhere in the tree. |
+| `api_url` | `https://langsmith.example.com` | A regional or self-hosted API endpoint. |
+
+`api_url` overrides `LANGSMITH_ENDPOINT`. Set `LANGSMITH_WORKSPACE_ID` in `.env`
+if your key needs an explicit workspace. The default limit is 100 complete traces.
+
+## Use an export
+
+With the separate LangSmith CLI installed and authenticated, export complete traces:
+
+```bash
+langsmith trace export exports/langsmith --project my-agent --limit 100 --full
+```
+
+Replace the `trace` section with:
+
+```yaml
+trace:
+  max_traces: 100
+  langsmith_trace_export_file:
+    path: exports/langsmith
+```
+
+Rerun the same analysis command. Local exports need inference credentials only.
+Use `--full` to include child runs. The loader accepts one `.jsonl` file or a directory
+of immediate `.jsonl` files and validates the complete export before applying the limit.
+Both paths use Python SDK `>=0.12,<0.13`, installed by the extra.
