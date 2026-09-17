@@ -67,7 +67,10 @@ jobs:
         run: uv run --locked pytest
 
       - name: Build packages
-        run: uv build --all-packages --no-sources
+        run: uv build --all-packages --sdist --wheel --no-sources
+
+      - name: Check distribution licenses
+        run: uv run --locked python tools/check_distribution_licenses.py
 
       - name: Install application wheel in a clean environment
         run: |

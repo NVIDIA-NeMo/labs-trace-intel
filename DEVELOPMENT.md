@@ -48,8 +48,13 @@ uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv run --locked ty check
 uv run --locked pytest
-uv build --all-packages --no-sources
+uv build --all-packages --sdist --wheel --no-sources
+uv run --locked python tools/check_distribution_licenses.py
 ```
+
+Both packages include the repository-root license and attribution files. Packaging
+copies them automatically; edit only the root originals. The artifact check verifies
+their contents in wheels, source distributions, and wheels rebuilt outside the repository.
 
 CI also installs the application wheel into a clean environment, resolving
 `trace-ingest` from the built wheels, and checks imports and the CLI.
