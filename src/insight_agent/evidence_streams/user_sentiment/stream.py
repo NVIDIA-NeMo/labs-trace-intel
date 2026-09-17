@@ -149,6 +149,10 @@ def screen_user_messages(
 class UserSentimentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    local_embeddings: bool = Field(
+        default=False,
+        description="Run the embedding model on your machine. Downloads model weights on first use.",
+    )
     device: str | None = Field(default=None, description="PyTorch device; auto-detected by default")
     litellm: LiteLLMEmbeddingConfig | None = Field(
         default=None,
@@ -165,10 +169,9 @@ class UserSentimentEvidenceStream:
 
     def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if self.config.litellm is None:
-            try:
-                validate_embedding_dependencies()
-            except ValueError:
+            if not self.config.local_embeddings:
                 return "No embedding backend configured"
+            validate_embedding_dependencies()
         return None
 
     @cached_property

@@ -39,9 +39,8 @@ def test_clustering_handles_small_and_repetitive_corpora(count, patterns):
 
 
 def test_missing_prerequisites_skip_analysis_without_llm_calls(monkeypatch):
-    monkeypatch.setattr(
-        sentiment, "validate_embedding_dependencies", Mock(side_effect=ValueError("unavailable"))
-    )
+    dependencies = Mock()
+    monkeypatch.setattr(sentiment, "validate_embedding_dependencies", dependencies)
     snapshot = TraceSnapshot([Trace(id="one", root_spans=[], aggregate=TraceAggregate())])
     llm = FakeLLMClient()
     progress = []
@@ -56,3 +55,32 @@ def test_missing_prerequisites_skip_analysis_without_llm_calls(monkeypatch):
     }
     assert set().union(*map(set, progress)) == {"anomaly-and-patterns"}
     assert llm.call_count == 0
+    dependencies.assert_not_called()
+
+
+def test_sentiment_explicit_backends_check_only_local_dependencies(monkeypatch):
+    dependencies = Mock()
+    monkeypatch.setattr(sentiment, "validate_embedding_dependencies", dependencies)
+    snapshot = TraceSnapshot([])
+    local = sentiment.UserSentimentEvidenceStream(
+        sentiment.UserSentimentConfig(device="cpu"), FakeLLMClient()
+    )
+    assert local.check_prerequisites(snapshot) == "No embedding backend configured"
+    dependencies.assert_not_called()
+    local.config.local_embeddings = True
+    assert local.check_prerequisites(snapshot) is None
+    dependencies.assert_called_once_with()
+    assert local.embedding_generator.device == "cpu"
+    assert local.embedding_generator.litellm is None
+    dependencies.side_effect = ValueError("Install local-embedding")
+    with pytest.raises(ValueError, match="local-embedding"):
+        local.check_prerequisites(snapshot)
+
+    remote = sentiment.UserSentimentEvidenceStream(
+        sentiment.UserSentimentConfig.model_validate(
+            {"local_embeddings": True, "litellm": {"model": "openai/qwen"}}
+        ),
+        FakeLLMClient(),
+    )
+    assert remote.check_prerequisites(snapshot) is None
+    assert remote.embedding_generator.litellm == remote.config.litellm
