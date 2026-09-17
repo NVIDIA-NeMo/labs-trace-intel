@@ -35,8 +35,9 @@ The file must exist and contain text. Its path resolves from your working direct
 This check looks for recurring user complaints. It needs recorded user messages and
 an embedding backend serving **Qwen/Qwen3-Embedding-8B with 4,096-dimensional output**.
 The bundled classifier was trained for this model; other embedding models are not supported.
+Without a remote endpoint or an explicit local device, this check is skipped.
 
-For a remote endpoint, add:
+Use a remote endpoint to avoid running the 8B model on your machine:
 
 ```yaml
 evidence_streams:
@@ -56,12 +57,16 @@ install command. Keep your source extra too. For LangSmith:
 ```bash
 uv tool install \
   'insight-agent[langsmith,local-embedding] @ git+https://github.com/NVIDIA-NeMo/labs-trace-intel.git@main'
-insight-agent --config config.yaml
+insight-agent --config config.yaml --evidence-streams.user-sentiment.device cuda
 ```
 
-Local inference downloads model weights and needs enough memory to run them.
-Omit `litellm` to use local embeddings. Both choices still use your main inference model
-to investigate complaints. See [data access](model-access.md#where-data-goes).
+Local inference downloads model weights, needs enough memory to load them, and can
+be very slow on laptops. The command above requires a CUDA-enabled [PyTorch build](https://pytorch.org/get-started/locally/).
+Use `mps` or `cpu` instead only if you intend to run on that device. A configured
+`litellm` endpoint takes precedence over `device`.
+
+Both local and remote embeddings still use your main inference model to investigate
+complaints. See [data access](model-access.md#where-data-goes).
 
 ## Evaluation failures
 

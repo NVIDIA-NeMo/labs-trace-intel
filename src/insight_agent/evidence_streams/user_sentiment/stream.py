@@ -149,10 +149,12 @@ def screen_user_messages(
 class UserSentimentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    device: str | None = Field(default=None, description="PyTorch device; auto-detected by default")
+    device: str | None = Field(
+        default=None, description="Select local embeddings on a PyTorch device, e.g. cuda or mps"
+    )
     litellm: LiteLLMEmbeddingConfig | None = Field(
         default=None,
-        description="Use remote Qwen3-Embedding-8B embeddings instead of local weights",
+        description="Remote Qwen3-Embedding-8B endpoint; takes precedence over device",
     )
 
 
@@ -165,10 +167,9 @@ class UserSentimentEvidenceStream:
 
     def check_prerequisites(self, snapshot: TraceSnapshot) -> str | None:
         if self.config.litellm is None:
-            try:
-                validate_embedding_dependencies()
-            except ValueError:
+            if self.config.device is None:
                 return "No embedding backend configured"
+            validate_embedding_dependencies()
         return None
 
     @cached_property
