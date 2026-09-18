@@ -97,6 +97,61 @@ def test_environment_accepts_dotenv_and_existing_key_aliases(
     assert cli._check_environment(config) == "exported-model-key"
 
 
+@pytest.mark.parametrize(
+    "model",
+    ["anthropic/claude-sonnet-4-6", "openrouter/anthropic/claude-sonnet-4.6", "openai/test"],
+)
+@pytest.mark.parametrize("fallback", ["OPENAI_API_BASE", "OPENAI_BASE_URL"])
+def test_model_endpoint_does_not_inherit_another_provider_gateway(
+    clean_environment, monkeypatch, model, fallback
+):
+    monkeypatch.setenv(fallback, "https://gateway.example/v1")
+    client = Mock()
+    monkeypatch.setattr(cli, "CompletionClient", client)
+    config = RunConfig(trace={"filesystem": {"path": "traces.jsonl"}}, model=model)
+
+    cli._build_llm(config, "test-key")
+    expected = "https://gateway.example/v1" if model.startswith("openai/") else None
+    assert client.call_args.kwargs["api_base"] == expected
+
+    monkeypatch.setenv("INSIGHT_AGENT_API_BASE", "https://explicit.example/v1")
+    cli._build_llm(config, "test-key")
+    assert client.call_args.kwargs["api_base"] == "https://explicit.example/v1"
+
+    config.api_base = "https://configured.example/v1"
+    cli._build_llm(config, "test-key")
+    assert client.call_args.kwargs["api_base"] == "https://configured.example/v1"
+
+
+def test_anthropic_parameters_are_translated_to_native_fields(clean_environment, monkeypatch):
+    from litellm.utils import get_optional_params
+
+    client = Mock()
+    monkeypatch.setattr(cli, "CompletionClient", client)
+    config = RunConfig(
+        trace={"filesystem": {"path": "traces.jsonl"}},
+        model="anthropic/claude-sonnet-4-6",
+        max_tokens=8192,
+    )
+    cli._build_llm(config, "test-key")
+    params = dict(client.call_args.kwargs)
+    params["model"] = "claude-sonnet-4-6"
+    native = get_optional_params(
+        **params,
+        custom_llm_provider="anthropic",
+        tool_choice="auto",
+        tools=[
+            {
+                "type": "function",
+                "function": {"name": "ping", "parameters": {"type": "object", "properties": {}}},
+            }
+        ],
+    )
+    assert "reasoning_effort" not in native
+    assert native["output_config"]["effort"] == "high"
+    assert native["tool_choice"] == {"type": "auto"}
+
+
 def test_cli_preserves_existing_insights_without_synthesizing_empty_evidence(
     clean_environment, tmp_path, monkeypatch, capsys, select_streams
 ):

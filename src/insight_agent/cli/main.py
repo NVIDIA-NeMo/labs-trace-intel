@@ -284,13 +284,22 @@ async def _validate_evidence_with_code(
 def _build_llm(config: RunConfig, api_key: str) -> CompletionClient:
     """Construct an LLM client with the run's shared model settings."""
 
+    model = config.model or resolve(ENV_MODEL) or DEFAULT_MODEL
+    api_base = config.api_base or os.environ.get(ENV_API_BASE)
+    # A gateway configured for OpenAI must not redirect native provider routes.
+    if not api_base and not model.startswith(("anthropic/", "openrouter/")):
+        api_base = resolve(ENV_API_BASE)
+
     return CompletionClient(
-        model=config.model or resolve(ENV_MODEL) or DEFAULT_MODEL,
-        api_base=config.api_base or resolve(ENV_API_BASE),
+        model=model,
+        api_base=api_base or None,
         api_key=api_key,
         max_tokens=config.max_tokens or DEFAULT_MAX_TOKENS,
         reasoning_effort=DEFAULT_REASONING_EFFORT,
-        allowed_openai_params=["tool_choice", "reasoning_effort"],
+        # Anthropic needs LiteLLM's native translation, not raw OpenAI fields.
+        allowed_openai_params=[]
+        if model.startswith("anthropic/")
+        else ["tool_choice", "reasoning_effort"],
         drop_params=True,
     )
 
