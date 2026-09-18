@@ -43,7 +43,7 @@ insight-agent --config config.yaml
 ```
 
 Open `insights.yml` if the run produced insights. [Read your results](../results.md)
-for help with findings or skipped checks.
+for help with findings or skipped evidence streams.
 
 ## Select the right traces
 

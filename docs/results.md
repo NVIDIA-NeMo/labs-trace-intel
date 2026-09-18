@@ -38,21 +38,21 @@ Skipped
 A **candidate issue** is a problem found during analysis. Further review may merge or
 discard it, so candidate counts can exceed the number of saved insights.
 
-**No findings** means a check ran and found nothing to report in the available data.
-**Skipped** means it could not run. A limitation beside a completed check describes
-missing coverage; it does not mean the whole check was skipped.
+**No findings** means an evidence stream ran and found nothing to report in the available data.
+**Skipped** means it could not run. A limitation beside a completed evidence stream describes
+missing coverage; it does not mean the whole evidence stream was skipped.
 
-## A check was skipped
+## An evidence stream was skipped
 
-Open [Add context and checks](checks.md) for the prerequisite and a setup example.
-[Disable checks](checks.md#disable-a-check) you don’t need in your configuration.
-Disabled checks are omitted from the report.
+Open [Evidence streams](evidence-streams.md) for the prerequisite and a setup example.
+[Disable evidence streams](evidence-streams.md#disable-an-evidence-stream) you don’t need in your configuration.
+Disabled evidence streams are omitted from the report.
 
 If no traces were loaded, check your source, filters, and time window first.
 
 ## No insights were produced
 
-Read the completed checks and their limitations. The run may have found no actionable
+Read the completed evidence streams and their limitations. The run may have found no actionable
 patterns, or its candidates may not have passed review. This result alone does not
 establish that your agent is free of problems.
 
@@ -71,7 +71,7 @@ insight-agent --config config.yaml --output-path - > run-insights.yml
 
 Progress and the report go to stderr. Piped stdout contains YAML.
 The default output file is still written unless `--output-path -` is selected.
-A successful run, including one with skipped checks or no insights, exits with code 0.
+A successful run, including one with skipped evidence streams or no insights, exits with code 0.
 Missing required environment settings exit with code 2; other errors exit nonzero.
 
 To carry findings forward, see [repeat a run](configuration.md#repeat-a-run).

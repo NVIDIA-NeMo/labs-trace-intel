@@ -17,8 +17,8 @@ in the environment or `.env`.
 | `trace.max_traces` | Limit complete traces from a provider or native export. Unsupported for canonical JSONL and ATIF. |
 | `output_path` | YAML output file; defaults to `insights.yml`. Use `-` for stdout. |
 | `model`, `api_base`, `max_tokens` | [Inference settings](model-access.md#choose-a-model). |
-| `evidence_streams` | [Checks and their prerequisites](checks.md). All five are enabled by default. |
-| `code_base` | [Local agent source](checks.md#check-findings-against-code) to consult during validation. |
+| `evidence_streams` | [Evidence streams and their prerequisites](evidence-streams.md). All five are enabled by default. |
+| `code_base` | [Local agent source](evidence-streams.md#check-findings-against-code) to consult during validation. |
 | `existing_insights` | Previous JSON or YAML insight collection to reconcile with this run. |
 
 Relative paths resolve from the directory where you run the command.
