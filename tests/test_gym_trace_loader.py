@@ -6,6 +6,7 @@
 import copy
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -343,3 +344,63 @@ def test_enriched_observation_can_supply_result_without_conversation(tmp_path):
     assert tool.input is UNSET
     assert tool.output == "recorded output"
     assert tool.tool_call.result_id == "c1" and tool.tool_call.result_count == 1
+
+
+@pytest.mark.parametrize("producer", ["local", "sandboxed"])
+@pytest.mark.parametrize("case", ["parallel", "decision", "failed_call"])
+def test_upstream_opencode_producer_and_collector_fixtures(producer, case):
+    path = Path(__file__).parent / "fixtures/gym_native" / f"opencode-{producer}-{case}.json"
+    record = json.loads(path.read_text())
+    source = record["ng_trajectory"]
+    loader = GymTraceLoader(GymTraceConfig(path=path, format="json"))
+    trace = next(iter(loader.load()))
+    assert trace.id == source["rollout_id"] == "0-0"
+    assert trace.attributes["logical_case_id"] == source["task_id"] == "0"
+    assert trace.attributes["gym"] == record
+    assert trace.attributes["gym_loader_gaps"] == []
+    assert loader.describe()["gap_count"] == len(source["gaps"])
+    root = trace.root_spans[0]
+    assert isinstance(root.attributes["gym"], dict)
+    assert root.attributes["gym"]["invocation_id"] == "root"
+    model = next(span for span in root.children if span.kind is SpanKind.LLM)
+    assert isinstance(model.attributes["gym"], dict)
+    assert model.attributes["gym"]["model_call_id"] == "captured"
+    assert model.input is None and model.output is None
+    assert model.token_counts is None  # Upstream leaves cached_tokens unknown.
+    assert model.error == ("HTTP 503" if case == "failed_call" else None)
+    assert trace.aggregate.token_counts is None
+    if case == "parallel":
+        child = next(span for span in root.children if span.kind is SpanKind.AGENT)
+        assert isinstance(child.attributes["gym"], dict)
+        assert child.attributes["gym"]["invocation_id"] == "child"
+        assert child.attributes["gym"]["spawned_by_tool_call_id"] == "task-1"
+        tools = [span for span in root.children if span.kind is SpanKind.TOOL]
+        assert [span.tool_name for span in tools] == ["task", "bash"]
+        first, second = tools
+        assert first.input == {"prompt": "inspect"}
+        assert first.output == "done"
+        assert second.input == {"command": "pwd"}
+        assert second.output == "[Old tool result content cleared]"
+        assert first.start_time is not None and first.end_time is not None
+        assert second.start_time is not None and second.end_time is not None
+        assert first.start_time < second.start_time < second.end_time < first.end_time
+        assert (first.end_time - first.start_time).total_seconds() == 2.0
+        assert (second.end_time - second.start_time).total_seconds() == 0.4
+        assert all(
+            tool.tool_call is not None and tool.tool_call.result_count == 1 for tool in tools
+        )
+        assert len(to_tool_issue_trace(trace).calls) == 2
+        assert "turns_unavailable" in {gap["code"] for gap in source["gaps"]}
+    else:
+        turn = next(span for span in root.children if span.kind is SpanKind.CHAIN)
+        assert turn.input is None
+        assert turn.output == source["turns"][0]["answer"]
+        assert source["turns"][0]["answer"][0]["content"][0]["text"] == "answer"
+        assert isinstance(turn.attributes["gym"], dict)
+        assert turn.attributes["gym"]["resolved"] is None
+        assert not to_tool_issue_trace(trace).calls
+
+
+def test_missing_attachment_points_to_supported_paths(tmp_path):
+    with pytest.raises(GymTraceLoadError, match="trajectory-capabilities"):
+        loader_for(tmp_path, {"response": {"output": []}}).load()

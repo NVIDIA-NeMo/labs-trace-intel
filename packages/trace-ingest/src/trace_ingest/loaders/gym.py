@@ -124,6 +124,9 @@ def _error(row: dict[str, Any], key: str = "status") -> str | None:
     error = row.get("error_type") or row.get("error_category")
     if error is not None:
         return _id(error)
+    code = row.get("status_code")
+    if key == "response_status" and type(code) is int and code >= 400:
+        return f"HTTP {code}"
     status = row.get(key)
     return status if status in ("failed", "timeout", "cancelled") else None
 
@@ -231,7 +234,8 @@ def _model_owners(
 def _normalize(record: dict[str, Any]) -> Trace:
     if "ng_trajectory" not in record:
         raise GymTraceLoadError(
-            "Gym rollout requires ng_trajectory; enable Gym observability or use original ATIF"
+            "Gym rollout requires ng_trajectory schema 1.0 from a supported producer path; "
+            "see https://docs.nvidia.com/nemo/gym/reference/trajectory-capabilities/"
         )
     source = _object(record["ng_trajectory"])
     if source.get("schema_version") != "1.0":

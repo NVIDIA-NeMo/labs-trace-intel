@@ -27,7 +27,11 @@ extra for its live loader, and the `langfuse` extra for its live loader.
 ## NeMo Gym rollout exports
 
 Load Gym's persisted rollout JSONL with its `ng_trajectory` schema `1.0`
-attachment. No Gym installation or optional extra is needed:
+attachment, for producer paths supported by Gym's
+[trajectory capability matrix](https://docs.nvidia.com/nemo/gym/reference/trajectory-capabilities/).
+That reference is authoritative for producer coverage and required observability
+configuration; schema support alone does not establish evidence completeness.
+No Gym installation or optional extra is needed:
 
 ```python
 from trace_ingest.loaders import GymTraceConfig, GymTraceLoader
@@ -41,6 +45,15 @@ print(loader.describe())
 Use `format="json"` for one pretty-printed rollout object. Each JSONL record
 remains one rollout; task IDs identify logical cases across repeated rollouts.
 Loading is offline, cached and disk-backed. Duplicate rollout IDs are rejected.
+
+Select an evaluated producer path with the capabilities your analysis needs.
+`V` applies to the documented path and configuration, `O` requires checking the
+record's evidence gaps, and `X` means that evidence is unavailable on that path.
+For model-call evidence, enable `observability_enabled`, configure
+`model_call_capture_dir`, and route calls through the rollout-prefixed Gym Model
+Server endpoint as described in the matrix. Direct-provider calls bypass capture.
+The loader does not maintain a separate agent allowlist: it validates the attachment
+and preserves available evidence and gaps, while the matrix defines supported paths.
 
 The loader maps the existing Gym trajectory contract directly to canonical spans:
 
@@ -81,7 +94,8 @@ Use the persisted rollout JSONL, not that exporter view.
 Legacy Responses-only records without `ng_trajectory` are rejected. Enable Gym
 observability when collecting new runs, or load retained original ATIF with
 `ATIFTraceLoader`. The loader does not reconstruct an unobserved trajectory from
-the final response or rerun Gym's capture-joining logic.
+the final response or rerun Gym's capture-joining logic. ATIF import/export and
+round-trip fidelity are outside this loader's contract.
 
 For local development, use an editable checkout:
 

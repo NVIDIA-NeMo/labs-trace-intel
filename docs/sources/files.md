@@ -49,7 +49,14 @@ trajectories in the exported record.
 
 ## NeMo Gym
 
-For persisted Gym rollout JSONL containing `ng_trajectory` schema `1.0`:
+Use persisted Gym rollout JSONL containing `ng_trajectory` schema `1.0` from a
+supported producer path in Gym's
+[trajectory capability matrix](https://docs.nvidia.com/nemo/gym/reference/trajectory-capabilities/).
+Follow that reference for the observability configuration and capabilities required
+by your analysis. Coverage depends on the execution path; partial (`O`) coverage
+requires inspecting recorded gaps, and unavailable (`X`) evidence is not inferred.
+
+Load the persisted attachment directly:
 
 ```bash
 insight-agent --trace.gym.path rollouts.jsonl --max-tokens 16384
