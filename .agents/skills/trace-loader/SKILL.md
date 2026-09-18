@@ -20,16 +20,14 @@ span identity, nesting, ordering, tool calls and results, timestamps, status,
 metrics, and pagination. Do not guess fields or accept several speculative
 shapes. Reject ambiguous or incomplete input with a source-specific error.
 
-Read these live contracts and examples in the repository:
+Read these contracts in `packages/trace-ingest/src/trace_ingest/`:
 
-- `src/insight_agent/trace_loaders/trace_loaders.py` defines `TraceLoader` and
-  `TraceDescription`.
-- `src/insight_agent/traces.py` is the sole canonical definition of `Trace`,
-  `Span`, and `TraceSnapshot`.
-- `src/insight_agent/trace_loaders/mlflow.py` is the reference architecture for
+- `loaders/trace_loaders.py` defines `TraceLoader` and `TraceDescription`.
+- `models.py` defines `Trace`, `Span`, and `TraceSnapshot`.
+- `loaders/mlflow.py` is the reference architecture for
   a provider loader, including configuration, SDK/file ingestion,
   normalization, deterministic ordering, diagnostics, and source description.
-- `src/insight_agent/trace_loaders/fs.py` is only for input already serialized
+- `loaders/fs.py` is only for input already serialized
   as canonical Trace JSONL. Do not add source normalization to it.
 
 Treat the MLflow implementation as a structural example, not as a field-mapping
@@ -37,8 +35,8 @@ template. The mapping must come from the actual source being added.
 
 ## Implement the boundary
 
-Put the loader in `src/insight_agent/trace_loaders/<source>.py` and export its
-public types from `trace_loaders/__init__.py`.
+Within that package, add `loaders/<source>.py` and export its public types from
+`loaders/__init__.py`.
 
 Use typed configuration and a source-specific load error. `load()` should:
 

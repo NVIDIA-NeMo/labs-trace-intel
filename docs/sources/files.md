@@ -30,7 +30,7 @@ Paths resolve from your working directory.
 
 ## Canonical JSONL
 
-Each line must contain one complete [Trace](../../src/insight_agent/traces.py).
+Each line must contain one complete [Trace](../../packages/trace-ingest/src/trace_ingest/models.py).
 This small example shows a recorded tool failure and evaluation score:
 
 ```json
@@ -52,4 +52,4 @@ trajectories in the exported record.
 Map your records to the canonical model above, then use the filesystem loader.
 For a reusable integration, the repository includes a
 [trace-loader skill](../../.agents/skills/trace-loader/SKILL.md) and the
-[TraceLoader interface](../../src/insight_agent/trace_loaders/trace_loaders.py).
+[TraceLoader interface](../../packages/trace-ingest/src/trace_ingest/loaders/trace_loaders.py).
