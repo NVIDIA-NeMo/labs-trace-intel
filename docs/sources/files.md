@@ -3,7 +3,7 @@
 
 # Analyze trace files
 
-Use this guide for canonical JSONL, ATIF trajectories, or data from a custom source.
+Use this guide for canonical JSONL, ATIF trajectories, Gym rollouts, or data from a custom source.
 For native exports, follow the [LangSmith](langsmith.md#use-an-export),
 [Langfuse](langfuse.md#use-an-export), or [MLflow](mlflow.md#use-an-export) guide.
 
@@ -46,6 +46,24 @@ explicitly recorded null. Repeated problems need supporting evidence across mult
 Each nonblank line must contain one complete ATIF trajectory. The loader accepts schema
 versions `ATIF-v1.0` through `ATIF-v1.8`. Keep tool calls, observations, and nested subagent
 trajectories in the exported record.
+
+## NeMo Gym
+
+For persisted Gym rollout JSONL containing `ng_trajectory` schema `1.0`:
+
+```bash
+insight-agent --trace.gym.path rollouts.jsonl --max-tokens 16384
+```
+
+For one pretty-printed rollout object, add `--trace.gym.format json`.
+The loader reads the complete file and does not support `trace.max_traces`.
+Invocation nesting, captured model calls, tool observations, rewards and evidence
+gaps are preserved. It does not require Gym or call a provider during ingestion.
+Analysis still uses the configured inference model as usual.
+
+Use Gym's persisted rollout files: MLflow/W&B exporter views omit the trajectory.
+Older Responses-only exports are not supported; use original retained ATIF when
+available. See the [mapping and limitations](../../packages/trace-ingest/README.md#nemo-gym-rollout-exports).
 
 ## A different trace system
 
