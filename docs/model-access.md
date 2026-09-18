@@ -8,14 +8,31 @@ Its API key is separate from your Braintrust, LangSmith, Langfuse, MLflow, or In
 
 ## Choose a model
 
-Save your model settings in `.env`. For OpenAI, use:
+Trace Analyst uses the LiteLLM library to connect to supported inference providers,
+including OpenAI and Anthropic directly. Choose a model that supports tool calling
+and structured output, and save its settings in `.env`.
+
+For OpenAI directly:
 
 ```dotenv
 INSIGHT_AGENT_MODEL=openai/gpt-5.2
-INSIGHT_AGENT_API_KEY=your-inference-key
+INSIGHT_AGENT_API_KEY=your-openai-api-key
 ```
 
-For an approved OpenAI-compatible gateway, use its model name and API base:
+For Anthropic directly:
+
+```dotenv
+INSIGHT_AGENT_MODEL=anthropic/claude-sonnet-4-6
+INSIGHT_AGENT_API_KEY=your-anthropic-api-key
+```
+
+These are full LiteLLM model strings: the `openai/` or `anthropic/` prefix selects
+the provider. Direct access uses the provider's default endpoint; remove any old
+`INSIGHT_AGENT_API_BASE` or YAML/CLI `api_base` override when switching providers.
+For OpenAI directly, also unset inherited `OPENAI_API_BASE` and `OPENAI_BASE_URL`
+gateway overrides.
+
+You can also use an OpenAI-compatible gateway by setting its model name and API base:
 
 ```dotenv
 INSIGHT_AGENT_MODEL=openai/your-model-name
@@ -26,6 +43,8 @@ INSIGHT_AGENT_API_BASE=https://gateway.example.com/v1
 Replace the example values with your provider’s settings. Use the documented API base,
 without appending a resource path such as `/chat/completions`.
 The first `openai/` selects the protocol; the rest is the gateway’s model name.
+If no model is set, the package defaults to `openai/azure/openai/gpt-5.6-luna`,
+which requires the corresponding gateway configuration.
 
 The source guides set `max_tokens: 16384` to limit each model response.
 Adjust that YAML setting to a value your endpoint supports.
@@ -48,8 +67,14 @@ uv tool run --env-file /path/to/.env insight-agent --config config.yaml
 Exported variables take priority over values in either file.
 Keep credentials out of configuration YAML and source control.
 
-`OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are accepted as fallback inference keys.
-`OPENAI_API_BASE` and `OPENAI_BASE_URL` are fallback endpoint settings.
+`OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are accepted as fallback inference keys,
+in that order. Set `INSIGHT_AGENT_API_KEY` explicitly when credentials for multiple
+providers are present. For OpenRouter, put its key in `INSIGHT_AGENT_API_KEY`;
+`OPENROUTER_API_KEY` alone does not satisfy the CLI's credential check.
+
+`OPENAI_API_BASE` and `OPENAI_BASE_URL` are fallback endpoint settings, except for
+models using the `anthropic/` or `openrouter/` prefixes. Explicit
+`INSIGHT_AGENT_API_BASE` and YAML/CLI `api_base` overrides still apply to those models.
 Choose the matching model explicitly. The CLI requires an inference key before loading traces.
 
 Each source guide names the credentials needed for live access.
