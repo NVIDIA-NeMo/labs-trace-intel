@@ -35,8 +35,8 @@ and restart your terminal.
 
 ## After your first run
 
-- [Read your results](docs/results.md) — understand insights, skipped checks, and saved output.
-- [Add context and checks](docs/checks.md) — supply business rules, configure sentiment, or check findings against code.
+- [Read your results](docs/results.md) — understand insights, skipped evidence streams, and saved output.
+- [Evidence streams](docs/evidence-streams.md) — supply business rules, configure sentiment, or check findings against code.
 - [Data and model access](docs/model-access.md) — configure your inference endpoint and understand where data goes.
 - [Configuration reference](docs/configuration.md) — overrides, limits, and repeatable runs.
 

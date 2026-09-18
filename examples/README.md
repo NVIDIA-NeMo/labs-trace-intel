@@ -21,7 +21,7 @@ In that folder, [configure your model and API key](../docs/model-access.md#choos
 insight-agent --config trace-analyst-config.yaml
 ```
 
-The terminal reports completed and skipped checks. If it finds actionable insights,
+The terminal reports completed and skipped evidence streams. If it finds actionable insights,
 it saves them to `insights.yml`. Results vary with the model.
 
 [Read your results](../docs/results.md), or [connect your own traces](../README.md#start-here).

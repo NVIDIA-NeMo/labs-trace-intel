@@ -1,10 +1,9 @@
 <!-- SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Add context and checks
+# Evidence streams
 
-All five checks are enabled by default. Each runs when its prerequisites are available.
-Use the section below that matches a skipped check in your report.
+All five evidence streams are enabled by default. Each runs when its prerequisites are available.
 
 - [Ethos divergence](#ethos-divergence): supply your agent’s business rules.
 - [User sentiment](#user-sentiment): configure embeddings for complaint detection.
@@ -32,11 +31,11 @@ The file must exist and contain text. Its path resolves from your working direct
 
 ## User sentiment
 
-This check looks for recurring user complaints. It needs recorded user messages and
+This evidence stream looks for recurring user complaints. It needs recorded user messages and
 an embedding backend serving **Qwen/Qwen3-Embedding-8B with 4,096-dimensional output**.
 The bundled classifier was trained for this model; other embedding models are not supported.
 Local embeddings are off by default. Without a remote endpoint or local embeddings enabled,
-this check is skipped.
+this evidence stream is skipped.
 
 For a remote endpoint, add:
 
@@ -93,13 +92,13 @@ If the report says “No tool calls,” check that your selected traces and expo
 
 ## Anomalies and patterns
 
-This check looks for unusual traces and recurring behavior across the loaded set.
+This evidence stream looks for unusual traces and recurring behavior across the loaded set.
 A small or repetitive set may not support trajectory grouping; other analysis can still finish.
 Load more varied traces from the behavior you want to investigate.
 
-## Disable a check
+## Disable an evidence stream
 
-Set a check to `false` to disable it. Disabled checks produce no report entries or skip messages:
+Set an evidence stream to `false` to disable it. Disabled evidence streams produce no report entries or skip messages:
 
 ```yaml
 evidence_streams:
@@ -108,7 +107,7 @@ evidence_streams:
 ```
 
 The other keys are `eval_failure_patterns`, `tool_issues`, and `anomaly_and_patterns`.
-Omit a key, or use `true` or `{}`, for defaults. Keep at least one check enabled.
+Omit a key, or use `true` or `{}`, for defaults. Keep at least one evidence stream enabled.
 When combining examples, put their settings under a single `evidence_streams` key.
 
 ## Check findings against code
