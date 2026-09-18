@@ -26,6 +26,8 @@ extra for its live loader, and the `langfuse` extra for its live loader.
 
 ## NeMo Gym rollout exports
 
+For CLI installation and configuration, see the [NeMo Gym source guide](../../docs/sources/gym.md).
+
 Load Gym's persisted rollout JSONL with its `ng_trajectory` schema `1.0`
 attachment, for producer paths supported by Gym's
 [trajectory capability matrix](https://docs.nvidia.com/nemo/gym/reference/trajectory-capabilities/).

@@ -5,6 +5,12 @@
 
 Source: NVIDIA-NeMo/Gym@399e6783e0e879424fc20a23f8e2d46ffa4cfdee,
 nemo_gym/rollout_observability.py (TrajectoryRecord), rollout_collection.py.
+Supported producer paths and required observability configuration:
+https://docs.nvidia.com/nemo/gym/reference/trajectory-capabilities/
+
+Only persisted rollouts with ng_trajectory schema 1.0 are accepted. Coverage is
+path-dependent; recorded gaps and partial evidence are preserved. Responses-only
+exports and ATIF conversion are outside this loader's contract.
 No Gym runtime, inference, media fetching, or filesystem reference resolution.
 """
 
@@ -41,12 +47,26 @@ class GymTraceLoadError(ValueError):
 
 
 class GymTraceConfig(BaseModel):
+    """Select a complete local rollout file, without a trace limit.
+
+    ``path`` resolves from the working directory. ``jsonl`` reads one rollout
+    per nonblank line; ``json`` reads a single, optionally pretty-printed object.
+    Both formats require the rollout envelope containing ``ng_trajectory``.
+    """
+
     model_config = ConfigDict(extra="forbid")
     path: Path
     format: Literal["jsonl", "json"] = "jsonl"
 
 
 class GymTraceDescription(TraceDescription):
+    """File identity and counts from the cached corpus.
+
+    ``call_count`` counts tool spans; ``distinct_logical_cases`` counts task IDs.
+    ``gap_count`` sums source-reported gaps and unresolved ownership/parent gaps
+    added by this loader. Zero gaps is not proof of complete producer coverage.
+    """
+
     path: str
     format: str
     gap_count: int
@@ -97,6 +117,8 @@ def _timestamp(value: object) -> datetime | None:
 
 
 def _tokens(raw: object) -> TokenCounts | None:
+    """Normalize complete token accounting; leave partial counts in raw metadata."""
+
     stats = _object(raw)
     for key in (
         "prompt_tokens",
@@ -132,6 +154,12 @@ def _error(row: dict[str, Any], key: str = "status") -> str | None:
 
 
 def _conversation_tools(invocation: dict[str, Any], prefix: str) -> dict[str, Span]:
+    """Pair conversation calls/results by invocation-scoped IDs in source order.
+
+    A missing result remains UNSET; an explicit result with null output remains
+    a matched result. Observations may enrich these spans later with timing.
+    """
+
     calls: dict[str, Span] = {}
     user: str | None = None
     for index, item in enumerate(_rows(invocation.get("conversation", []))):
@@ -195,6 +223,12 @@ def _model_owners(
     invocations: dict[str, dict[str, Any]],
     gaps: list[dict[str, Any]],
 ) -> dict[int, str]:
+    """Join captured calls using explicit IDs or exact model/response pairs.
+
+    Missing references become gaps; ambiguous matches and multiple owners fail
+    instead of inferring ownership from ordering or timestamps.
+    """
+
     owners: dict[int, str] = {}
     for identifier, invocation in invocations.items():
         for ref in _rows(invocation.get("model_calls", [])):
@@ -232,6 +266,14 @@ def _model_owners(
 
 
 def _normalize(record: dict[str, Any]) -> Trace:
+    """Map one native attachment while retaining the complete source envelope.
+
+    Rollout IDs identify traces; task IDs group logical cases. Invocations,
+    captured calls, tools and semantic turns map to separate span kinds.
+    Source gaps remain under ``attributes.gym``; additional join gaps are in
+    ``gym_loader_gaps``. Rewards stay evaluation signals, not execution errors.
+    """
+
     if "ng_trajectory" not in record:
         raise GymTraceLoadError(
             "Gym rollout requires ng_trajectory schema 1.0 from a supported producer path; "
@@ -405,7 +447,18 @@ def _normalize(record: dict[str, Any]) -> Trace:
 
 @dataclass
 class GymTraceLoader:
-    """Load explicit Gym rollout exports into a cached, disk-backed snapshot."""
+    """Normalize native Gym rollouts into a cached, disk-backed snapshot.
+
+    The first ``load()`` or ``describe()`` reads and validates the entire file;
+    later calls reuse that snapshot even if the source file changes. Empty
+    input, duplicate rollout IDs and ambiguous records raise GymTraceLoadError.
+    Missing evidence stays missing; whole-rollout totals are not inferred.
+
+    Example:
+        loader = GymTraceLoader(GymTraceConfig(path=Path("rollouts.jsonl")))
+        snapshot = loader.load()
+        description = loader.describe()
+    """
 
     config: GymTraceConfig
 
@@ -455,7 +508,9 @@ class GymTraceLoader:
         )
 
     def load(self) -> TraceSnapshot:
+        """Return all normalized rollouts, validating the file on first access."""
         return self._loaded[0]
 
     def describe(self) -> GymTraceDescription:
+        """Return corpus counts and file identity, loading on first access."""
         return self._loaded[1]
