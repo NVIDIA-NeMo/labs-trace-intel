@@ -9,17 +9,17 @@ Its API key is separate from your Braintrust, LangSmith, Langfuse, MLflow, or In
 ## Choose a model
 
 Trace Analyst uses the LiteLLM library to connect to supported inference providers,
-including OpenAI and Anthropic directly. Choose a model that supports tool calling
+including OpenAI and Anthropic. Choose a model that supports tool calling
 and structured output, and save its settings in `.env`.
 
-For OpenAI directly:
+For OpenAI:
 
 ```dotenv
 INSIGHT_AGENT_MODEL=openai/gpt-5.2
 INSIGHT_AGENT_API_KEY=your-openai-api-key
 ```
 
-For Anthropic directly:
+For Anthropic:
 
 ```dotenv
 INSIGHT_AGENT_MODEL=anthropic/claude-sonnet-4-6
