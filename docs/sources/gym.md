@@ -72,6 +72,3 @@ status and timing, semantic turns, rewards, and evidence gaps are preserved.
 Task IDs group repeated rollouts. Missing evidence stays missing, nullable token
 counts are not filled with zero, and rewards do not establish execution success.
 Duplicate rollout IDs and ambiguous joins are rejected.
-
-See the package's [mapping and limitations](../../packages/trace-ingest/README.md#nemo-gym-rollout-exports)
-for the Python API and detailed normalization behavior.
