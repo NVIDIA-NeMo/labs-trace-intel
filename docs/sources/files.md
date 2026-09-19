@@ -3,7 +3,7 @@
 
 # Analyze trace files
 
-Use this guide for canonical JSONL, ATIF trajectories, or data from a custom source.
+Use this guide for canonical JSONL or ATIF trajectories.
 For native exports, follow the [LangSmith](langsmith.md#use-an-export),
 [Langfuse](langfuse.md#use-an-export), or [MLflow](mlflow.md#use-an-export) guide.
 
@@ -49,7 +49,5 @@ trajectories in the exported record.
 
 ## A different trace system
 
-Map your records to the canonical model above, then use the filesystem loader.
-For a reusable integration, the repository includes a
-[trace-loader skill](../../.agents/skills/trace-loader/SKILL.md) and the
-[TraceLoader interface](../../packages/trace-ingest/src/trace_ingest/loaders/trace_loaders.py).
+Follow [Analyze traces from another system](custom.md) to use a coding agent to
+convert an export or fetch and convert traces through your store's API.

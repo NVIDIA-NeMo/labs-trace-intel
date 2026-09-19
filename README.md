@@ -28,7 +28,8 @@ Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and
 | Langfuse traces and scores | [Langfuse](docs/sources/langfuse.md) |
 | MLflow traces and assessments | [MLflow](docs/sources/mlflow.md) |
 | NeMo Platform Intake | [Intake](docs/sources/intake.md) |
-| JSONL, ATIF, or a custom source | [Trace files](docs/sources/files.md) |
+| JSONL or ATIF files | [Trace files](docs/sources/files.md) |
+| Another trace store | [Convert your traces](docs/sources/custom.md) |
 
 If `insight-agent` is not found after installation, run `uv tool update-shell`
 and restart your terminal.
