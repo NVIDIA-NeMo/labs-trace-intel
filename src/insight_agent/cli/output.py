@@ -142,7 +142,7 @@ class RunOutput:
         if any(item.skip_reason is not None for item in result.evidence):
             self.console.print(
                 "\nTo disable a check, set its entry in evidence_streams to false.\n"
-                "Check setup: https://github.com/NVIDIA-NeMo/labs-trace-intel/blob/main/docs/checks.md",
+                "Check setup: https://github.com/NVIDIA-NeMo/labs-trace-intel/blob/main/docs/evidence-streams.md",
                 soft_wrap=True,
             )
         if result.insights and output_path != Path("-"):
