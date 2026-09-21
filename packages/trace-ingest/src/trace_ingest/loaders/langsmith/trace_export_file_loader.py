@@ -24,6 +24,7 @@ from trace_ingest.loaders.langsmith._normalization import (
 )
 from trace_ingest.loaders.trace_loaders import TraceDescription
 from trace_ingest.models import SpanKind, Trace, TraceSnapshot
+from trace_ingest.source_links import file_source_url
 
 __all__ = [
     "LangSmithTraceExportFileConfig",
@@ -188,6 +189,7 @@ class LangSmithTraceExportFileLoader:
                         for run in provider_runs
                     },
                 )
+                trace.source_url = file_source_url(path, export_trace.line_numbers[root.id])
                 if unresolved:
                     # _parse_trace_export_file rejects this first; keep the invariant
                     # explicit if the shared normalizer changes later.

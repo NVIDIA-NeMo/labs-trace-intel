@@ -40,7 +40,8 @@ This small example shows a recorded tool failure and evaluation score:
 
 Preserve stable trace and span IDs, nested spans, tool inputs and results, user messages,
 and recorded evaluation signals. Omit values that were not recorded; `null` means the source
-explicitly recorded null. Repeated problems need supporting evidence across multiple traces.
+explicitly recorded null. Output links back to this file and its physical line number;
+whether the viewer jumps to that line depends on its support for URL fragments. Repeated problems need supporting evidence across multiple traces.
 
 ## ATIF
 

@@ -16,9 +16,31 @@ An illustrative entry in `insights.yml`:
   trace_refs:
     - run-12
     - run-38
+  trace_links:
+    run-12: https://observability.example.com/traces/run-12
+    run-38: https://observability.example.com/traces/run-38
 ```
 
-Use the trace IDs to review the supporting behavior before deciding what to change.
+Open a trace link to review the supporting behavior before deciding what to change.
+The terminal also shows these URLs, clickable in terminals that support hyperlinks.
+`trace_refs` retains stable IDs; `trace_links` maps those IDs to source locations and is
+omitted when no links are available. URLs come from the loader, not the inference model.
+
+Live LangSmith and Langfuse traces use their provider-returned UI locations; live MLflow
+traces use the HTTP tracking server’s UI. Braintrust links require your
+[organization name](sources/braintrust.md#links-to-braintrust). Intake traces currently
+retain trace IDs without viewer links.
+
+Local inputs link to the original file on the machine that ran the analysis. Canonical
+JSONL, ATIF, Gym JSONL, and LangSmith exports include a `#L<number>` fragment for the
+physical source line. Opening the file at that line depends on your viewer’s support.
+Other native exports link to the containing file. Canonical file links always point
+to the input file; user-supplied URLs are not retained.
+
+When a provider does not supply a usable URL, or its location cannot be determined
+(for example, an MLflow `databricks` or local tracking URI), the ID remains available.
+Previously saved links survive reconciliation for traces absent from the current run;
+links for traces loaded in this run are resolved from the current source.
 
 ## Terminal report
 
@@ -58,7 +80,8 @@ establish that your agent is free of problems.
 
 ## Saved output
 
-The output is a YAML list with `name`, `description`, and `trace_refs` for each insight.
+The output is a YAML list with `name`, `description`, `trace_refs`, and optional
+`trace_links` for each insight.
 Each insight has at least two trace references.
 
 By default, a non-empty collection is written to `insights.yml`.

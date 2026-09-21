@@ -28,6 +28,7 @@ from trace_ingest.models import (
     TraceAggregate,
     TraceSnapshot,
 )
+from trace_ingest.source_links import file_source_url
 
 __all__ = ["ATIFTraceConfig", "ATIFTraceDescription", "ATIFTraceLoadError", "ATIFTraceLoader"]
 
@@ -327,6 +328,7 @@ class ATIFTraceLoader:
                     if not raw.strip():
                         continue
                     trace = _normalize(_ATIF.validate_json(raw))
+                    trace.source_url = file_source_url(path, _line_number)
                     pending = list(trace.root_spans)
                     while pending:
                         span = pending.pop()

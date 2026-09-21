@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from trace_ingest.loaders.trace_loaders import TraceDescription
 from trace_ingest.models import Span, SpanKind, Trace, TraceSnapshot
+from trace_ingest.source_links import file_source_url
 
 __all__ = ["FSDataLoadError", "FSDataLoader"]
 
@@ -66,6 +67,7 @@ class FSDataLoader:
                     if raw.isspace():
                         continue
                     trace = _parse_trace(raw, path=self.path, line_number=line_number)
+                    trace.source_url = file_source_url(self.path, line_number)
                     call_count += sum(span.kind is SpanKind.TOOL for span in _spans(trace))
                     cases.add(str(trace.attributes.get("logical_case_id") or trace.id))
                     yield trace

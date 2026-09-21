@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote, urlencode
 
 from pydantic import JsonValue
 
@@ -26,6 +27,7 @@ from trace_ingest.models import (
     TraceAggregate,
     TraceSnapshot,
 )
+from trace_ingest.source_links import file_source_url, http_source_url
 
 if TYPE_CHECKING:
     from mlflow import MlflowClient
@@ -159,6 +161,7 @@ class MLflowTraceLoader:
                                 "experiment_id": experiment_id,
                             },
                         )
+                        trace.source_url = _trace_url(tracking_uri, experiment_id, trace.id)
                         sort_keys[trace.id] = _trace_sort_key(provider_trace)
                         logical_cases.add(_logical_case(trace))
                         unresolved_parent_count += detached
@@ -318,6 +321,7 @@ class MLflowFileTraceLoader:
                             "export_path": str(resolved_path),
                         },
                     )
+                    trace.source_url = file_source_url(resolved_path)
                     sort_keys[trace.id] = _trace_sort_key(provider_trace)
                     logical_cases.add(_logical_case(trace))
                     unresolved_parent_count += detached
@@ -722,3 +726,12 @@ def _logical_case_id(
             if session not in (None, ""):
                 break
     return str(session) if session not in (None, "") else None
+
+
+def _trace_url(tracking_uri: str, experiment_id: str, trace_id: str) -> str | None:
+    # MLflow's UI supports both the legacy table and the current trace selector.
+    base = http_source_url(tracking_uri)
+    if base is None:
+        return None
+    query = urlencode({"selectedEvaluationId": trace_id, "traceId": trace_id})
+    return f"{base.rstrip('/')}/#/experiments/{quote(experiment_id, safe='')}/traces?{query}"

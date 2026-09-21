@@ -481,3 +481,13 @@ def test_config_requires_project_name_and_timezone_aware_start():
         LangSmithTraceConfig(project_name=" ")
     with pytest.raises(ValueError, match="start_time must include a timezone"):
         LangSmithTraceConfig(project_name="project", start_time=datetime(2026, 9, 2))
+
+
+def test_live_source_link_uses_sdk_ui_url():
+    runs = trace_runs()
+    root = next(run for run in runs if run.parent_run_id is None)
+    root._host_url = "https://ui.langsmith.test"
+    client = FakeLangSmithClient([root], runs)
+    loader = LangSmithTraceLoader(LangSmithTraceConfig(project_name="project"), client)
+    assert root.app_path is not None
+    assert next(iter(loader.load())).source_url == "https://ui.langsmith.test" + root.app_path

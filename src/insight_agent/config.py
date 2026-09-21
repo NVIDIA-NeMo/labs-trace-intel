@@ -89,6 +89,8 @@ class BraintrustConfig(ConfigModel):
 
     project_id: str | None = None
     experiment_id: str | None = None
+    org_name: str | None = None
+    app_url: str | None = None
     api_url: str | None = None
     from_timestamp: datetime
     to_timestamp: datetime

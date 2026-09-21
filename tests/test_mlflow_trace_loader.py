@@ -151,6 +151,7 @@ def test_file_loader_reads_native_mlflow_search_json_without_conversion(tmp_path
     assert normalized.root_spans[0].kind is SpanKind.TOOL
     assert normalized.root_spans[0].input == {"query": "why did the agent retry?"}
     assert normalized.root_spans[0].output == {"answer": "The upstream timed out."}
+    assert normalized.source_url == path.resolve().as_uri()
     assert normalized.attributes["source_pointer"] == {
         "provider": "mlflow",
         "export_path": str(path.resolve()),
@@ -561,3 +562,21 @@ def test_provider_errors_are_reported_with_experiment_context(monkeypatch):
         MLflowTraceLoader(MLflowTraceConfig(experiment_name="private"), client=client).load()
 
     assert isinstance(raised.value.__cause__, PermissionError)
+
+
+@pytest.mark.parametrize("uri", ["https://mlflow.test/prefix", "databricks", "file:///tmp/mlruns"])
+def test_live_source_links_use_http_tracking_ui_only(uri):
+    client = FakeClient(
+        pages=[FakePage([trace("trace /1", [span("root")])])], experiment_id="project/1"
+    )
+    loader = MLflowTraceLoader(
+        MLflowTraceConfig(experiment_name="experiment", tracking_uri=uri), client
+    )
+    normalized = next(iter(loader.load()))
+    if uri.startswith("https"):
+        assert normalized.source_url == (
+            "https://mlflow.test/prefix/#/experiments/project%2F1/traces?"
+            "selectedEvaluationId=trace+%2F1&traceId=trace+%2F1"
+        )
+    else:
+        assert normalized.source_url is None

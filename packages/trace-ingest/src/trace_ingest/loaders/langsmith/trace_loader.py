@@ -24,6 +24,7 @@ from trace_ingest.loaders.langsmith._normalization import (
 )
 from trace_ingest.loaders.trace_loaders import TraceDescription
 from trace_ingest.models import SpanKind, Trace, TraceSnapshot
+from trace_ingest.source_links import http_source_url
 
 if TYPE_CHECKING:
     from langsmith import Client
@@ -160,6 +161,7 @@ class LangSmithTraceLoader:
                         "project_id": project_id,
                     },
                 )
+                trace.source_url = http_source_url(selected[trace_id].url)
                 unresolved_parent_count += unresolved
                 run_count += len(runs)
                 call_count += sum(

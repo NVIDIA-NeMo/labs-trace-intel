@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urljoin
 
 from pydantic import JsonValue
 
@@ -26,6 +27,7 @@ from trace_ingest.models import (
     TraceAggregate,
     TraceSnapshot,
 )
+from trace_ingest.source_links import file_source_url, http_source_url
 
 if TYPE_CHECKING:
     from langfuse import Langfuse
@@ -134,6 +136,10 @@ class LangfuseTraceLoader:
                     "trace_id": trace_id,
                 },
             )
+            if provider_trace.html_path:
+                trace.source_url = http_source_url(
+                    urljoin(base_url.rstrip("/") + "/", provider_trace.html_path)
+                )
             traces.append(trace)
 
         snapshot = TraceSnapshot(traces)
@@ -267,6 +273,7 @@ class LangfuseFileTraceLoader:
                             "trace_id": trace_id,
                         },
                     )
+                    trace.source_url = file_source_url(path)
                     traces[(_trace_timestamp(provider), trace_id)] = trace
                 except (ValueError, LangfuseTraceLoadError) as error:
                     raise LangfuseTraceLoadError(
