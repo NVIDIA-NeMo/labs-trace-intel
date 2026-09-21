@@ -46,7 +46,7 @@ Repository = "https://github.com/NVIDIA/nemo-platform-insights-preview"
 # Source adapters only. Filesystem users do not install or import provider SDKs.
 langsmith = ["trace-ingest[langsmith]==0.1.0"]
 mlflow = ["trace-ingest[mlflow]==0.1.0"]
-local-embedding = ["torch==2.13.0", "transformers==5.16.1"]
+local-embedding = ["torch==2.13.0", "transformers==5.17.0"]
 # Query-only adapter for the deployed Langfuse v3 API. The SDK remains optional
 # for users loading canonical JSONL or MLflow traces.
 langfuse = ["trace-ingest[langfuse]==0.1.0"]
