@@ -5,7 +5,8 @@
 
 Use this guide for canonical JSONL or ATIF trajectories.
 For native exports, follow the [LangSmith](langsmith.md#use-an-export),
-[Langfuse](langfuse.md#use-an-export), or [MLflow](mlflow.md#use-an-export) guide.
+[Langfuse](langfuse.md#use-an-export), [MLflow](mlflow.md#use-an-export), or
+[NeMo Gym](gym.md) guide.
 
 ## Run a file
 
