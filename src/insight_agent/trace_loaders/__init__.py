@@ -1,6 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from trace_ingest.loaders.gym import (
+    GymTraceConfig,
+    GymTraceDescription,
+    GymTraceLoader,
+    GymTraceLoadError,
+)
+
 from insight_agent.trace_loaders.atif import (
     ATIFTraceConfig,
     ATIFTraceDescription,
@@ -20,6 +27,10 @@ from insight_agent.trace_loaders.langfuse import (
 )
 
 __all__ = [
+    "GymTraceConfig",
+    "GymTraceDescription",
+    "GymTraceLoader",
+    "GymTraceLoadError",
     "BraintrustTraceConfig",
     "BraintrustTraceDescription",
     "BraintrustTraceLoader",

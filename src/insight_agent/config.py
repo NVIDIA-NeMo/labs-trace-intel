@@ -13,6 +13,7 @@ from pydantic_settings import (
     SettingsConfigDict,
     YamlConfigSettingsSource,
 )
+from trace_ingest.loaders.gym import GymTraceConfig
 
 from insight_agent.evidence_streams.anomaly_and_patterns.stream import AnomalyAndPatternsConfig
 from insight_agent.evidence_streams.ethos_divergence.ethos_divergence_detector import (
@@ -150,6 +151,9 @@ class TraceConfig(ConfigModel):
         default=None,
         description="Canonical JSONL filesystem loader",
     )
+    gym: GymTraceConfig | None = Field(
+        default=None, description="Gym rollout JSON/JSONL with ng_trajectory"
+    )
     atif: ATIFTraceConfig | None = Field(
         default=None,
         description="ATIF trajectory JSONL loader",
@@ -194,6 +198,7 @@ class TraceConfig(ConfigModel):
             for source in (
                 self.filesystem,
                 self.atif,
+                self.gym,
                 self.mlflow_experiment,
                 self.mlflow_export,
                 self.intake,
@@ -208,6 +213,8 @@ class TraceConfig(ConfigModel):
             raise ValueError("trace must configure exactly one loader")
         if self.filesystem is not None and self.max_traces is not None:
             raise ValueError("trace.max_traces is not supported by the filesystem loader")
+        if self.gym is not None and self.max_traces is not None:
+            raise ValueError("trace.max_traces is not supported by the Gym loader")
         if self.atif is not None and self.max_traces is not None:
             raise ValueError("trace.max_traces is not supported by the ATIF loader")
         return self

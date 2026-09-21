@@ -29,6 +29,7 @@ import yaml
 from nooa.unifiedllm import CompletionClient, UnifiedLLM
 from pydantic_settings import CliSettingsSource
 from rich.console import Console
+from trace_ingest.loaders.gym import GymTraceLoader
 
 from insight_agent.cli.output import RunOutput, RunResult, display_name
 from insight_agent.config import EvidenceStreamsConfig, RunConfig, TraceConfig
@@ -132,6 +133,8 @@ def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
 
     if config.filesystem is not None:
         return FSDataLoader(config.filesystem.path)
+    if config.gym is not None:
+        return GymTraceLoader(config.gym)
     if config.atif is not None:
         return ATIFTraceLoader(config.atif)
     if config.intake is not None:

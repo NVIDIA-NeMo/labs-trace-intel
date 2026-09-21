@@ -13,6 +13,12 @@ from trace_ingest.loaders.braintrust import (
     BraintrustTraceLoader,
     BraintrustTraceLoadError,
 )
+from trace_ingest.loaders.gym import (
+    GymTraceConfig,
+    GymTraceDescription,
+    GymTraceLoader,
+    GymTraceLoadError,
+)
 from trace_ingest.loaders.langfuse import (
     LangfuseFileTraceConfig,
     LangfuseFileTraceDescription,
@@ -20,6 +26,10 @@ from trace_ingest.loaders.langfuse import (
 )
 
 __all__ = [
+    "GymTraceConfig",
+    "GymTraceDescription",
+    "GymTraceLoader",
+    "GymTraceLoadError",
     "BraintrustTraceConfig",
     "BraintrustTraceDescription",
     "BraintrustTraceLoader",

@@ -1,0 +1,181 @@
+{
+  "_ng_task_index": 0,
+  "_ng_rollout_index": 0,
+  "ng_agent_observations": {
+    "source": "opencode",
+    "records": [
+      {
+        "kind": "agent_invocation",
+        "invocation_id": "root",
+        "parent_invocation_id": null,
+        "spawned_by_tool_call_id": null,
+        "status": "completed",
+        "duration_ms": null,
+        "error_type": null,
+        "model_calls": [
+          {
+            "model_call_id": "captured",
+            "model_ref": null,
+            "response_id": null
+          }
+        ],
+        "conversation": [
+          {
+            "id": "p1",
+            "content": [
+              {
+                "annotations": [],
+                "text": "answer",
+                "type": "output_text",
+                "logprobs": null
+              }
+            ],
+            "role": "assistant",
+            "status": "completed",
+            "type": "message",
+            "phase": null
+          }
+        ]
+      }
+    ],
+    "gaps": []
+  },
+  "ng_trajectory": {
+    "schema_version": "1.0",
+    "task_id": "0",
+    "rollout_id": "0-0",
+    "invocations": [
+      {
+        "kind": "agent_invocation",
+        "invocation_id": "root",
+        "parent_invocation_id": null,
+        "spawned_by_tool_call_id": null,
+        "status": "completed",
+        "duration_ms": null,
+        "error_type": null,
+        "model_calls": [
+          {
+            "model_call_id": "captured",
+            "model_ref": null,
+            "response_id": null
+          }
+        ],
+        "conversation": [
+          {
+            "id": "p1",
+            "content": [
+              {
+                "annotations": [],
+                "text": "answer",
+                "type": "output_text",
+                "logprobs": null
+              }
+            ],
+            "role": "assistant",
+            "status": "completed",
+            "type": "message",
+            "phase": null
+          }
+        ]
+      }
+    ],
+    "turns": [
+      {
+        "invocation_id": "root",
+        "task_id": "0",
+        "rollout_id": "0-0",
+        "turn_no": 1,
+        "timestamp": 1.0,
+        "question": null,
+        "answer": [
+          {
+            "id": "m0",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "id": "p1",
+                "type": "output_text",
+                "text": "answer"
+              }
+            ]
+          }
+        ],
+        "reasoning_content": null,
+        "resolved": null,
+        "step_count": 1,
+        "model_calls": []
+      }
+    ],
+    "model_calls": [
+      {
+        "model_call_id": "captured",
+        "started_at": null,
+        "completed_at": null,
+        "duration_ms": null,
+        "request": null,
+        "response": null,
+        "response_metadata": {
+          "response_id": null,
+          "model_ref": null,
+          "model": null,
+          "dialect": null,
+          "status_code": 200,
+          "response_status": "completed",
+          "finish_reason": null,
+          "error_category": null,
+          "latency_ttft_ms": null
+        },
+        "token_stats": {
+          "prompt_tokens": 10,
+          "completion_tokens": 2,
+          "reasoning_tokens": null,
+          "total_tokens": null,
+          "cached_tokens": null
+        }
+      }
+    ],
+    "tool_calls": [],
+    "gaps": []
+  },
+  "ng_model_call_capture": {
+    "calls": [
+      {
+        "model_call_id": "captured",
+        "response_id": null,
+        "client_session_id": "root",
+        "call_index": 0,
+        "model_ref": null,
+        "model": null,
+        "dialect": null,
+        "status_code": 200,
+        "response_status": "completed",
+        "finish_reason": null,
+        "started_at": null,
+        "completed_at": null,
+        "tokens_in": 10,
+        "tokens_out": 2,
+        "tokens_reasoning": null,
+        "tokens_total": null,
+        "request": null,
+        "response": null,
+        "request_raw": null,
+        "response_raw": null,
+        "tool_calls": [],
+        "reasoning_content": null,
+        "cache_hit": null,
+        "cached_tokens": null,
+        "cache_creation_tokens": null,
+        "error_category": null,
+        "latency_total_ms": null,
+        "latency_ttft_ms": null
+      }
+    ]
+  },
+  "response": {
+    "usage": {
+      "input_tokens": 999,
+      "output_tokens": 999
+    }
+  }
+}
