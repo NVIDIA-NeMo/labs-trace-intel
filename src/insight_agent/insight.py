@@ -14,6 +14,12 @@ from pydantic import BaseModel, Field, TypeAdapter
 class Insight(BaseModel):
     """A validated, actionable problem found in the agent's traces."""
 
+    id: str | None = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+        description="Opaque storage ID of an existing insight. Preserve it exactly; new insights have no ID.",
+    )
     name: str = Field(min_length=1)
     description: str = Field(min_length=1)
     trace_refs: list[str] = Field(min_length=2)

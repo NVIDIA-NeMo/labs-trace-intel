@@ -79,6 +79,8 @@ class InsightCompilation(Agent):
 
         1. Bash tool call is returning errors
 
+        Preserve each existing insight's id exactly. Never invent an id or
+        assign an existing id to a new insight; new insights have id=None.
         Existing insights should never be removed or modified, but you can
         update the trace_refs on existing insights to match new traces you
         identified. Only use trace_refs that come from evidence streams, don't
