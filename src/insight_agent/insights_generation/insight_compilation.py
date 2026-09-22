@@ -87,6 +87,8 @@ class InsightCompilation(Agent):
         worry about searching the trace snapshot to find traces that match a
         particular insight. When you merge insights, also merge the trace_refs.
 
+        Leave trace_links empty; the application resolves source links after compilation.
+
         Return the list of ranked, validated and merged insights. Include
         existing insights.
         """

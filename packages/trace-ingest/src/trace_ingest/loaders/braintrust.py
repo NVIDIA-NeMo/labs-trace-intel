@@ -14,6 +14,7 @@ import os
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from urllib.parse import quote, urlencode
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
@@ -28,6 +29,7 @@ from trace_ingest.models import (
     TraceAggregate,
     TraceSnapshot,
 )
+from trace_ingest.source_links import http_source_url
 
 BRAINTRUST_DEFAULT_MAX_TRACES = 100
 _DEFAULT_API_URL = "https://api.braintrust.dev"
@@ -66,6 +68,8 @@ class BraintrustTraceConfig:
     experiment_id: str | None = None
     api_url: str | None = None
     max_traces: int = BRAINTRUST_DEFAULT_MAX_TRACES
+    org_name: str | None = None
+    app_url: str | None = None
 
     def __post_init__(self) -> None:
         validate_braintrust_selection(
@@ -182,7 +186,29 @@ class BraintrustTraceLoader:
                     "experiment_id": self.config.experiment_id,
                     "trace_id": trace_id,
                 }
-                yield _normalize_trace(trace_id, rows, pointer)
+                trace = _normalize_trace(trace_id, rows, pointer)
+                org_name = self.config.org_name or os.environ.get("BRAINTRUST_ORG_NAME")
+                app_url = http_source_url(
+                    self.config.app_url
+                    or os.environ.get("BRAINTRUST_APP_URL")
+                    or "https://www.braintrust.dev"
+                )
+                if org_name and app_url:
+                    root_pointer = trace.root_spans[0].attributes["source_pointer"]
+                    assert isinstance(root_pointer, dict)
+                    query = urlencode(
+                        {
+                            "object_type": "project_logs"
+                            if self.config.project_id
+                            else "experiment",
+                            "object_id": self.config.project_id or self.config.experiment_id,
+                            "id": root_pointer["row_id"],
+                        }
+                    )
+                    trace.source_url = (
+                        f"{app_url.rstrip('/')}/app/{quote(org_name, safe='')}/object?{query}"
+                    )
+                yield trace
 
         return TraceSnapshot(traces())
 

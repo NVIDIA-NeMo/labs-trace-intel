@@ -28,6 +28,12 @@ END = datetime(2026, 9, 2, tzinfo=timezone.utc)
 FIXTURE = Path(__file__).parent / "fixtures" / "braintrust" / "spans.json"
 
 
+@pytest.fixture(autouse=True)
+def isolate_link_environment(monkeypatch):
+    monkeypatch.delenv("BRAINTRUST_ORG_NAME", raising=False)
+    monkeypatch.delenv("BRAINTRUST_APP_URL", raising=False)
+
+
 @pytest.fixture
 def rows():
     return json.loads(FIXTURE.read_text())
@@ -341,3 +347,26 @@ def test_transport_errors_are_source_specific():
         with pytest.raises(BraintrustTraceLoadError, match="Braintrust") as error:
             BraintrustTraceLoader(config(), client).load()
     assert "private connection details" not in str(error.value)
+
+
+@pytest.mark.parametrize("experiment", [False, True])
+def test_source_link_uses_root_event_id_and_app_settings(rows, monkeypatch, experiment):
+    from urllib.parse import parse_qs, urlsplit
+
+    monkeypatch.setenv("BRAINTRUST_ORG_NAME", "my org/name")
+    monkeypatch.setenv("BRAINTRUST_APP_URL", "https://wrong.test")
+    settings = {"project_id": None, "experiment_id": "experiment"} if experiment else {}
+    with client_for(rows) as client:
+        snapshot = BraintrustTraceLoader(
+            config(app_url="https://ui.test/base", **settings), client
+        ).load()
+    source_url = next(iter(snapshot)).source_url
+    assert source_url is not None
+    url = urlsplit(source_url)
+    assert url.netloc == "ui.test"
+    assert url.path == "/base/app/my%20org%2Fname/object"
+    assert parse_qs(url.query) == {
+        "object_type": ["experiment" if experiment else "project_logs"],
+        "object_id": ["experiment" if experiment else "project"],
+        "id": ["row-root"],
+    }

@@ -63,12 +63,18 @@ def test_native_export_matches_live_normalization(tmp_path, monkeypatch, envelop
     # Provenance intentionally distinguishes a frozen file from a live query.
     def without_pointers(value):
         if isinstance(value, dict):
-            return {k: without_pointers(v) for k, v in value.items() if k != "source_pointer"}
+            return {
+                k: without_pointers(v)
+                for k, v in value.items()
+                if k not in {"source_pointer", "source_url"}
+            }
         if isinstance(value, list):
             return [without_pointers(v) for v in value]
         return value
 
     assert without_pointers(offline[0].model_dump()) == without_pointers(live[0].model_dump())
+    assert offline[0].source_url == export_path.as_uri()
+    assert live[0].source_url == "https://langfuse.test" + native.html_path
     assert offline[0].root_spans[0].children[0].output is None
     assert offline[0].root_spans[0].output is UNSET
     assert loader.describe()["call_count"] == 1

@@ -63,6 +63,23 @@ for a different deployment, or set `api_url` under `trace.braintrust` to overrid
 Use `https://api-eu.braintrust.dev` for EU data or your self-hosted data plane URL.
 The loader uses Braintrust’s SQL query API, requiring data plane v1.1.29 or later.
 
+## Links to Braintrust
+
+Add your organization name (as it appears in your Braintrust browser URL) to `.env`:
+
+```dotenv
+BRAINTRUST_ORG_NAME=your-org-name
+```
+
+This enables links to the root event in saved insights and the terminal report.
+Set `BRAINTRUST_APP_URL` if your UI uses a different host; the default is
+`https://www.braintrust.dev`. This is separate from the API endpoint.
+The YAML fields `org_name` and `app_url` under `trace.braintrust` override these variables.
+Without an organization name, output retains trace IDs without links.
+
+The loader follows Braintrust’s [documented event permalink format](https://www.braintrust.dev/docs/kb/creating-permalinks-to-log-events-via-api),
+using the root event’s row ID for both project logs and experiments.
+
 ## What is preserved
 
 Inputs, outputs, errors, scores, and provider metadata are retained. Missing outputs stay

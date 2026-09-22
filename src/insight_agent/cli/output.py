@@ -145,5 +145,14 @@ class RunOutput:
                 "Check setup: https://github.com/NVIDIA-NeMo/labs-trace-intel/blob/main/docs/evidence-streams.md",
                 soft_wrap=True,
             )
+        for insight in result.insights:
+            self.console.print(Text("\n" + insight.name, style="bold"))
+            for ref in dict.fromkeys(insight.trace_refs):
+                url = insight.trace_links.get(ref)
+                line = Text(f"  {ref}")
+                if url:
+                    line.append(" — ")
+                    line.append(url, style=f"link {url}")
+                self.console.print(line, soft_wrap=True)
         if result.insights and output_path != Path("-"):
             self.console.print(f"\nSaved: {output_path}", soft_wrap=True)

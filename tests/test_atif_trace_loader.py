@@ -41,6 +41,7 @@ def test_exact_normalization_and_description(tmp_path):
     loader = loader_for(tmp_path, source)
     expected = Trace(
         id="run",
+        source_url=loader.config.path.resolve().as_uri() + "#L2",
         root_spans=[
             Span(
                 id="trajectory",

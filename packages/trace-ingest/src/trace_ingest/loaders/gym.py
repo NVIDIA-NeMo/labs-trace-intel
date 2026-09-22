@@ -38,6 +38,7 @@ from trace_ingest.models import (
     TraceAggregate,
     TraceSnapshot,
 )
+from trace_ingest.source_links import file_source_url
 
 __all__ = ["GymTraceConfig", "GymTraceDescription", "GymTraceLoader", "GymTraceLoadError"]
 
@@ -476,6 +477,9 @@ class GymTraceLoader:
                     if not raw.strip():
                         continue
                     trace = _normalize(_object(_decode(raw)))
+                    trace.source_url = file_source_url(
+                        path, _line_number if self.config.format == "jsonl" else None
+                    )
                     pending = list(trace.root_spans)
                     while pending:
                         span = pending.pop()

@@ -35,7 +35,7 @@ from insight_agent.cli.output import RunOutput, RunResult, display_name
 from insight_agent.config import EvidenceStreamsConfig, RunConfig, TraceConfig
 from insight_agent.evidence_streams.builtins import registered_builtin_streams
 from insight_agent.evidence_streams.evidence_streams import EvidenceStreamResult
-from insight_agent.insight import Insight, load_insights
+from insight_agent.insight import Insight, load_insights, resolve_trace_links
 from insight_agent.insights_generation.config import (
     ENV_API_BASE,
     ENV_API_KEY,
@@ -149,6 +149,8 @@ def _configured_trace_loader(config: TraceConfig) -> TraceLoader:
             BraintrustTraceConfig(
                 project_id=source.project_id,
                 experiment_id=source.experiment_id,
+                org_name=source.org_name,
+                app_url=source.app_url,
                 api_url=source.api_url,
                 from_timestamp=source.from_timestamp,
                 to_timestamp=source.to_timestamp,
@@ -336,6 +338,7 @@ async def _generate_insights(config: RunConfig, output: RunOutput) -> RunResult:
         )
         if any(item.problems for item in evidence):
             result.insights = await _compile_evidence(config, api_key, snapshot, result, output)
+        result.insights = resolve_trace_links(result.insights, snapshot, existing)
         return result
 
 

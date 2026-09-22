@@ -17,6 +17,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 from pydantic.experimental.missing_sentinel import MISSING
 
+from trace_ingest.source_links import SourceURL
+
 # Pydantic's missing sentinel is omitted by ``model_dump`` and JSON Schema, while
 # an explicitly supplied ``None`` remains JSON null. Tool-result analysis depends
 # on this distinction.
@@ -205,6 +207,11 @@ class Trace(_TraceModel):
     id: str = Field(
         min_length=1,
         description="Stable trace identifier, unique within the loaded corpus.",
+    )
+    source_url: SourceURL | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Loader-resolved link to the original trace or local source file.",
     )
     root_spans: list[Span] = Field(
         description="Complete root span trees in deterministic source execution order."
