@@ -3,17 +3,67 @@
 
 # Trace Analyst
 
-Trace Analyst analyzes your agent’s behavior and surfaces actionable insights,
-grounded in its execution traces.
+![Status: Research Preview](https://img.shields.io/badge/Status-Research%20Preview-orange)
 
-Bring traces from your existing tools, and explore each insight through the evidence behind it.
+Agent developers collect large numbers of execution traces, but finding a recurring,
+fixable problem in them is hard. Trace Analyst explores how to turn those traces into
+actionable findings, which we call **insights**, with links back to the executions
+that support each finding. It brings traces from existing observability tools into
+evidence streams that look for different kinds of problems.
 
 For example, an insight might say:
 
 > **Retries repeat the same invalid request.** After a tool rejects an argument,
 > the agent sends it again without correcting it. Seen in traces `run-12` and `run-38`.
 
-This is a research preview for collaboration and evaluation.
+> [!WARNING]
+> **Research preview**
+>
+> This is an early research example for experimentation and collaboration with
+> developers. Its APIs, configuration, and output formats may change without
+> backward compatibility. Findings require review against their supporting
+> traces before you act on them. This project is not intended for production use.
+
+We are sharing the implementation and techniques that have helped us find signal
+in agent traces. We want to learn which problems matter to other developers and
+which parts of this approach are useful in their own tools.
+
+## Questions we are exploring
+
+- How can we find recurring, fixable agent problems in trace stores containing
+  thousands or millions of executions?
+- How can we estimate how often a problem occurs and how much it matters without
+  asking an LLM to inspect every trace?
+- How can trace evidence, evaluation results, and read-only checks against agent
+  code help distinguish real problems from misleading patterns?
+- How should we measure whether an insight is correct, useful, and worth a
+  developer's time to investigate?
+
+This repository explores these questions through trace loaders, [evidence
+streams](docs/evidence-streams.md), and insight compilation. The [architecture
+guide](docs/architecture.md) explains what each part does and where judgment or
+coverage limits remain.
+
+## Help shape the research
+
+We are especially interested in feedback from teams building agent observability
+or evaluation platforms, and from developers investigating their own agents:
+
+- Which recurring issues are hardest to find today? What would make a finding
+  actionable: examples, frequency, estimated impact, or something else?
+- Where do the insights miss an important problem, group unrelated behavior,
+  or suggest a cause the traces do not support?
+- Which layer would you use in your own workflow: the full analyst, individual
+  evidence streams or trace loaders, or lower-level techniques such as embeddings
+  and retrieval? What would you need to integrate it?
+
+If an NVIDIA contact shared this preview with you, please send your feedback
+through that contact and ask them to route it to the Trace Analyst research team.
+Otherwise, use the [NVIDIA Developer contact form](https://developer.nvidia.com/contact)
+with **Trace Analyst research preview feedback** in the subject. Your role or
+platform, approximate trace volume, an anonymized example, and the part of the
+approach you would use are especially helpful. Please avoid sending raw traces,
+prompts, credentials, or user data in an initial message.
 
 ## Start here
 
